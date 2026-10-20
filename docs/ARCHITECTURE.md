@@ -1,0 +1,90 @@
+# Architecture
+
+This document explains how the J1939 diagnostics tool is built, and how it is meant to become one
+tool inside the larger CANopener handheld (a CM4-based instrument with a 7" touchscreen, a
+navigation encoder, a fullscreen Pygame UI, and Pico / ESP32 subsystems), described in
+[DESIGN.md](DESIGN.md).
+
+## Layers
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Front-ends                                                               │
+│   gui/   desktop Qt app      cli.py   terminal / SSH      (future) Pygame │
+│                                                           instrument UI  │
+└───────────────▲──────────────────────────▲───────────────────────────────┘
+                │ reads state, calls scans │
+┌───────────────┴──────────────────────────┴───────────────────────────────┐
+│ core/   Session (rx thread, state, recording) · scan (DM requests,       │
+│         retries) · report · profiles · units · interfaces · connection   │
+└───────────────▲──────────────────────────────────────────────────────────┘
+                │ CanFrame in / out
+┌───────────────┴──────────────────┐   ┌───────────────────────────────────┐
+│ can/  backends: SocketCAN,       │   │ j1939/  pure protocol: IDs, DTCs, │
+│       virtual bus, log replay;   │   │         DM1-DM23, TP (BAM/RTS),   │
+│       candump read/write         │   │         signals, NAME, SA names   │
+└──────────────────────────────────┘   └───────────────────────────────────┘
+                ▲
+          sim/  simulated machine (another backend user on the same bus)
+```
+
+Rules that keep it reusable:
+
+* **`j1939/` and `can/` never import from `core/`, `gui/` or `sim/`.** They are a plain library
+  with no state beyond lookup tables.
+* **`core/` never imports a UI toolkit.** Everything a screen needs (fault-code rows, lamp status,
+  latest values, per-ECU stats, raw frames since sequence N) is a thread-safe method on `Session`
+  or a dataclass from `scan`.
+* **Front-ends hold no protocol logic.** The Qt app is about 1,500 lines of widgets. A Pygame
+  screen would call the same `scan.run_preset()`, `session.current_lamps()`,
+  `session.latest_for(pgn)` and `signal.decode()`.
+* **Standard library only** below `gui/`. That keeps the Pi image small and boot fast.
+
+## Threading model
+
+* `Session` owns one receive thread that calls `backend.recv()` and `Session.feed()`. Transport
+  protocol CTS/ACK replies are sent from that thread so they're on time.
+* Scans (`scan.run_scan`) block for a few seconds and run in a worker thread. The GUI gets the
+  `ScanResult` through a Qt signal.
+* Front-ends **poll**: the Qt app refreshes the visible tab every 200 ms. This is deliberate. It
+  maps directly onto a Pygame frame loop, and nothing on the rx thread ever waits on the UI.
+
+## Mapping onto the CANopener device
+
+| Device concept (design notes) | Where it lives now |
+|---|---|
+| MCP2518FD on SPI → `can0` | `can.backends.SocketCanBackend` (no code changes needed) |
+| `can_logger.py` foundation | `Session.start_recording()` → `can.logfile.LogWriter` (candump format) |
+| Source-address filtering, dropout detection | `Session.stats` / `ecus` (first/last seen, rate per PGN). Dropout alerts are a small addition on top |
+| CAN Node & PID Label Profiles | `core/profiles.py` + `canopener/profiles/*.json` |
+| Paged screens: Live Data, Fault Codes, Capture Log ... | GUI tabs today; the same core calls back each Pygame page |
+| Fault code → live PID (use-case step 2) | `Signal.spn` links; GUI "Show in Live Data" button |
+| Subsystem fault management ("CAN interface" state) | `Session.health` (link error, tx error, error frames incl. bus-off / no-ACK) |
+| Shared timebase with Pico captures | Every `CanFrame` carries a wall-clock `timestamp`. A capture start (T+0) can be recorded alongside and subtracted |
+| Frame replay / command injection | Not implemented, see roadmap. It needs an explicit "transmit mode" with confirmations, kept separate from the read-only diagnostics path |
+
+### Suggested path to the Pygame instrument UI
+
+1. Add `canopener/device/` (or a separate package) with the Pygame app: header chrome, soft-key
+   footer, paged screens, encoder/button input.
+2. Each page takes a `Session` and reads from it each frame, exactly like `gui/tab_*.py` do.
+3. Keep the desktop GUI as the bench / laptop tool. Both front-ends share every bug fix in `core/`.
+
+## Adding things
+
+* **A new live parameter:** add a `Signal(...)` to `j1939/signals.py` (or a profile `signals` entry
+  for machine-specific ones). It appears in Live Data, reports and the CLI automatically.
+* **A new DM / request:** add the PGN to `j1939/constants.py`, a decoder to `j1939/dtc.py` or
+  `info.py`, include it in a preset in `core/scan.py`, and render it in `core/report.py`.
+* **A new bus type** (CAN FD, a second channel, a serial gateway on the ESP32): implement
+  `can.backends.CanBackend` (`open`, `close`, `send`, `recv`) and add it to `core/connection.py`.
+* **Simulator behaviour:** `sim/machine.py`. Tests rely on its codes, so update `tests/` with it.
+
+## Roadmap ideas
+
+* CAN FD frames in the SocketCAN backend (MCP2518FD supports them; J1939-22 uses them).
+* Dropout / missing-ECU alerts in the Network view (expected SAs per profile).
+* DM1 history timeline (when each code went active / inactive).
+* Bit-level signals and enumerated states in profiles.
+* Optional, clearly separated transmit tools (DM11 clear with confirmation, saved frame replay).
+* Export to CSV for the live-data history.

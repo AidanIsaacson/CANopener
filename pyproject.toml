@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "canopener"
+dynamic = ["version"]
+description = "Open-source J1939 / CAN diagnostics for equipment and vehicles"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "TBD" }
+dependencies = []          # the core and CLI are standard-library only
+
+[project.optional-dependencies]
+# 6.12.0 crashes at interpreter exit on Python < 3.12 ("none_dealloc"); 6.11 and earlier are fine.
+gui = ["PySide6-Essentials>=6.5,!=6.12.0"]
+dev = ["pytest>=7", "ruff>=0.4"]
+
+[project.scripts]
+canopener = "canopener.gui.app:main"
+canopener-cli = "canopener.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "canopener.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["canopener*"]
+
+[tool.setuptools.package-data]
+canopener = ["profiles/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["legacy"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E741", "B905"]  # zip(strict=) is noise here

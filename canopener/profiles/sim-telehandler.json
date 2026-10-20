@@ -1,0 +1,21 @@
+{
+  "name": "Simulated telehandler",
+  "description": "Matches the built-in simulator (canopener --sim). Doubles as a worked example of profile syntax; none of these labels describe a real machine.",
+  "sources": {
+    "0x27": "Machine controller (sim)"
+  },
+  "spns": {
+    "520205": "OEM engine code (sim example)",
+    "522001": "OEM machine code: sensor open circuit (sim example)"
+  },
+  "pgns": {
+    "0xFF10": "Boom status (sim, proprietary)",
+    "0xFF22": "Machine status (sim, proprietary)"
+  },
+  "signals": [
+    {"name": "Boom position raw", "pgn": "0xFF10", "sa": "0x27", "start": 1, "length": 2,
+     "scale": 1, "offset": 0, "unit": "counts", "decimals": 0},
+    {"name": "Controller heartbeat", "pgn": "0xFF10", "sa": "0x27", "start": 0, "length": 1,
+     "scale": 1, "offset": 0, "unit": "", "decimals": 0}
+  ]
+}

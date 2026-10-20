@@ -1,0 +1,4 @@
+{
+  "name": "Generic J1939",
+  "description": "Standard SAE labels only. Start here and copy this file to ~/.config/canopener/profiles/ to make a profile for a specific machine."
+}
