@@ -21,7 +21,7 @@ hardware.
 | **Bus monitor** | Raw frames, scrolling or one row per ID (like `cansniffer`) with changed bytes highlighted, for reverse-engineering proprietary frames. |
 | **Network** | Every ECU on the bus, its address-claim NAME, and each PGN it sends with rate and latest data. |
 | **Machine info** | Component / software / ECU IDs, VIN, engine hours, fuel used. |
-| **Reports and logs** | Text reports, `candump`-format recording, offline decode of a log, and real-time replay of a log. |
+| **Reports and logs** | Text reports, `candump`-format recording, CSV export, copy everything to a USB stick, offline decode of a log, and real-time replay of a log. |
 | **Machine profiles** | Per make/model JSON files that name OEM source addresses, SPNs, proprietary PGNs, and add custom signals. |
 
 **Read-only by design.** The tool only transmits J1939 Requests (PGN 59904) and transport-protocol
@@ -56,14 +56,16 @@ PEAK, 8devices USB2CAN, Kvaser, MCP2515/MCP2518FD SPI HATs (`can0`), or `slcan` 
 2. In the GUI pick **SocketCAN adapter**, choose the interface and bitrate, and click
    **Set Up Interface**. It asks for your password and runs
    `ip link set can0 type can bitrate 250000 ... && ip link set can0 up`.
+   Pick **Auto** to detect the bitrate. It listens at each rate in listen-only mode, so nothing
+   is transmitted onto the machine's bus while it searches.
 3. Click **Connect**, then **Read Active** / **Read Stored** / **Full Scan**.
 
 From a terminal:
 
 ```bash
-sudo ip link set can0 type can bitrate 250000 restart-ms 100 && sudo ip link set can0 up
+canopener-cli setup --iface can0 --bitrate auto     # or --bitrate 250000
 canopener-cli scan --iface can0 --full --units imperial
-canopener-cli decode ~/canopener/logs/capture_20260101_120000.log
+canopener-cli decode ~/canopener/logs/capture_20260101_120000.log --csv frames.csv
 ```
 
 ### Testing against a virtual bus
@@ -79,9 +81,11 @@ candump vcan0                        # terminal 3: watch the traffic (can-utils)
 
 * **Ubuntu / Mint / Debian desktop:** `sudo apt install python3-venv can-utils`, then the quick
   start above.
-* **Raspberry Pi OS (64-bit):** either `pip install -e ".[gui]"` in a venv, or use the distro's
-  Qt with `sudo apt install python3-pyqt6` and `pip install -e .` (the GUI works with PySide6 or
-  PyQt6). The core and CLI have **no dependencies** beyond Python 3.10+.
+* **Raspberry Pi OS (64-bit):** `./deploy/raspberry-pi/install.sh --sudoers --autostart` sets
+  up a venv, a launcher, passwordless CAN setup and start-at-login. See
+  [`deploy/raspberry-pi/README.md`](deploy/raspberry-pi/README.md). The GUI works with PySide6
+  or the distro's PyQt6 (`sudo apt install python3-pyqt6`). The core and CLI have **no
+  dependencies** beyond Python 3.10+.
 * Small touch screens: `canopener --fullscreen --scale 1.5`.
 
 Files the app writes:
@@ -111,7 +115,8 @@ canopener/
   sim/       simulated machine
   gui/       desktop GUI (Qt) - a thin front-end over core/
   cli.py     command-line front-end
-legacy/      the original single-file j1939_codes.py field script (frozen, for reference)
+deploy/      Raspberry Pi launcher, systemd service, sudoers rule, installer
+legacy/      the original j1939_codes.py script and the v0.1 Pi app (frozen, for reference)
 tests/       pytest suite, including headless GUI tests
 docs/        DESIGN.md (hardware + concept), ARCHITECTURE.md (software)
 ```

@@ -41,6 +41,9 @@ def test_simulator_end_to_end(app, tmp_path, monkeypatch):
     assert f"SPN {picked.spn}" in w.codes.detail.toPlainText()
     w.codes.history.setChecked(True)               # rebuilds the table; selection must survive
     assert w.codes.selected() == picked
+    w.codes.ecu.setCurrentIndex(w.codes.ecu.findData(0x27))
+    assert {r.sa for r in w.codes.rows} == {0x27}
+    w.codes.ecu.setCurrentIndex(0)
 
     w.tabs.setCurrentWidget(w.live)
     assert w.live.focus_spn(190)                    # engine speed is plotted

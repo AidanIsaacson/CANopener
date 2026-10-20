@@ -5,6 +5,7 @@
     canopener-cli decode capture.log
     canopener-cli sim --iface vcan0         # run the simulator on a real/virtual SocketCAN bus
     canopener-cli interfaces
+    canopener-cli setup --iface can0 --bitrate auto   # configure + bring up (listen-only probe)
 """
 
 import argparse
@@ -48,6 +49,11 @@ def cmd_decode(a) -> int:
     result = scan.offline_result(session)
     result.source = f"{a.log} ({n} frames)"
     print(report.build_report(result, session, full=True, system=a.units))
+    if a.csv:
+        from .core.storage import write_csv
+        with session.lock:
+            frames = list(session.raw)
+        print(f"Wrote {write_csv(a.csv, frames)} frames to {a.csv}", file=sys.stderr)
     return 0
 
 
@@ -82,6 +88,25 @@ def cmd_interfaces(a) -> int:
     return 0
 
 
+def cmd_setup(a) -> int:
+    bitrate = a.bitrate
+    if bitrate == "auto":
+        found, log = interfaces.detect_bitrate(
+            a.iface, progress=lambda br: print(f"listening at {br // 1000}k ...", flush=True))
+        for line in log:
+            print("  " + line)
+        if found is None:
+            print("Could not detect the bitrate. Key on? Harness connected? Or pass --bitrate.", file=sys.stderr)
+            return 1
+        bitrate = found
+    ok, msg = interfaces.run_privileged(interfaces.setup_steps(a.iface, int(bitrate), a.listen_only))
+    if not ok:
+        print(f"Setup failed: {msg}", file=sys.stderr)
+        return 1
+    print(f"{a.iface} up at {int(bitrate) // 1000}k" + (" (listen-only)" if a.listen_only else ""))
+    return 0
+
+
 def cmd_profiles(a) -> int:
     found, errors = profiles.available_profiles()
     for p in found:
@@ -111,6 +136,7 @@ def main(argv=None) -> int:
 
     d = sub.add_parser("decode", help="decode a candump log file offline")
     d.add_argument("log")
+    d.add_argument("--csv", metavar="OUT", help="also write every frame to a spreadsheet-friendly CSV")
     d.set_defaults(fn=cmd_decode)
 
     m = sub.add_parser("sim", help="run the simulated machine on a SocketCAN interface")
@@ -118,6 +144,12 @@ def main(argv=None) -> int:
     m.set_defaults(fn=cmd_sim)
 
     sub.add_parser("interfaces", help="list CAN interfaces").set_defaults(fn=cmd_interfaces)
+
+    u = sub.add_parser("setup", help="configure a CAN interface and bring it up (needs root, sudo or pkexec)")
+    u.add_argument("--iface", default="can0")
+    u.add_argument("--bitrate", default="250000", help="bits/s, or 'auto' to detect (listen-only probe)")
+    u.add_argument("--listen-only", action="store_true", help="leave the controller in listen-only mode")
+    u.set_defaults(fn=cmd_setup)
     sub.add_parser("profiles", help="list machine profiles").set_defaults(fn=cmd_profiles)
 
     a = ap.parse_args(argv)

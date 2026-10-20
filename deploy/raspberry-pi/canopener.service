@@ -1,0 +1,19 @@
+# systemd *user* service: starts CANopener when you log in to the Pi desktop and restarts
+# it if it crashes. Installed by install.sh into ~/.config/systemd/user/.
+#   systemctl --user enable --now canopener     # start now and at every login
+#   journalctl --user -u canopener -f           # watch its output
+[Unit]
+Description=CANopener J1939 diagnostics
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=CANOPENER_LAUNCHER
+Restart=on-failure
+RestartSec=5
+# Environment=CANOPENER_BITRATE=auto
+# Environment=CANOPENER_ARGS=--fullscreen --scale 1.3
+
+[Install]
+WantedBy=graphical-session.target

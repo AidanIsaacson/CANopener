@@ -28,3 +28,8 @@ Headless Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3` for Qt.
 * Don't invent OEM data. SPN/SA/PGN names in the built-in tables are SAE-standard only. OEM labels
   belong in profiles, and the sim profile is explicitly marked as simulated.
 * The simulator's fault codes are asserted by tests. Change both together.
+* `legacy/` is frozen reference code. Don't import it, and don't copy J1939 tables from
+  `legacy/can_opener_v0.1`: they're wrong (see legacy/README.md).
+* Anything that runs as root goes through `core.interfaces.run_privileged` as explicit argv
+  lists (never `sh -c` with user input). Keep `deploy/raspberry-pi/canopener.sudoers` matching
+  the commands `setup_steps()` produces.

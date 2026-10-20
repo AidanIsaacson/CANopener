@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=CANopener
+Comment=J1939 / CAN diagnostics
+Exec=CANOPENER_LAUNCHER
+Icon=utilities-system-monitor
+Terminal=false
+Categories=Utility;Development;

@@ -5,7 +5,7 @@ import os
 import time
 
 from .. import __version__
-from ..core import config, connection, interfaces, profiles, scan, units
+from ..core import config, connection, interfaces, profiles, scan, storage, units
 from ..core.connection import load_log_session, open_connection
 from .context import AppContext
 from .qt import QT_API, Qt, QtCore, QtGui, QtWidgets
@@ -20,6 +20,7 @@ from .widgets import LampPanel
 SOURCES = [("SocketCAN adapter", connection.SOCKETCAN), ("Simulator", connection.SIMULATOR),
            ("Replay log file", connection.REPLAY)]
 REFRESH_MS = 200
+AUTO_BITRATE = 0
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -94,6 +95,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.bitrate = QtWidgets.QComboBox()
         for br in interfaces.BITRATES:
             self.bitrate.addItem(f"{br // 1000}k", br)
+        self.bitrate.addItem("Auto", AUTO_BITRATE)
+        self.bitrate.setItemData(self.bitrate.count() - 1, "Listen at each bitrate (listen-only, so nothing "
+                                 "is transmitted) until valid traffic is seen", Qt.ItemDataRole.ToolTipRole)
         tb.addWidget(self.bitrate)
         self.listen_only = QtWidgets.QCheckBox("Listen-only")
         self.listen_only.setToolTip("Transmit nothing at all. DM1 and live data still work (they're broadcast).")
@@ -135,6 +139,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._action(f, "&Replay log file...", self.replay_log)
         f.addSeparator()
         self._action(f, "&Save report...", self.report.save, "Ctrl+S")
+        self._action(f, "Export frames as &CSV...", self.export_csv)
+        self._action(f, "Copy logs && reports to &USB drive...", self.export_usb)
         f.addSeparator()
         self._action(f, "&Quit", self.close, "Ctrl+Q")
         d = m.addMenu("&Diagnostics")
@@ -270,20 +276,41 @@ class MainWindow(QtWidgets.QMainWindow):
         was = self.ctx.connection is not None
         if was:
             self.disconnect()
-        cmd = interfaces.setup_command(name, self.bitrate.currentData(), self.listen_only.isChecked())
+        bitrate = self.bitrate.currentData()
         QtWidgets.QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            ok, msg = interfaces.run_privileged(cmd)
+            if bitrate == AUTO_BITRATE:
+                bitrate = self._detect_bitrate(name)
+                if bitrate is None:
+                    return
+            steps = interfaces.setup_steps(name, bitrate, self.listen_only.isChecked())
+            ok, msg = interfaces.run_privileged(steps)
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
         if not ok:
             QtWidgets.QMessageBox.critical(self, "Set up interface", f"Failed:\n{msg}\n\nIf it complains about "
                                            "listen-only, untick it and retry (not every adapter supports it).")
             return
-        self.statusBar().showMessage(f"{name} is up at {self.bitrate.currentText()}", 5000)
+        self.statusBar().showMessage(f"{name} is up at {bitrate // 1000}k", 5000)
         self._refresh_interfaces(preferred=name)
         if was:
             self.connect()
+
+    def _detect_bitrate(self, name: str):
+        def progress(br):
+            self.statusBar().showMessage(f"Listening on {name} at {br // 1000}k...")
+            QtWidgets.QApplication.processEvents()
+
+        found, log = interfaces.detect_bitrate(name, progress=progress)
+        if found is None:
+            QtWidgets.QMessageBox.warning(
+                self, "Auto bitrate", "Couldn't detect the bitrate:\n\n" + "\n".join(log)
+                + "\n\nIs the key on and the harness connected? You can also pick a bitrate by hand.")
+            return None
+        idx = self.bitrate.findData(found)
+        if idx >= 0:
+            self.bitrate.setCurrentIndex(idx)
+        return found
 
     def toggle_connect(self):
         if self.ctx.connection is not None or (self.ctx.session and self.ctx.session.offline):
@@ -310,7 +337,7 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "Connect", f"Could not open {channel}: {e}{hint}")
             self._replay_path = ""
             return
-        self.ctx.bitrate = self.bitrate.currentData() if kind == connection.SOCKETCAN else 250000
+        self.ctx.bitrate = (self.bitrate.currentData() or 250000) if kind == connection.SOCKETCAN else 250000
         self.ctx.result = None
         self.ctx.set_connection(conn)
         self._replay_path = ""
@@ -349,6 +376,44 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QApplication.restoreOverrideCursor()
         self._offline_label = f"Log: {os.path.basename(path)} ({n} frames)"
         self.ctx.set_offline_session(session, result)
+
+    def export_csv(self):
+        s = self.ctx.session
+        if s is None or not s.raw:
+            QtWidgets.QMessageBox.information(self, "Export CSV", "No frames to export yet.")
+            return
+        d = config.ensure_dir(os.path.join(config.data_dir(), "logs"))
+        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export frames as CSV",
+                                                        os.path.join(d, f"frames_{stamp}.csv"), "CSV (*.csv)")
+        if not path:
+            return
+        with s.lock:
+            frames = list(s.raw)
+        n = storage.write_csv(path, frames)
+        self.statusBar().showMessage(f"Wrote {n} frames to {path}", 8000)
+
+    def export_usb(self):
+        drives = storage.removable_drives()
+        if not drives:
+            QtWidgets.QMessageBox.information(self, "Copy to USB", "No USB drive found. Plug one in and "
+                                              "wait for it to mount, then try again.")
+            return
+        labels = [d.describe() for d in drives]
+        choice, ok = QtWidgets.QInputDialog.getItem(self, "Copy to USB", "Copy logs and reports to:", labels, 0, False)
+        if not ok:
+            return
+        drive = drives[labels.index(choice)]
+        QtWidgets.QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            dest, n = storage.export_to(drive.path)
+        except OSError as e:
+            QtWidgets.QMessageBox.critical(self, "Copy to USB", str(e))
+            return
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+        QtWidgets.QMessageBox.information(self, "Copy to USB", f"Copied {n} file(s) to\n{dest}" if n
+                                          else "Nothing to copy yet (no logs or reports saved).")
 
     def toggle_record(self, on):
         s = self.ctx.session

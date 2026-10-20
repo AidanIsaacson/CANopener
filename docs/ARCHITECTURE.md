@@ -61,7 +61,30 @@ Rules that keep it reusable:
 | Fault code → live PID (use-case step 2) | `Signal.spn` links; GUI "Show in Live Data" button |
 | Subsystem fault management ("CAN interface" state) | `Session.health` (link error, tx error, error frames incl. bus-off / no-ACK) |
 | Shared timebase with Pico captures | Every `CanFrame` carries a wall-clock `timestamp`. A capture start (T+0) can be recorded alongside and subtracted |
+| Boot to app on the Pi | `deploy/raspberry-pi/` (launcher, systemd user service, sudoers); Qt's `eglfs` / `linuxfb` back-ends need no desktop |
+| Log export in the field | `core/storage.py`: copy logs + reports to a USB stick, CSV export |
 | Frame replay / command injection | Not implemented, see roadmap. It needs an explicit "transmit mode" with confirmations, kept separate from the read-only diagnostics path |
+
+### On-device UI reference: v0.1
+
+`legacy/can_opener_v0.1/` is the first on-device attempt (Pi 3B+, TFT, Tkinter, 800x480).
+Its protocol tables are wrong (see `legacy/README.md`), but its layout is a good starting
+point for the instrument UI:
+
+* **Status strip** across the top: clock, CAN status pill (`can0 250k` / disconnected / error),
+  REC indicator, frames/s. Tap it for a **system overlay**: brightness
+  (`/sys/class/backlight/*/brightness`), units, log folder, uptime / CPU temperature, reboot and
+  shut down behind a confirm dialog.
+* **Left tab bar** with big icon + label buttons (Config, Raw/Log, Codes, PIDs). These map onto
+  the paged screens in DESIGN.md and onto the encoder: rotate = move between tabs or rows,
+  push = select.
+* **Per-ECU filter column** next to codes and raw frames. "Poll selected" = a DM1 request
+  addressed to that ECU.
+* **PID picker**: choose a handful of signals, then a large-value live grid.
+* **Touch details**: drag-to-scroll lists, full-width confirm dialogs, no small checkboxes.
+
+`core` already gives each of those screens its data: `Session.current_lamps()`, `scan.run_preset()`,
+`Session.latest_for()`, `Session.ecu_list()`, `Session.frames_since()`, `Session.health`.
 
 ### Suggested path to the Pygame instrument UI
 

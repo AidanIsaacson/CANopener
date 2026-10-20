@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=CAN Opener
+Comment=J1939 Field Diagnostic Tool
+Exec=/home/pi/can_opener/launch.sh
+Icon=/home/pi/can_opener/assets/icon.png
+Terminal=false
+Categories=Utility;
+X-GNOME-Autostart-enabled=true

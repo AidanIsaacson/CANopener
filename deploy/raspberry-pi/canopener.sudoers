@@ -1,0 +1,16 @@
+# /etc/sudoers.d/canopener - lets the CANopener user configure CAN interfaces without a
+# password, which a kiosk with nobody at a keyboard needs. Installed by install.sh, which
+# replaces USERNAME. Always check with:  sudo visudo -cf /etc/sudoers.d/canopener
+#
+# Only "ip link set canN ..." is allowed: no shell, nothing else as root. Both paths are
+# listed because distros differ on where `ip` lives.
+Cmnd_Alias CANOPENER_IP = /usr/sbin/ip link set can[0-9] down, \
+                          /usr/sbin/ip link set can[0-9] up, \
+                          /usr/sbin/ip link set can[0-9] type can *, \
+                          /usr/bin/ip link set can[0-9] down, \
+                          /usr/bin/ip link set can[0-9] up, \
+                          /usr/bin/ip link set can[0-9] type can *
+USERNAME ALL=(root) NOPASSWD: CANOPENER_IP
+
+# Optional, for a power menu in a future on-device UI:
+# USERNAME ALL=(root) NOPASSWD: /usr/sbin/shutdown -h now, /usr/sbin/reboot

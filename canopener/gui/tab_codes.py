@@ -47,6 +47,13 @@ class CodesTab(QtWidgets.QWidget):
                                 "connected stays listed, even if it has since cleared.")
         self.history.toggled.connect(self.rebuild)
         bar.addWidget(self.history)
+        bar.addSpacing(12)
+        bar.addWidget(QtWidgets.QLabel("ECU"))
+        self.ecu = QtWidgets.QComboBox()
+        self.ecu.setMinimumWidth(190)
+        self.ecu.addItem("All ECUs", None)
+        self.ecu.currentIndexChanged.connect(lambda _: self.rebuild())
+        bar.addWidget(self.ecu)
         bar.addStretch(1)
         self.summary = QtWidgets.QLabel("")
         bar.addWidget(self.summary)
@@ -117,6 +124,11 @@ class CodesTab(QtWidgets.QWidget):
             rows += extra
             quiet = [q for q in quiet if not any(r.pgn == q.pgn and r.sa == q.sa for r in extra)]
             rows.sort(key=lambda r: (STATUS_ORDER.get(r.status, 9), r.sa, r.spn, r.fmi))
+        self._sync_ecu_choices({r.sa for r in rows} | {q.sa for q in quiet})
+        only = self.ecu.currentData()
+        if only is not None:
+            rows = [r for r in rows if r.sa == only]
+            quiet = [q for q in quiet if q.sa == only]
         prev = self.selected()
         prev_key = (prev.pgn, prev.sa, prev.spn, prev.fmi) if prev else None
         self.rows = rows
@@ -157,6 +169,22 @@ class CodesTab(QtWidgets.QWidget):
                 t.selectRow(i)
                 break
         self.show_detail()
+
+    def _sync_ecu_choices(self, sas: set[int]):
+        """Offer every ECU that reported (or reported nothing), keeping the current choice."""
+        have = {self.ecu.itemData(i) for i in range(1, self.ecu.count())}
+        current = self.ecu.currentData()
+        if current is not None:
+            sas = sas | {current}
+        if sas == have:
+            return
+        self.ecu.blockSignals(True)
+        while self.ecu.count() > 1:
+            self.ecu.removeItem(1)
+        for sa in sorted(sas):
+            self.ecu.addItem(sa_name(sa), sa)
+        self.ecu.setCurrentIndex(max(self.ecu.findData(current), 0))
+        self.ecu.blockSignals(False)
 
     def selected(self) -> DtcRow | None:
         sel = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
