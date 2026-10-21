@@ -119,7 +119,11 @@ def test_log_tool_keys_capture_and_export(app, tmp_path, monkeypatch):
     assert not lp.name.hasFocus()
     _key(app, w, Key.Key_Space, " ")                 # ... and now idle Space adds a planned timestamp
     assert len(lp.capture.markers) == 10
+    assert lp.owns_name_editor(qt.QtWidgets.QApplication.focusWidget())   # with its name box open
+    _key(app, w, Key.Key_Return)                     # Enter finishes the name (doesn't start recording)
+    assert lp.capture.state == cap.IDLE
     lp.capture.delete(9)
+    lp._sync()
 
     _key(app, w, Key.Key_Return)                      # Enter = start
     assert lp.capture.state == cap.RECORDING
@@ -137,7 +141,7 @@ def test_log_tool_keys_capture_and_export(app, tmp_path, monkeypatch):
     lp.capture.rename(1, "crank")
     lp._flash = (3, time.monotonic())                # a row is still flashing from the last tag ...
     lp.refresh()                                     # ... recolouring it must not undo the rename
-    lp.table.item(2, 2).setText("noisy")             # an edit in the table is a real edit
+    lp.table.item(2, 3).setText("noisy")             # an edit in the table is a real edit
     folder = lp.save()
     assert folder and lp.capture.state == cap.SAVED and folder in w.ctx.saved_paths
     summary = open(f"{folder}/summary.txt").read()
@@ -184,3 +188,62 @@ def test_keybind_dialog_rejects_duplicates(app):
     dlg.edits["start_stop"].setKeySequence(qt.QtGui.QKeySequence("F9"))
     dlg._accept()
     assert hk.bindings["start_stop"] == "F9" and Hotkeys(settings, lambda: True).bindings["start_stop"] == "F9"
+
+
+def _type(app, text):
+    for ch in text:
+        target = qt.QtWidgets.QApplication.focusWidget()
+        k = qt.Qt.Key.Key_Space if ch == " " else qt.Qt.Key(ord(ch.upper()))
+        for t in (qt.QtCore.QEvent.Type.KeyPress, qt.QtCore.QEvent.Type.KeyRelease):
+            qt.QtWidgets.QApplication.sendEvent(target, qt.QtGui.QKeyEvent(t, k, qt.Qt.KeyboardModifier.NoModifier, ch))
+    pump(app, 0.05)
+
+
+def test_shift_space_names_a_whole_plan_from_the_keyboard(app, tmp_path, monkeypatch):
+    from canopener.core import capture as cap
+    from canopener.gui.main_window import MainWindow
+
+    Key, Shift = qt.Qt.Key, qt.Qt.KeyboardModifier.ShiftModifier
+    qt.QtCore.QSettings.setDefaultFormat(qt.QtCore.QSettings.Format.IniFormat)
+    qt.QtCore.QSettings.setPath(qt.QtCore.QSettings.Format.IniFormat, qt.QtCore.QSettings.Scope.UserScope,
+                                str(tmp_path / "qs"))
+    w = MainWindow()
+    monkeypatch.setattr(w, "isActiveWindow", lambda: True)
+    w.show()
+    lp = w.log_panel
+    lp.show()
+    lp.capture.markers = []
+    lp._sync()
+    w.live.table.setFocus()
+
+    def shift_space():
+        target = qt.QtWidgets.QApplication.focusWidget() or w
+        for t in (qt.QtCore.QEvent.Type.KeyPress, qt.QtCore.QEvent.Type.KeyRelease):
+            qt.QtWidgets.QApplication.sendEvent(target, qt.QtGui.QKeyEvent(t, Key.Key_Space, Shift, " "))
+        pump(app, 0.05)
+
+    shift_space()                                    # new timestamp, its name box open + selected
+    editor = qt.QtWidgets.QApplication.focusWidget()
+    assert lp.owns_name_editor(editor) and editor.selectedText() == "Timestamp 1"
+    _type(app, "Key On")                             # typing replaces the placeholder
+    shift_space()                                    # keeps "Key On", opens the next one
+    _type(app, "Start")
+    shift_space()
+    _type(app, "Drive")
+    _key(app, w, Key.Key_Return)                     # Enter: done naming
+    assert [m.label for m in lp.capture.markers] == ["Key On", "Start", "Drive"]
+    assert lp.capture.state == cap.IDLE
+    assert [lp.table.item(r, 0).text() for r in range(3)] == ["1", "2", "3"]     # number column
+    assert lp.table.item(0, 1).text() == "Key On"
+    assert w.settings.value("log/plan") == ["Key On", "Start", "Drive"]
+
+    shift_space()                                    # Esc cancels a name: the placeholder stays
+    _type(app, "oops")
+    _key(app, w, Key.Key_Escape)
+    assert lp.capture.markers[3].label == "Timestamp 4"
+    assert not lp.owns_name_editor(qt.QtWidgets.QApplication.focusWidget())
+
+    lp.name.setFocus()                               # in the job-name box Shift+Space just types
+    shift_space()
+    assert len(lp.capture.markers) == 4
+    w.close()

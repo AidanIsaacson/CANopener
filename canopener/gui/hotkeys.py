@@ -1,7 +1,9 @@
 """Single-key controls for the Log tool, and the dialog that remaps them.
 
 Keys only act while the Log tool is open, the main window is focused, no dialog is up, and
-you're not typing in a text box. Held keys don't auto-repeat. That makes plain keys like
+you're not typing in a text box (the one exception: the "add timestamp" key also works while
+typing a timestamp's name, so you can name a whole list without touching the mouse). Held
+keys don't auto-repeat. That makes plain keys like
 Enter and Space safe to use as big "hardware" buttons, and the handheld's physical buttons
 can later be wired up (gpio-key overlay) to send whichever keys are configured here.
 """
@@ -13,11 +15,13 @@ from .qt import Qt, QtCore, QtGui, QtWidgets, Signal
 ACTIONS: list[tuple[str, str, str]] = [
     ("start_stop", "Start / stop recording", "Return"),
     ("timestamp", "Timestamp: tag the next one (adds one to the plan when not recording)", "Space"),
+    ("add_timestamp", "Add a timestamp and type its name (also works while naming one)", "Shift+Space"),
     ("undo", "Undo the last timestamp", "Backspace"),
 ] + [(f"tag_{n}", f"Tag timestamp {n}", str(n % 10)) for n in range(1, 11)]
 ACTION_NAMES = {a: name for a, name, _ in ACTIONS}
 DEFAULTS = {a: key for a, _, key in ACTIONS}
 DEBOUNCE = {"start_stop": 0.8}      # seconds: a bumped key can't stop a recording it just started
+WHILE_NAMING = {"add_timestamp"}    # actions allowed while typing in a timestamp's name box
 
 _TEXT_INPUTS = (QtWidgets.QLineEdit, QtWidgets.QTextEdit, QtWidgets.QPlainTextEdit,
                 QtWidgets.QAbstractSpinBox, QtWidgets.QKeySequenceEdit)
@@ -47,10 +51,11 @@ def typing() -> bool:
 class Hotkeys(QtCore.QObject):
     triggered = Signal(str)
 
-    def __init__(self, settings: QtCore.QSettings, is_active, parent=None):
+    def __init__(self, settings: QtCore.QSettings, is_active, parent=None, naming_box=None):
         super().__init__(parent)
         self.settings = settings
         self.is_active = is_active
+        self.naming_box = naming_box or (lambda widget: False)   # is this widget a timestamp-name editor?
         self.bindings = dict(DEFAULTS)
         self._last: dict[str, float] = {}
         self.load()
@@ -85,13 +90,18 @@ class Hotkeys(QtCore.QObject):
             return False
         if not self.is_active() or QtWidgets.QApplication.activeModalWidget() is not None:
             return False
-        if typing():
-            if Qt.Key(ev.key()) == Qt.Key.Key_Escape:       # Esc leaves the text box: keys work again
-                QtWidgets.QApplication.focusWidget().clearFocus()
-                return True
-            return False
         key = key_text(ev)
         action = self.action_for(key) if key else None
+        if typing():
+            focus = QtWidgets.QApplication.focusWidget()
+            if self.naming_box(focus):
+                if action not in WHILE_NAMING:
+                    return False        # normal typing; Enter keeps the name, Esc cancels it
+            else:
+                if Qt.Key(ev.key()) == Qt.Key.Key_Escape:   # Esc leaves the text box: keys work again
+                    focus.clearFocus()
+                    return True
+                return False
         if action is None:
             return False
         now = time.monotonic()
@@ -112,7 +122,8 @@ class KeybindDialog(QtWidgets.QDialog):
         self.resize(560, 520)
         lay = QtWidgets.QVBoxLayout(self)
         lay.addWidget(QtWidgets.QLabel(
-            "These keys work while the <b>Log</b> tool is open and you're not typing in a text box. "
+            "These keys work while the <b>Log</b> tool is open and you're not typing in a text box "
+            "(the <i>add a timestamp</i> key also works while naming one). "
             "Click a box and press the new key."))
         self.table = QtWidgets.QTableWidget(len(ACTIONS), 3)
         self.table.setHorizontalHeaderLabels(["Action", "Key", ""])

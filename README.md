@@ -118,7 +118,8 @@ you're typing in a box (press **Esc** to leave a box):
 | Key (default) | Not recording | Recording |
 |---|---|---|
 | **Enter** | start | stop |
-| **Space** | add a timestamp to the plan | tag the next untagged timestamp (adds a generic one once the plan runs out) |
+| **Space** | add a timestamp to the plan and type its name | tag the next untagged timestamp (adds a generic one once the plan runs out) |
+| **Shift+Space** | add a timestamp and type its name. **Also works while you're typing a name**: it keeps the name and opens the next one | add a timestamp at the end of the list |
 | **1** … **9**, **0** | | tag timestamp 1 … 10 directly (pressed twice: adds a "(2)" entry, never overwrites) |
 | **Backspace** | | undo the last tag |
 
@@ -126,7 +127,9 @@ Remap any of them under **Log → Keyboard shortcuts…** (or the panel's **Keys
 keys don't repeat, and Start/Stop ignores a second press within 0.8 s.
 
 1. Name the job, write the customer concern, and list the timestamps, or load a template like
-   *Intermittent shutdown*. Save your own lists with **Save as…**.
+   *Intermittent shutdown*. To type a list from the keyboard: **Shift+Space**, type `Key On`,
+   **Shift+Space**, type `Start`, … then **Enter** when done (**Esc** cancels the one you're
+   naming). Save your own lists with **Save as…**.
 2. **Start**, then tag as you go. The Live Data chart shows each tag as a labelled line.
 3. **Stop**. Double-click to rename, add notes, delete or reorder, then **Save** / **Save As…**
    (or **Discard**). If you just press Start again, the last capture is saved for you first.

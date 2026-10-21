@@ -55,7 +55,8 @@ class MainWindow(QtWidgets.QMainWindow):
         lay.addWidget(self.tabs)
         self.setCentralWidget(central)
 
-        self.hotkeys = Hotkeys(self.settings, lambda: self.log_panel.isVisible() and self.isActiveWindow(), self)
+        self.hotkeys = Hotkeys(self.settings, lambda: self.log_panel.isVisible() and self.isActiveWindow(), self,
+                               naming_box=lambda w: self.log_panel.owns_name_editor(w))
         self.log_panel = LogPanel(self.ctx, self.hotkeys, self.settings, self._capture_meta, self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.log_panel)
         self.log_panel.export_requested.connect(self.export_logs)

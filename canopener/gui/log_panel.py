@@ -22,6 +22,7 @@ REC_STYLE = BIG + "background: #e03131; color: white; border-radius: 6px;"
 START_STYLE = BIG + "background: #2f9e44; color: white; border-radius: 6px;"
 STAMP_STYLE = BIG + "background: #1c7ed6; color: white; border-radius: 6px;"
 NEXT_BG = QtGui.QColor("#d0ebff")
+COL_NUM, COL_NAME, COL_TIME, COL_NOTE = range(4)
 FLASH_BG = QtGui.QColor("#b2f2bb")
 
 
@@ -94,15 +95,16 @@ class LogPanel(QtWidgets.QDockWidget):
         lay.addLayout(tl)
         self._fill_templates()
 
-        self.table = QtWidgets.QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Timestamp", "Time", "Note"])
-        self.table.verticalHeader().setVisible(False)    # the number is in the label
+        self.table = QtWidgets.QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["#", "Timestamp", "Time", "Note"])
+        self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(26)
         hh = self.table.horizontalHeader()
-        hh.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Stretch)
-        hh.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.Interactive)
-        self.table.setColumnWidth(2, 90)
+        hh.setSectionResizeMode(COL_NUM, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(COL_NAME, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(COL_TIME, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(COL_NOTE, QtWidgets.QHeaderView.ResizeMode.Interactive)
+        self.table.setColumnWidth(COL_NOTE, 90)
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.DoubleClicked
@@ -113,7 +115,8 @@ class LogPanel(QtWidgets.QDockWidget):
         rl = QtWidgets.QHBoxLayout()
         self.row_buttons = {}
         for key, text, tip, fn in (
-            ("add", "+", "Add a timestamp to the list", lambda: self._add_planned()),
+            ("add", "+", "Add a timestamp to the list and type its name",
+             lambda: self._add_planned(name_it=not self.recording)),
             ("del", "−", "Delete the selected timestamp", self._delete_row),
             ("up", "↑", "Move up", lambda: self._move(-1)),
             ("down", "↓", "Move down", lambda: self._move(1)),
@@ -221,7 +224,13 @@ class LogPanel(QtWidgets.QDockWidget):
             if self.recording:
                 self._tagged(c.tag_next())
             elif c.state == cap.IDLE:
-                self._add_planned()
+                self._add_planned(name_it=True)
+        elif action == "add_timestamp":
+            if c.state == cap.SAVED:
+                self._message("This capture is saved - press New capture to plan the next one")
+            else:
+                # While recording, just add it: typing a name would pause the other keys.
+                self._add_planned(name_it=not self.recording)
         elif action == "undo":
             if self.recording and c.undo_last() is not None:
                 self._sync()
@@ -392,12 +401,31 @@ class LogPanel(QtWidgets.QDockWidget):
         rows = self.table.selectionModel().selectedRows()
         return rows[0].row() if rows else None
 
-    def _add_planned(self):
+    def owns_name_editor(self, widget) -> bool:
+        """True for the text box that opens when editing a timestamp's name (or note)."""
+        return isinstance(widget, QtWidgets.QLineEdit) and self.table.isAncestorOf(widget)
+
+    def _commit_editor(self):
+        """Keep whatever is typed in an open name box (as Enter would)."""
+        w = QtWidgets.QApplication.focusWidget()
+        if self.owns_name_editor(w):
+            delegate = self.table.itemDelegate()
+            delegate.commitData.emit(w)
+            delegate.closeEditor.emit(w, QtWidgets.QAbstractItemDelegate.EndEditHint.NoHint)
+
+    def _add_planned(self, name_it: bool = False):
+        """Add a timestamp to the list; with ``name_it`` its name box opens ready to type over."""
+        self._commit_editor()
         i = self.capture.add_planned()
         self._sync()
         self.table.selectRow(i)
         if self.capture.state == cap.IDLE:
             self.settings.setValue("log/plan", self.capture.plan_labels())
+        if name_it:
+            item = self.table.item(i, COL_NAME)
+            self.table.setCurrentItem(item)
+            self.table.scrollToItem(item)
+            self.table.editItem(item)           # the placeholder name starts selected: just type
 
     def _delete_row(self):
         i = self._selected_row()
@@ -430,18 +458,27 @@ class LogPanel(QtWidgets.QDockWidget):
         if row >= len(self.capture.markers):
             return
         m = self.capture.markers[row]
-        if col == 0:
-            text = it.text()
-            prefix = f"{row + 1} - "
-            label = text[len(prefix):] if text.startswith(prefix) else text
+        if col == COL_NAME:
+            label = it.text().strip()
+            if not label:                       # emptied: keep the old name
+                self._rebuilding = True
+                it.setText(m.label)
+                self._rebuilding = False
+                return
             if label == m.label:
                 return
             self.capture.rename(row, label)
-        elif col == 2:
+        elif col == COL_NOTE:
             if it.text() == m.note:
                 return
             self.capture.set_note(row, it.text())
-        self._after_edit()
+        else:
+            return
+        if self.capture.state == cap.IDLE:
+            self.settings.setValue("log/plan", self.capture.plan_labels())
+        # No table rebuild here: the cell already shows the edit, and Shift+Space may be about
+        # to open the next name box. Just refresh what shows the name elsewhere.
+        self._sync(table=False)
 
     def _name_changed(self, text):
         self.capture.name = text
@@ -515,7 +552,7 @@ class LogPanel(QtWidgets.QDockWidget):
     # ------------------------------------------------------------------
     # display
     # ------------------------------------------------------------------
-    def _sync(self):
+    def _sync(self, table: bool = True):
         """Bring every widget in line with the capture's state."""
         c = self.capture
         idle, rec, stopped, saved = (c.state == s for s in (cap.IDLE, cap.RECORDING, cap.STOPPED, cap.SAVED))
@@ -547,7 +584,8 @@ class LogPanel(QtWidgets.QDockWidget):
         self.save_row.setVisible(stopped)
         self.saved_row.setVisible(saved)
 
-        self._rebuild_table()
+        if table:
+            self._rebuild_table()
         self._update_status()
         self.folder_label.setText(f"Saving to: {config.logs_dir()}")
         self._sync_keys_label()
@@ -555,12 +593,18 @@ class LogPanel(QtWidgets.QDockWidget):
     def _sync_keys_label(self):
         hk = self.hotkeys.label
         if getattr(self, "_paused_shown", False):
-            self.keys_label.setText("Keys paused while typing - press Esc (or click outside the box) to resume")
-            return
-        nums = f"{hk('tag_1')}–{hk('tag_10')}" if hk("tag_1") == "1" and hk("tag_10") == "0" else "number keys"
-        self.keys_label.setText(f"Keys (while this panel is open): {hk('start_stop')} start/stop · "
-                                f"{hk('timestamp')} timestamp · {nums} tag that timestamp · "
-                                f"{hk('undo')} undo")
+            if self.owns_name_editor(QtWidgets.QApplication.focusWidget()):
+                text = (f"Naming a timestamp: type, then {hk('add_timestamp')} for the next one, "
+                        "Enter to finish, Esc to cancel")
+            else:
+                text = "Keys paused while typing - press Esc (or click outside the box) to resume"
+        else:
+            nums = f"{hk('tag_1')}–{hk('tag_10')}" if hk("tag_1") == "1" and hk("tag_10") == "0" else "number keys"
+            text = (f"Keys (while this panel is open): {hk('start_stop')} start/stop · "
+                    f"{hk('timestamp')} timestamp · {nums} tag that timestamp · "
+                    f"{hk('undo')} undo · {hk('add_timestamp')} add + name a timestamp")
+        if self.keys_label.text() != text:
+            self.keys_label.setText(text)
 
     def _rebuild_table(self):
         c = self.capture
@@ -570,13 +614,16 @@ class LogPanel(QtWidgets.QDockWidget):
         t.setRowCount(len(c.markers))
         nxt = c.next_index() if c.state in (cap.IDLE, cap.RECORDING) else None
         for i, m in enumerate(c.markers):
-            title = QtWidgets.QTableWidgetItem(c.title(i))
+            num = QtWidgets.QTableWidgetItem(str(i + 1))
+            num.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            num.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            title = QtWidgets.QTableWidgetItem(m.label)
             when = QtWidgets.QTableWidgetItem(
                 fmt_elapsed(m.t - c.started) if m.tagged and c.started else ("next ▸" if i == nxt else ""))
             when.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             when.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             note = QtWidgets.QTableWidgetItem(m.note)
-            for it in (title, when, note):
+            for it in (num, title, when, note):
                 if i == nxt and c.state == cap.RECORDING:
                     it.setBackground(NEXT_BG)
                     f = it.font()
@@ -584,13 +631,14 @@ class LogPanel(QtWidgets.QDockWidget):
                     it.setFont(f)
                 if not m.tagged and c.state in (cap.STOPPED, cap.SAVED):
                     it.setForeground(QtGui.QColor("gray"))
-            t.setItem(i, 0, title)
-            t.setItem(i, 1, when)
-            t.setItem(i, 2, note)
+            t.setItem(i, COL_NUM, num)
+            t.setItem(i, COL_NAME, title)
+            t.setItem(i, COL_TIME, when)
+            t.setItem(i, COL_NOTE, note)
         if sel is not None and sel < t.rowCount():
             t.selectRow(sel)
         if nxt is not None and c.state == cap.RECORDING:
-            t.scrollToItem(t.item(nxt, 0))
+            t.scrollToItem(t.item(nxt, COL_NAME))
         self._rebuilding = False
 
     def _update_status(self):
@@ -623,7 +671,7 @@ class LogPanel(QtWidgets.QDockWidget):
             self._paused_shown = paused
             self.keys_label.setStyleSheet("color: #e8590c; font-size: 9pt; font-weight: bold" if paused
                                           else "color: gray; font-size: 9pt")
-            self._sync_keys_label()
+        self._sync_keys_label()     # cheap; the focused box can change without anything else changing
         if self._flash:
             i, t0 = self._flash
             age = time.monotonic() - t0
@@ -632,7 +680,7 @@ class LogPanel(QtWidgets.QDockWidget):
                 self._rebuild_table()
             else:
                 self._rebuilding = True      # recolouring a cell emits itemChanged; it isn't an edit
-                for col in range(3):
+                for col in range(self.table.columnCount()):
                     it = self.table.item(i, col)
                     if it is not None:
                         it.setBackground(FLASH_BG)
