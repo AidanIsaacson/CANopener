@@ -32,7 +32,7 @@ def live_snapshot(session: Session, system: str = units.METRIC, since: float = 0
     lines = []
     for sig in all_signals():
         src = [s for s in session.latest_for(sig.pgn)
-               if s[1] >= since and (sig.sa is None or s[0] == sig.sa)]
+               if s[1] >= since and sig.accepts(s[0])]
         if not src:
             continue
         sa, t, d = src[0]

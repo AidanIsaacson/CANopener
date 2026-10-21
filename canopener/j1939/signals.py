@@ -1,7 +1,8 @@
 """Live-data signal definitions for common broadcast PGNs (J1939-71).
 
-Signals are byte-aligned for now; that covers nearly all of the standard engine and
-chassis parameters. ``start`` is the 0-based byte index (J1939 docs count from 1).
+``start`` is the 0-based byte index (J1939 documents count from 1). Most standard parameters
+are whole bytes (``length`` = 1, 2 or 4); machine profiles can also describe bit fields
+(``bit`` / ``bits``), signed values, enumerated states and a normal range.
 """
 
 from dataclasses import dataclass
@@ -14,24 +15,62 @@ class Signal:
     name: str
     pgn: int
     start: int
-    length: int         # bytes: 1, 2 or 4
+    length: int         # bytes: 1, 2 or 4 (ignored when ``bits`` is set)
     scale: float
     offset: float
     unit: str
     spn: int | None = None
     decimals: int = 1
-    sa: int | None = None       # only decode from this source address (profile signals)
-    na_check: bool = True       # treat 0xFB-0xFF.. as 'not available' (standard J1939 data)
+    sa: int | tuple[int, ...] | None = None   # only decode from this / these source addresses
+    na_check: bool = True       # treat 0xFB-0xFF.. / all-ones as 'not available' (standard J1939 data)
+    bit: int = 0                # first bit within ``start`` (0 = LSB), for bit fields
+    bits: int = 0               # field width in bits; 0 = whole bytes (``length``)
+    signed: bool = False
+    enum: tuple[tuple[int, str], ...] = ()     # raw value -> text, e.g. ((0, "Off"), (1, "On"))
+    group: str = ""
+    low: float | None = None    # normal range, for highlighting out-of-range values
+    high: float | None = None
 
     @property
     def key(self) -> str:
-        return f"{self.pgn:05X}:{self.start}:{self.name}"
+        return f"{self.pgn:05X}:{self.start}.{self.bit}:{self.name}"
+
+    @property
+    def width_bits(self) -> int:
+        return self.bits or self.length * 8
+
+    @property
+    def location(self) -> tuple[int, int, int, int]:
+        return (self.pgn, self.start, self.bit, self.width_bits)
+
+    def accepts(self, sa: int) -> bool:
+        if self.sa is None:
+            return True
+        return sa in self.sa if isinstance(self.sa, tuple) else sa == self.sa
 
     def decode(self, data) -> float | None:
-        return fields.read(data, self.start, self.length, self.scale, self.offset, self.na_check)
+        if not self.bits and not self.bit and not self.signed:
+            return fields.read(data, self.start, self.length, self.scale, self.offset, self.na_check)
+        return fields.read_bits(data, self.start, self.bit, self.width_bits, self.scale, self.offset,
+                                self.signed, self.na_check)
+
+    def text(self, value) -> str | None:
+        """Enum text for a decoded value, or None for plain numbers."""
+        if value is None or not self.enum:
+            return None
+        raw = round((value - self.offset) / self.scale) if self.scale else int(value)
+        return dict(self.enum).get(raw)
+
+    def out_of_range(self, value) -> bool:
+        return value is not None and ((self.low is not None and value < self.low)
+                                      or (self.high is not None and value > self.high))
 
     def encode_into(self, buf: bytearray, value) -> None:
-        buf[self.start:self.start + self.length] = fields.encode(value, self.length, self.scale, self.offset)
+        if not self.bits and not self.bit and not self.signed:
+            buf[self.start:self.start + self.length] = fields.encode(value, self.length, self.scale, self.offset)
+        else:
+            fields.encode_bits(buf, self.start, self.bit, self.width_bits, value, self.scale, self.offset,
+                               self.signed)
 
 
 S = Signal
@@ -81,13 +120,38 @@ SIGNALS: list[Signal] = [
 ]
 del S
 
+_GROUPS = {
+    0xF004: "Engine", 0xF003: "Engine", 0xFEE5: "Engine",
+    0xFEEE: "Temperatures", 0xFE68: "Temperatures",
+    0xFEEF: "Fluids", 0xFEF2: "Fuel", 0xFEFC: "Fuel",
+    0xFEF6: "Intake / exhaust", 0xFEF5: "Intake / exhaust",
+    0xFEF7: "Electrical", 0xFEF1: "Drivetrain", 0xF005: "Drivetrain",
+    0xFE56: "Aftertreatment", 0xFD7B: "Aftertreatment",
+}
+SIGNALS = [Signal(**{**{f: getattr(s, f) for f in s.__slots__}, "group": _GROUPS.get(s.pgn, "Other")})
+           for s in SIGNALS]
+
 SIGNALS_BY_PGN: dict[int, list[Signal]] = {}
 for _s in SIGNALS:
     SIGNALS_BY_PGN.setdefault(_s.pgn, []).append(_s)
 
 # Extra signals from the active machine profile, e.g. labelled proprietary frames.
+# Use set_profile_signals() to change them.
 PROFILE_SIGNALS: list[Signal] = []
+_all_cache: list[Signal] | None = None
+
+
+def set_profile_signals(sigs: list[Signal]):
+    global _all_cache
+    PROFILE_SIGNALS[:] = sigs
+    _all_cache = None
 
 
 def all_signals() -> list[Signal]:
-    return SIGNALS + PROFILE_SIGNALS
+    """Built-in signals plus the profile's. A profile signal at the same place (PGN, byte, bit,
+    width) as a built-in one replaces it, so a profile can rename / regroup standard data."""
+    global _all_cache
+    if _all_cache is None:
+        taken = {s.location for s in PROFILE_SIGNALS}
+        _all_cache = [s for s in SIGNALS if s.location not in taken] + list(PROFILE_SIGNALS)
+    return _all_cache

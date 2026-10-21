@@ -1,6 +1,6 @@
 {
   "name": "Simulated telehandler",
-  "description": "Matches the built-in simulator (canopener --sim). Doubles as a worked example of profile syntax; none of these labels describe a real machine.",
+  "description": "Matches the built-in simulator (canopener --sim). Doubles as a worked example of profile syntax, including bit fields, enum text, groups and normal ranges; none of these labels describe a real machine. It has no 'detect' section on purpose: the simulator uses addresses 00 and 27, which real machines use too.",
   "sources": {
     "0x27": "Machine controller (sim)"
   },
@@ -14,8 +14,14 @@
   },
   "signals": [
     {"name": "Boom position raw", "pgn": "0xFF10", "sa": "0x27", "start": 1, "length": 2,
-     "scale": 1, "offset": 0, "unit": "counts", "decimals": 0},
+     "unit": "counts", "decimals": 0, "group": "Boom (sim)", "low": 150, "high": 880},
     {"name": "Controller heartbeat", "pgn": "0xFF10", "sa": "0x27", "start": 0, "length": 1,
-     "scale": 1, "offset": 0, "unit": "", "decimals": 0}
+     "decimals": 0, "group": "Boom (sim)"},
+    {"name": "Seat switch", "pgn": "0xFF10", "sa": "0x27", "start": 4, "bit": 4, "bits": 1,
+     "enum": {"0": "Empty", "1": "Occupied"}, "group": "Operator (sim)"},
+    {"name": "Park brake", "pgn": "0xFF22", "sa": "0x27", "start": 0, "bit": 0, "bits": 1,
+     "enum": {"0": "Released", "1": "Applied"}, "group": "Operator (sim)"},
+    {"name": "Uptime counter", "pgn": "0xFF22", "sa": "0x27", "start": 2, "bit": 0, "bits": 8,
+     "unit": "s", "decimals": 0, "group": "Machine (sim)"}
   ]
 }

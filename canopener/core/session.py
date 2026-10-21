@@ -4,8 +4,11 @@ The receive thread feeds frames into ``Session.feed``; the GUI or CLI reads the 
 state (latest payload per PGN/source, DTC history, statistics, raw frames) under ``lock``.
 Log files are decoded by creating a Session with no backend and feeding it frames.
 
-READ-ONLY by design: the only frames ever transmitted are J1939 Requests (PGN 59904) and
-transport-protocol flow control (CTS / end-of-message ACK). Never DM3/DM11 clears or writes.
+READ-ONLY by design: the diagnostics in this package only ever transmit J1939 Requests
+(PGN 59904) and transport-protocol flow control (CTS / end-of-message ACK). Never DM3/DM11
+clears or writes. ``send_frame()`` exists for separately installed plugins (see
+``canopener.plugins``); it obeys listen-only like everything else, and nothing in this
+package calls it.
 """
 
 import threading
@@ -124,6 +127,7 @@ class Session:
         self._recorder: LogWriter | None = None
         self._thread: threading.Thread | None = None
         self._running = False
+        self._listeners: list = []
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -191,9 +195,14 @@ class Session:
     # transmit
     # ------------------------------------------------------------------
     def _send_raw(self, can_id: int, data: bytes) -> bool:
+        return self.send_frame(CanFrame(can_id, bytes(data), True))
+
+    def send_frame(self, frame: CanFrame) -> bool:
+        """Transmit any frame (11- or 29-bit) for a plugin. Returns False in listen-only mode,
+        with no backend, or if the bus refused it (see ``health.tx_error``)."""
         if self.listen_only or self.backend is None:
             return False
-        frame = CanFrame(can_id, bytes(data), True, time.time(), tx=True)
+        frame = CanFrame(frame.can_id, bytes(frame.data), frame.extended, time.time(), tx=True)
         try:
             self.backend.send(frame)
         except OSError as e:
@@ -203,6 +212,15 @@ class Session:
         self.tx_count += 1
         self._log_frame(frame)
         return True
+
+    def add_listener(self, fn):
+        """Call ``fn(frame)`` for every received frame, on the receive thread. Keep it quick."""
+        if fn not in self._listeners:
+            self._listeners.append(fn)
+
+    def remove_listener(self, fn):
+        if fn in self._listeners:
+            self._listeners.remove(fn)
 
     def request(self, pgn: int, da: int = GLOBAL_SA) -> bool:
         data = pgn_bytes(pgn)
@@ -231,6 +249,11 @@ class Session:
         self.rx_count += 1
         self.bytes_count += len(frame.data)
         self._log_frame(frame)
+        for fn in list(self._listeners):
+            try:
+                fn(frame)
+            except Exception:           # a broken plugin must not stop the receive thread
+                pass
         if not frame.extended:
             return
         t, data = frame.timestamp, bytes(frame.data)

@@ -10,7 +10,9 @@ from ..j1939.signals import Signal, all_signals
 from .qt import Qt, QtGui, QtWidgets
 from .widgets import StripChart, item, setup_table
 
-COLS = ["Plot", "Signal", "Value", "Unit", "Min", "Max", "Source", "PGN", "SPN", "Age"]
+COLS = ["Plot", "Signal", "Group", "Value", "Unit", "Min", "Max", "Source", "PGN", "SPN", "Age"]
+C_PLOT, C_NAME, C_GROUP, C_VALUE, C_UNIT, C_MIN, C_MAX, C_SRC, C_PGN, C_SPN, C_AGE = range(len(COLS))
+ALL_GROUPS = "All groups"
 HISTORY_SECONDS = 600
 STALE_AFTER = 3.0
 
@@ -44,6 +46,12 @@ class LiveTab(QtWidgets.QWidget):
         self.filter.setPlaceholderText("Filter signals (name, SPN, PGN)...")
         self.filter.textChanged.connect(self._apply_filter)
         bar.addWidget(self.filter, 2)
+        self.group = QtWidgets.QComboBox()
+        self.group.addItem(ALL_GROUPS)
+        self.group.setMinimumWidth(150)
+        self.group.setToolTip("Show one group of parameters (groups come from the machine profile)")
+        self.group.currentIndexChanged.connect(lambda _: self._apply_filter())
+        bar.addWidget(self.group)
         reset = QtWidgets.QPushButton("Reset min/max")
         reset.clicked.connect(self._reset_minmax)
         bar.addWidget(reset)
@@ -65,8 +73,9 @@ class LiveTab(QtWidgets.QWidget):
 
         split = QtWidgets.QSplitter(Qt.Orientation.Vertical)
         self.table = QtWidgets.QTableWidget()
-        setup_table(self.table, COLS, stretch=(1,))
-        for c, w in ((0, 44), (2, 100), (3, 60), (4, 80), (5, 80), (6, 170), (7, 60), (8, 60), (9, 55)):
+        setup_table(self.table, COLS, stretch=(C_NAME,))
+        for c, w in ((C_PLOT, 44), (C_GROUP, 130), (C_VALUE, 100), (C_UNIT, 60), (C_MIN, 80), (C_MAX, 80),
+                     (C_SRC, 170), (C_PGN, 60), (C_SPN, 60), (C_AGE, 55)):
             self.table.setColumnWidth(c, w)
         self.table.itemChanged.connect(self._item_changed)
         split.addWidget(self.table)
@@ -108,7 +117,7 @@ class LiveTab(QtWidgets.QWidget):
                 continue
             jid = parse_id(fr.can_id)
             for sig in by_pgn.get(jid.pgn, ()):
-                if sig.sa is not None and jid.sa != sig.sa:
+                if not sig.accepts(jid.sa):
                     continue
                 v = sig.decode(fr.data)
                 key = (sig.key, jid.sa)
@@ -136,9 +145,13 @@ class LiveTab(QtWidgets.QWidget):
         if s is None:
             return
         added = False
+        by_pgn: dict[int, list] = {}            # one pass over the session, not one per signal
+        with s.lock:
+            for (pgn, sa), (t, d) in s.latest.items():
+                by_pgn.setdefault(pgn, []).append((sa, t, d))
         for sig in all_signals():
-            for sa, t, d in s.latest_for(sig.pgn):
-                if sig.sa is not None and sa != sig.sa:
+            for sa, t, d in by_pgn.get(sig.pgn, ()):
+                if not sig.accepts(sa):
                     continue
                 key = (sig.key, sa)
                 row = self.rows.get(key)
@@ -168,14 +181,20 @@ class LiveTab(QtWidgets.QWidget):
             chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
             chk.setCheckState(Qt.CheckState.Checked if key in self.plotted else Qt.CheckState.Unchecked)
             chk.setData(Qt.ItemDataRole.UserRole, key)
-            t.setItem(i, 0, chk)
-            t.setItem(i, 1, item(r.sig.name))
-            t.setItem(i, 6, item(sa_name(r.sa)))
-            t.setItem(i, 7, item(f"{r.sig.pgn:04X}", True))
-            t.setItem(i, 8, item(r.sig.spn if r.sig.spn is not None else "", True))
-            for c in (2, 3, 4, 5, 9):
-                t.setItem(i, c, item("", c != 3))
+            t.setItem(i, C_PLOT, chk)
+            name = item(r.sig.name)
+            if r.sig.low is not None or r.sig.high is not None:
+                name.setToolTip(f"Normal range: {_num(r.sig.low, r.sig.decimals)} to "
+                                f"{_num(r.sig.high, r.sig.decimals)} {r.sig.unit}")
+            t.setItem(i, C_NAME, name)
+            t.setItem(i, C_GROUP, item(r.sig.group))
+            t.setItem(i, C_SRC, item(sa_name(r.sa)))
+            t.setItem(i, C_PGN, item(f"{r.sig.pgn:04X}", True))
+            t.setItem(i, C_SPN, item(r.sig.spn if r.sig.spn is not None else "", True))
+            for c in (C_VALUE, C_UNIT, C_MIN, C_MAX, C_AGE):
+                t.setItem(i, c, item("", c != C_UNIT))
         t.blockSignals(False)
+        self._sync_groups()
         self._apply_filter()
         self.refresh(force=True)
 
@@ -194,33 +213,57 @@ class LiveTab(QtWidgets.QWidget):
             val, unit = units.convert(r.value, sig.unit, sysu)
             lo = units.convert(r.lo, sig.unit, sysu)[0]
             hi = units.convert(r.hi, sig.unit, sysu)[0]
-            nd = sig.decimals + (1 if unit == "psi" and sig.decimals == 0 else 0)
+            nd = units.display_decimals(sig.unit, unit, sig.decimals)
             age = now - r.t
             stale = not offline and age > STALE_AFTER
-            cells = {2: _num(val, nd), 3: unit, 4: _num(lo, nd), 5: _num(hi, nd),
-                     9: "" if offline else f"{age:.1f}s"}
+            if sig.enum:
+                cells = {C_VALUE: sig.text(r.value) or _num(r.value, 0), C_UNIT: "",
+                         C_MIN: sig.text(r.lo) or _num(r.lo, 0), C_MAX: sig.text(r.hi) or _num(r.hi, 0)}
+            else:
+                cells = {C_VALUE: _num(val, nd), C_UNIT: unit, C_MIN: _num(lo, nd), C_MAX: _num(hi, nd)}
+            cells[C_AGE] = "" if offline else f"{age:.1f}s"
             for c, text in cells.items():
                 it = t.item(i, c)
                 if it is not None and it.text() != text:
                     it.setText(text)
-            it = t.item(i, 2)
+            it = t.item(i, C_VALUE)
             if it is not None:
-                it.setForeground(QtGui.QColor("gray") if stale else self.palette().color(QtGui.QPalette.ColorRole.Text))
+                if stale:
+                    it.setForeground(QtGui.QColor("gray"))
+                elif sig.out_of_range(r.value):
+                    it.setForeground(QtGui.QColor("#e03131"))
+                else:
+                    it.setForeground(self.palette().color(QtGui.QPalette.ColorRole.Text))
         t.blockSignals(False)
         c = self.ctx.capture
         self.chart.markers = [(m.t, c.title(i)) for i, m in c.tagged()] if c is not None else []
         self.chart.update()
 
     # ------------------------------------------------------------------
+    def _sync_groups(self):
+        groups = sorted({self.rows[k].sig.group for k in self.order if self.rows[k].sig.group})
+        have = [self.group.itemText(i) for i in range(1, self.group.count())]
+        if groups == have:
+            return
+        current = self.group.currentText()
+        self.group.blockSignals(True)
+        self.group.clear()
+        self.group.addItem(ALL_GROUPS)
+        self.group.addItems(groups)
+        self.group.setCurrentIndex(max(self.group.findText(current), 0))
+        self.group.blockSignals(False)
+
     def _apply_filter(self):
         q = self.filter.text().strip().lower()
+        group = self.group.currentText()
         for i, key in enumerate(self.order):
             r = self.rows[key]
-            hay = f"{r.sig.name} {r.sig.spn or ''} {r.sig.pgn:04x} {sa_name(r.sa)}".lower()
-            self.table.setRowHidden(i, bool(q) and q not in hay)
+            hay = f"{r.sig.name} {r.sig.spn or ''} {r.sig.pgn:04x} {sa_name(r.sa)} {r.sig.group}".lower()
+            hidden = (bool(q) and q not in hay) or (group != ALL_GROUPS and r.sig.group != group)
+            self.table.setRowHidden(i, hidden)
 
     def _item_changed(self, it):
-        if it.column() != 0:
+        if it.column() != C_PLOT:
             return
         key = it.data(Qt.ItemDataRole.UserRole)
         on = it.checkState() == Qt.CheckState.Checked
@@ -241,7 +284,7 @@ class LiveTab(QtWidgets.QWidget):
             pts = r.points
             if unit != r.sig.unit:
                 pts = _ConvertedPoints(r.points, r.sig.unit, sysu)
-            nd = r.sig.decimals + (1 if unit == "psi" and r.sig.decimals == 0 else 0)
+            nd = units.display_decimals(r.sig.unit, unit, r.sig.decimals)
             series.append((f"{key}", r.sig.name, unit, nd, pts))
         self.chart.set_series(series)
 
@@ -261,12 +304,13 @@ class LiveTab(QtWidgets.QWidget):
         for i, key in enumerate(self.order):
             if self.rows[key].sig.spn == spn:
                 self.filter.clear()
+                self.group.setCurrentIndex(0)
                 if key not in self.plotted:
                     self.plotted.append(key)
                     self._rebuild_table()
                     self._sync_chart()
                 self.table.selectRow(i)
-                self.table.scrollToItem(self.table.item(i, 1))
+                self.table.scrollToItem(self.table.item(i, C_NAME))
                 return True
         self.ctx.status_message.emit(f"SPN {spn} is not being broadcast right now")
         return False

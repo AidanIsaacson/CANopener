@@ -12,6 +12,8 @@ from .export_dialog import ExportDialog
 from .hotkeys import Hotkeys, KeybindDialog
 from .log_panel import LogPanel
 from .qt import QT_API, Qt, QtCore, QtGui, QtWidgets
+from .request_dialog import RequestDialog
+from .settings_dialog import UnitsDialog
 from .tab_codes import CodesTab
 from .tab_info import InfoTab
 from .tab_live import LiveTab
@@ -21,9 +23,48 @@ from .tab_report import ReportTab
 from .widgets import LampPanel, app_icon
 
 SOURCES = [("SocketCAN adapter", connection.SOCKETCAN), ("Simulator", connection.SIMULATOR),
-           ("Replay log file", connection.REPLAY)]
+           ("Simulate the selected profile", connection.PROFILE_SIM), ("Replay log file", connection.REPLAY)]
 REFRESH_MS = 200
 AUTO_BITRATE = 0
+
+
+class PluginApi:
+    """What a plugin's ``register_gui(api)`` gets to work with (see ``canopener.plugins``)."""
+
+    def __init__(self, window: "MainWindow", plugin):
+        self.window = window
+        self.ctx = window.ctx
+        self.settings = window.settings
+        self.plugin = plugin
+
+    def add_tab(self, widget: QtWidgets.QWidget, title: str):
+        self.window.tabs.addTab(widget, title)
+        self.window.tab_list.append(widget)
+
+    def menu(self, title: str) -> QtWidgets.QMenu:
+        """A top-level menu by title (created on first use)."""
+        for a in self.window.menuBar().actions():
+            if a.menu() is not None and a.text().replace("&", "") == title.replace("&", ""):
+                return a.menu()
+        return self.window.menuBar().addMenu(title)
+
+    def add_action(self, menu_title: str, text: str, fn, shortcut: str | None = None):
+        return self.window._action(self.menu(menu_title), text, fn, shortcut)
+
+    def add_refresh(self, fn):
+        """Call ``fn()`` on every UI tick (5 times a second)."""
+        self.window._plugin_refresh.append(fn)
+
+    def status(self, text: str, ms: int = 6000):
+        self.window.statusBar().showMessage(text, ms)
+
+    def confirm(self, title: str, text: str) -> bool:
+        """Yes/No dialog, defaulting to No. Use before transmitting anything that changes a machine."""
+        r = QtWidgets.QMessageBox.warning(self.window, title, text,
+                                          QtWidgets.QMessageBox.StandardButton.Yes
+                                          | QtWidgets.QMessageBox.StandardButton.No,
+                                          QtWidgets.QMessageBox.StandardButton.No)
+        return r == QtWidgets.QMessageBox.StandardButton.Yes
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -45,6 +86,8 @@ class MainWindow(QtWidgets.QMainWindow):
         lay.setContentsMargins(6, 4, 6, 4)
         self.lamps = LampPanel()
         lay.addWidget(self.lamps)
+        self.detect_bar = self._build_detect_bar()
+        lay.addWidget(self.detect_bar)
         self.tabs = QtWidgets.QTabWidget()
         self.tab_list = [CodesTab(self.ctx), LiveTab(self.ctx), MonitorTab(self.ctx), NetworkTab(self.ctx),
                          InfoTab(self.ctx), ReportTab(self.ctx)]
@@ -67,6 +110,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.log_panel.toggleViewAction().setToolTip("Show / hide the Log tool (its keys only work while it's open)")
         QtWidgets.QApplication.instance().installEventFilter(self.hotkeys)
         self._build_menu()
+        self._plugin_refresh: list = []
+        self._load_plugins()
         self._build_status()
 
         c = self.ctx
@@ -145,6 +190,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.units = QtWidgets.QComboBox()
         self.units.addItem("Metric", units.METRIC)
         self.units.addItem("Imperial", units.IMPERIAL)
+        self.units.addItem("Custom", units.CUSTOM)
+        self.units.setToolTip("Display units. Settings > Units... picks each one (e.g. psi with °C).")
         self.units.currentIndexChanged.connect(lambda _: self.ctx.set_units(self.units.currentData()))
         tb.addWidget(self.units)
 
@@ -174,10 +221,16 @@ class MainWindow(QtWidgets.QMainWindow):
         d = m.addMenu("&Diagnostics")
         for preset, (title, _, _) in scan.PRESETS.items():
             self._action(d, title, lambda _=False, p=preset: self._run(p))
+        d.addSeparator()
+        self._action(d, "Request a PGN...", lambda: RequestDialog(self.ctx, self).exec())
         v = m.addMenu("&View")
         self._action(v, "&Full screen", self._toggle_fullscreen, "F11")
         for i, t in enumerate(self.tab_list):
             self._action(v, t.title, lambda _=False, w=t: self.tabs.setCurrentWidget(w), f"Ctrl+{i + 1}")
+        st = m.addMenu("&Settings")
+        self._action(st, "&Units...", self.edit_units)
+        self._action(st, "Log tool &keys...", self.edit_keys)
+        self._action(st, "&Save folder...", self.log_panel._change_folder)
         p = m.addMenu("&Profiles")
         self._action(p, "Reload profiles", self._load_profiles)
         self._action(p, "Open user profile folder", self._open_profile_dir)
@@ -192,6 +245,17 @@ class MainWindow(QtWidgets.QMainWindow):
         menu.addAction(a)
         return a
 
+    def _load_plugins(self):
+        from .. import plugins
+        for p in plugins.discover():
+            hook = p.hook("register_gui")
+            if hook is None:
+                continue
+            try:
+                hook(PluginApi(self, p))
+            except Exception as e:
+                p.error = f"register_gui failed: {type(e).__name__}: {e}"
+
     def _build_status(self):
         sb = self.statusBar()
         self.conn_label = QtWidgets.QLabel("Not connected")
@@ -200,6 +264,61 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rec_label = QtWidgets.QLabel("")
         for w in (self.conn_label, self.traffic_label, self.error_label, self.rec_label):
             sb.addPermanentWidget(w)
+
+    def _build_detect_bar(self) -> QtWidgets.QFrame:
+        """'Looks like an X - use its profile?' banner, shown when the bus matches a profile."""
+        bar = QtWidgets.QFrame()
+        bar.setStyleSheet("QFrame { background: #fff3bf; border: 1px solid #fab005; border-radius: 4px; }"
+                          "QLabel { border: none; }")
+        hl = QtWidgets.QHBoxLayout(bar)
+        hl.setContentsMargins(8, 3, 8, 3)
+        self.detect_label = QtWidgets.QLabel()
+        hl.addWidget(self.detect_label, 1)
+        use = QtWidgets.QPushButton("Use this profile")
+        use.clicked.connect(self._use_detected)
+        hl.addWidget(use)
+        dismiss = QtWidgets.QToolButton()
+        dismiss.setText("✕")
+        dismiss.setToolTip("Not this machine - don't ask again until reconnecting")
+        dismiss.clicked.connect(self._dismiss_detected)
+        hl.addWidget(dismiss)
+        bar.hide()
+        self._detected = None
+        self._detect_dismissed: set[str] = set()
+        self._last_detect = 0.0
+        return bar
+
+    def _check_detection(self, session):
+        """Every couple of seconds while live: does the bus match a profile we're not using?"""
+        now = time.time()
+        if now - self._last_detect < 2.0:
+            return
+        self._last_detect = now
+        current = self.profile.currentData() or ""
+        matches = [m for m in profiles.detect(session.known_ecus(), self._profiles)
+                   if m.profile.id != current and m.profile.id not in self._detect_dismissed]
+        active = profiles.active()
+        if active is not None and active.detect_addresses and matches \
+                and matches[0].matched <= len(active.detect_addresses & set(session.known_ecus())):
+            matches = []                # the chosen profile fits at least as well: leave it alone
+        if not matches:
+            self.detect_bar.hide()
+            self._detected = None
+            return
+        self._detected = matches[0].profile
+        self.detect_label.setText(f"<b>Looks like:</b> {matches[0].describe()}")
+        self.detect_bar.show()
+
+    def _use_detected(self):
+        if self._detected is not None:
+            self.profile.setCurrentIndex(max(self.profile.findData(self._detected.id), 0))
+            self.statusBar().showMessage(f"Profile: {self._detected.name}", 6000)
+        self.detect_bar.hide()
+
+    def _dismiss_detected(self):
+        if self._detected is not None:
+            self._detect_dismissed.add(self._detected.id)
+        self.detect_bar.hide()
 
     def _run(self, preset):
         if not self.ctx.live:
@@ -219,6 +338,9 @@ class MainWindow(QtWidgets.QMainWindow):
         idx = self.bitrate.findData(int(s.value("bitrate", 250000)))
         self.bitrate.setCurrentIndex(max(idx, 0))
         self.listen_only.setChecked(s.value("listen_only", "false") in (True, "true"))
+        s.beginGroup("units_custom")
+        units.set_custom({k: s.value(k) for k in s.childKeys()})
+        s.endGroup()
         idx = self.units.findData(s.value("units", units.METRIC))
         self.units.setCurrentIndex(max(idx, 0))
         self._load_profiles(preferred=s.value("profile", "generic"))
@@ -244,6 +366,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _load_profiles(self, preferred=None):
         current = preferred if isinstance(preferred, str) else self.profile.currentData()
         found, errors = profiles.available_profiles()
+        self._profiles = found
         self.profile.blockSignals(True)
         self.profile.clear()
         self.profile.addItem("(none)", "")
@@ -362,7 +485,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._replay_path = path
             channel = self._replay_path
         try:
-            conn = open_connection(kind, channel, listen_only=self.listen_only.isChecked())
+            conn = open_connection(kind, channel, listen_only=self.listen_only.isChecked(),
+                                   profile=profiles.active())
         except Exception as e:
             hint = ("\n\nIs the adapter plugged in? Try 'Set Up Interface' first, or pick 'Simulator' "
                     "to try the app without hardware." if kind == connection.SOCKETCAN else "")
@@ -428,6 +552,22 @@ class MainWindow(QtWidgets.QMainWindow):
     def export_logs(self):
         ExportDialog(self.ctx, self).exec()
 
+    def edit_units(self):
+        start = units.prefs(self.units.currentData())
+        dlg = UnitsDialog(start, self)
+        if not dlg.exec():
+            return
+        units.set_custom(dlg.choice())
+        self.settings.beginGroup("units_custom")
+        for q, u in units.custom().items():
+            self.settings.setValue(q, u)
+        self.settings.endGroup()
+        if self.units.currentData() != units.CUSTOM:
+            self.units.setCurrentIndex(self.units.findData(units.CUSTOM))    # emits units_changed
+        else:
+            self.ctx.units_changed.emit(units.CUSTOM)
+        self.statusBar().showMessage(f"Units: {units.describe(units.CUSTOM)}", 6000)
+
     def edit_keys(self):
         if KeybindDialog(self.hotkeys, self).exec():
             self.log_panel._sync()
@@ -459,6 +599,8 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self.conn_label.setText("Not connected")
             self.lamps.set_lamps({})
+        self.detect_bar.hide()
+        self._detect_dismissed.clear()
         self._last_counts = (time.time(), session.rx_count if session else 0, session.bytes_count if session else 0)
         self._tick()
 
@@ -474,6 +616,11 @@ class MainWindow(QtWidgets.QMainWindow):
         s = self.ctx.session
         self.live.sample()
         self.log_panel.refresh()
+        for fn in self._plugin_refresh:
+            try:
+                fn()
+            except Exception as e:
+                self.statusBar().showMessage(f"Plugin error: {e}", 5000)
         cur = self.tabs.currentWidget()
         self.monitor.refresh()              # always: it consumes the frame stream
         for t in (self.codes, self.live, self.network):
@@ -486,6 +633,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self.lamps.set_lamps(s.current_lamps())
         if not s.offline:
+            self._check_detection(s)
             now = time.time()
             t0, n0, b0 = self._last_counts
             if now - t0 >= 1.0:
@@ -521,7 +669,16 @@ class MainWindow(QtWidgets.QMainWindow):
             f"<h3>CANopener {__version__}</h3><p>J1939 diagnostics for equipment and vehicles.</p>"
             "<p><b>Read-only:</b> the app only sends J1939 Requests (PGN 59904) and transport-protocol "
             "flow control. It never clears codes or writes to an ECU. Tick Listen-only to send nothing.</p>"
-            f"<p>Qt binding: {QT_API}</p>")
+            f"<p>Qt binding: {QT_API}</p>" + self._plugins_html())
+
+    def _plugins_html(self) -> str:
+        from .. import plugins
+        found = plugins.discover()
+        if not found:
+            return ""
+        rows = "".join(f"<li>{p.name or p.id} {p.version}" + (f" - <i>{p.error}</i>" if p.error else "") + "</li>"
+                       for p in found)
+        return f"<p><b>Plugins:</b><ul>{rows}</ul></p>"
 
     def showEvent(self, ev):
         super().showEvent(ev)

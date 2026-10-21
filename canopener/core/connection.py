@@ -12,6 +12,7 @@ from .session import Session
 
 SOCKETCAN = "socketcan"
 SIMULATOR = "sim"
+PROFILE_SIM = "profile-sim"
 REPLAY = "replay"
 
 
@@ -29,13 +30,16 @@ class Connection:
     def describe(self) -> str:
         if self.kind == SIMULATOR:
             return "Simulator (virtual bus)"
+        if self.kind == PROFILE_SIM:
+            return f"Profile simulator: {self.simulator.profile.name}"
         if self.kind == REPLAY:
             return f"Replay: {self.session.backend.channel}"
         return f"SocketCAN {self.session.backend.channel}"
 
 
 def open_connection(kind: str, channel: str = "can0", *, listen_only: bool = False,
-                    replay_speed: float = 1.0, replay_loop: bool = False, sim_seed=None) -> Connection:
+                    replay_speed: float = 1.0, replay_loop: bool = False, sim_seed=None,
+                    profile=None) -> Connection:
     """Open a bus and start a session. Raises OSError / BackendError on failure."""
     sim = None
     if kind == SOCKETCAN:
@@ -44,6 +48,14 @@ def open_connection(kind: str, channel: str = "can0", *, listen_only: bool = Fal
         from ..sim import MachineSimulator  # imported lazily: only needed for the simulator
         bus = VirtualBus()
         sim = MachineSimulator(VirtualBackend(bus, "sim-ecus"), seed=sim_seed)
+        sim.start()
+        backend = VirtualBackend(bus, "sim")
+    elif kind == PROFILE_SIM:
+        from ..sim.profile_sim import ProfileSimulator
+        if profile is None:
+            raise ValueError("pick a machine profile to simulate first")
+        bus = VirtualBus()
+        sim = ProfileSimulator(VirtualBackend(bus, "sim-ecus"), profile, seed=sim_seed)
         sim.start()
         backend = VirtualBackend(bus, "sim")
     elif kind == REPLAY:

@@ -40,6 +40,15 @@ Rules that keep it reusable:
   `session.latest_for(pgn)` and `signal.decode()`.
 * **Standard library only** below `gui/`. That keeps the Pi image small and boot fast.
 
+## Plugins
+
+`canopener/plugins.py` loads packages registered under the `canopener.plugins` entry point.
+They can add GUI tabs / menus (`register_gui(api)`, see `PluginApi` in `gui/main_window.py`),
+CLI commands (`register_cli`) and profile folders (`profile_dirs`). Two `Session` hooks exist for
+them: `add_listener(fn)` (every received frame, on the receive thread) and `send_frame(frame)`
+(any 11/29-bit frame; refused in listen-only). This is how OEM-specific and bidirectional tools
+live in separate, private packages while this repository stays generic and read-only.
+
 ## Threading model
 
 * `Session` owns one receive thread that calls `backend.recv()` and `Session.feed()`. Transport

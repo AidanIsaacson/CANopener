@@ -38,7 +38,9 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[gui]"
 | **Machine info** | Component / software / ECU IDs, VIN, engine hours, fuel used. |
 | **Log tool** | Plan timestamps for a job ("key on, start, drive, shutdown ..."), record, and tag them with single keys while you work the machine. After stopping, relabel and save. Each capture gets a raw log, a live-data spreadsheet with a marker column, and a summary of codes and ECU dropouts against your timestamps. |
 | **Reports and logs** | Text reports, `candump`-format recording, CSV export, copy everything to a USB stick, offline decode of a log, and real-time replay of a log. |
-| **Machine profiles** | Per make/model JSON files that name OEM source addresses, SPNs, proprietary PGNs, and add custom signals. |
+| **Machine profiles** | Per make/model JSON files that name OEM source addresses, SPNs and proprietary PGNs, and add custom signals: bit fields, signed values, enum text, groups and normal ranges. The app recognises a machine from the modules on its bus and offers the matching profile. A profile can also be run as a simulator. |
+| **Units** | Metric, imperial, or your own mix per quantity (Settings → Units…, e.g. psi with °C). |
+| **Plugins** | Separately installed packages can add tabs, menus, CLI commands and profiles (see below). |
 
 **Read-only by design.** The tool only transmits J1939 Requests (PGN 59904) and transport-protocol
 flow control (CTS / end-of-message ACK). It never sends DM3/DM11 clears or writes anything to an
@@ -75,7 +77,8 @@ PEAK, 8devices USB2CAN, Kvaser, MCP2515/MCP2518FD SPI HATs (`can0`), or `slcan` 
    `ip link set can0 type can bitrate 250000 ... && ip link set can0 up`.
    Pick **Auto** to detect the bitrate. It listens at each rate in listen-only mode, so nothing
    is transmitted onto the machine's bus while it searches.
-3. Click **Connect**, then **Read Active** / **Read Stored** / **Full Scan**.
+3. Click **Connect**, then **Read Active** / **Read Stored** / **Full Scan**. **Diagnostics →
+   Request a PGN…** asks one ECU (or all) for any parameter group and shows the reply.
 
 From a terminal:
 
@@ -155,10 +158,41 @@ copies everything into `CANopener_export_<date>/` on the stick, then ejects it. 
 ## Machine profiles
 
 Profiles label what the standard tables can't: OEM controllers, manufacturer-specific SPNs
-(516096-524287) and proprietary PGNs. Pick one from the **Profile** box in the toolbar.
-Built-in examples are in [`canopener/profiles/`](canopener/profiles). Copy one into
-`~/.config/canopener/profiles/` and edit it. The format is documented at the top of
-[`canopener/core/profiles.py`](canopener/core/profiles.py).
+(516096-524287) and proprietary PGNs, plus extra live signals. Pick one from the **Profile** box
+in the toolbar. Built-in examples are in [`canopener/profiles/`](canopener/profiles); copy one
+into `~/.config/canopener/profiles/` and edit it. The full format is documented at the top of
+[`canopener/core/profiles.py`](canopener/core/profiles.py). Signals can be:
+
+* whole bytes (`"length": 1/2/4`) or bit fields (`"bit": 4, "bits": 12`, spanning bytes in J1939 order)
+* `"signed"`, scaled (`"scale"`, `"offset"`), with a `"unit"` (common spellings like `Volts`, `C`,
+  `kph` are normalised so unit conversion works)
+* enumerated (`"enum": {"0": "Released", "1": "Applied"}`), grouped (`"group"`, used by the
+  Live Data group filter), with a normal range (`"low"`, `"high"`: out-of-range values show red)
+* limited to one source address or a list (`"sa": ["0x00", "0x27"]`)
+
+A profile signal at the same place as a built-in one replaces it, so a profile can rename and
+regroup standard data too.
+
+**Recognising a machine:** a `"detect": {"addresses": [...], "min_match": 2}` section lists the
+module addresses that machine has. When the bus matches, a banner offers to switch profiles.
+
+**Simulating a profile:** pick the profile, choose **Simulate the selected profile** as the
+source, and Connect. Every signal is broadcast from its address with moving values, so you can
+check a new profile's decoding and layout without the machine (`canopener-cli --profile ID sim
+--iface vcan0` does the same on a SocketCAN bus).
+
+**Keep OEM data private.** Profiles generated from dealer-tool data belong in
+`~/.config/canopener/profiles/` or a private plugin, never in this public repository (a test
+fails if such files appear here).
+
+## Plugins
+
+Separately installed Python packages can extend CANopener without changing this repository: a
+package declares an entry point in the `canopener.plugins` group and can then add tabs and menu
+actions, `canopener-cli` commands, and folders of profiles. See
+[`canopener/plugins.py`](canopener/plugins.py) for the hooks. A plugin that transmits anything
+beyond J1939 requests must confirm with the user first, and `Session.send_frame` refuses in
+listen-only mode.
 
 ## Project layout
 

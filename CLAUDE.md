@@ -17,9 +17,13 @@ Headless Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3` for Qt.
 
 ## Rules
 
-* **Read-only.** Diagnostics code must only transmit J1939 Requests (PGN 0xEA00) and TP flow
-  control. Never add DM3/DM11 clears, writes or frame injection to the existing scan paths. Any
-  future transmit feature goes in its own clearly separated module with explicit user confirmation.
+* **Read-only.** Code in this repo must only transmit J1939 Requests (PGN 0xEA00) and TP flow
+  control. Never add DM3/DM11 clears, writes or frame injection here. `Session.send_frame` exists
+  for separately installed plugins (they must confirm with the user before changing a machine);
+  nothing in this repo may call it.
+* **This repo is public: no OEM dealer-tool data** (extracted fault tables, PID dictionaries,
+  node maps, OEM text). It lives in the private plugin repo or `~/.config/canopener/profiles/`.
+  `tests/test_repo_hygiene.py` enforces file names and markers; keep its lists current.
 * **Layering.** `j1939/` and `can/` must not import `core/`, `gui/` or `sim/`. `core/` must not import
   Qt. The GUI is one of several front-ends (CLI now, a Pygame instrument UI later).
 * **No new runtime dependencies below `gui/`.** Standard library only, so it stays light on a Pi.

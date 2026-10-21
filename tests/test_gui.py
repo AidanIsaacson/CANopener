@@ -247,3 +247,60 @@ def test_shift_space_names_a_whole_plan_from_the_keyboard(app, tmp_path, monkeyp
     shift_space()
     assert len(lp.capture.markers) == 4
     w.close()
+
+
+def test_profile_features_in_the_gui(app, tmp_path, monkeypatch):
+    import json
+
+    from canopener.core import connection, profiles, units
+    from canopener.gui.main_window import MainWindow
+    from canopener.gui.request_dialog import RequestDialog
+
+    pdir = tmp_path / "config" / "canopener" / "profiles"
+    pdir.mkdir(parents=True)
+    (pdir / "test-loader.json").write_text(json.dumps({
+        "name": "Test loader", "detect": {"addresses": [0, 39], "min_match": 2},
+        "signals": [{"name": "Park brake", "pgn": "0xFF22", "sa": 39, "start": 0, "bit": 0, "bits": 1,
+                     "enum": {"0": "Released", "1": "Applied"}, "group": "Brakes"}]}))
+    qt.QtCore.QSettings.setDefaultFormat(qt.QtCore.QSettings.Format.IniFormat)
+    qt.QtCore.QSettings.setPath(qt.QtCore.QSettings.Format.IniFormat, qt.QtCore.QSettings.Scope.UserScope,
+                                str(tmp_path / "qs"))
+    w = MainWindow()
+    w.show()
+    w.profile.setCurrentIndex(w.profile.findData("generic"))
+    w.source.setCurrentIndex(w.source.findData(connection.SIMULATOR))
+    w.connect()
+    pump(app, 2.6)                                   # detection runs every 2 s
+    assert w.detect_bar.isVisible() and "Test loader" in w.detect_label.text()
+    w._use_detected()
+    assert profiles.active().id == "test-loader" and not w.detect_bar.isVisible()
+
+    w.tabs.setCurrentWidget(w.live)
+    pump(app, 1.0)
+    rows = {w.live.rows[k].sig.name: (i, k) for i, k in enumerate(w.live.order)}
+    i, _ = rows["Park brake"]
+    from canopener.gui.tab_live import C_GROUP, C_VALUE
+    assert w.live.table.item(i, C_VALUE).text() in ("Released", "Applied")
+    assert w.live.table.item(i, C_GROUP).text() == "Brakes"
+    w.live.group.setCurrentText("Brakes")
+    visible = [w.live.rows[k].sig.name for j, k in enumerate(w.live.order) if not w.live.table.isRowHidden(j)]
+    assert visible == ["Park brake"]
+    w.live.group.setCurrentIndex(0)
+
+    units.set_custom({"pressure": "psi", "temperature": "°C"})
+    w.units.setCurrentIndex(w.units.findData(units.CUSTOM))
+    w.live.refresh(force=True)
+    unit_cells = {w.live.rows[k].sig.name: w.live.table.item(j, 4).text() for j, k in enumerate(w.live.order)}
+    assert unit_cells["Oil pressure"] == "psi" and unit_cells["Coolant temp"] == "°C"
+    units.set_custom(units.PRESETS[units.METRIC])
+    w.units.setCurrentIndex(w.units.findData(units.METRIC))
+
+    dlg = RequestDialog(w.ctx, w)
+    dlg.pgn.setText("0xFEEB")
+    dlg._send()
+    pump(app, 1.8)
+    assert "Make: DEUTZ" in dlg.out.toPlainText()
+    dlg.close()
+    w.disconnect()
+    profiles.apply(None)
+    w.close()

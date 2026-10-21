@@ -9,3 +9,10 @@ venv/
 .ruff_cache/
 *.log
 !tests/data/*.log
+
+# OEM / dealer-tool data never belongs in this public repo (it lives in a private plugin or
+# ~/.config/canopener/profiles). tests/test_repo_hygiene.py enforces this.
+hyster_*.json
+vam_*.json
+*pcst*
+*PCST*

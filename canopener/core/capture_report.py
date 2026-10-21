@@ -102,7 +102,7 @@ class _Analysis:
         values = {}
         for sig in all_signals():
             for sa, _, d in self.session.latest_for(sig.pgn):
-                if sig.sa is not None and sa != sig.sa:
+                if not sig.accepts(sa):
                     continue
                 v = sig.decode(d)
                 if v is None:

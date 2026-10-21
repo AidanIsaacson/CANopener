@@ -61,14 +61,19 @@ def cmd_decode(a) -> int:
 def cmd_sim(a) -> int:
     from .can.backends import SocketCanBackend
     from .sim import MachineSimulator
-    sim = MachineSimulator(SocketCanBackend(a.iface))
+    if a.profile:
+        from .sim.profile_sim import ProfileSimulator
+        sim = ProfileSimulator(SocketCanBackend(a.iface), profiles.active())
+    else:
+        sim = MachineSimulator(SocketCanBackend(a.iface))
     try:
         sim.start()
     except OSError as e:
         print(f"Could not open {a.iface}: {e}\nCreate one with:\n  sudo sh -c "
               f"'{interfaces.setup_command('vcan0', 0)}'", file=sys.stderr)
         return 2
-    print(f"Simulator running on {a.iface} (engine SA 00, controller SA 27). Ctrl-C to stop.")
+    what = f"profile '{profiles.active().name}'" if a.profile else "engine SA 00, controller SA 27"
+    print(f"Simulator running on {a.iface} ({what}). Ctrl-C to stop.")
     try:
         while True:
             time.sleep(1)
@@ -137,7 +142,9 @@ def cmd_profiles(a) -> int:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="canopener-cli", description="CANopener J1939 diagnostics")
     ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    ap.add_argument("--units", choices=[units.METRIC, units.IMPERIAL], default=units.METRIC)
+    ap.add_argument("--units", choices=list(units.SYSTEMS), default=units.METRIC)
+    for q, (_, options) in units.QUANTITIES.items():
+        ap.add_argument(f"--{q}", choices=list(options), help=f"{q} unit (implies --units custom)")
     ap.add_argument("--profile", help="machine profile id (see 'profiles')")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -156,7 +163,8 @@ def main(argv=None) -> int:
     d.add_argument("--csv", metavar="OUT", help="also write every frame to a spreadsheet-friendly CSV")
     d.set_defaults(fn=cmd_decode)
 
-    m = sub.add_parser("sim", help="run the simulated machine on a SocketCAN interface")
+    m = sub.add_parser("sim", help="run the simulated machine on a SocketCAN interface "
+                                   "(with --profile ID before 'sim': simulate that profile instead)")
     m.add_argument("--iface", default="vcan0")
     m.set_defaults(fn=cmd_sim)
 
@@ -173,7 +181,17 @@ def main(argv=None) -> int:
     c.add_argument("folder")
     c.set_defaults(fn=cmd_capture)
 
+    from . import plugins
+    for plugin in plugins.loaded():
+        hook = plugin.hook("register_cli")
+        if hook:
+            hook(sub)
+
     a = ap.parse_args(argv)
+    chosen = {q: getattr(a, q) for q in units.QUANTITIES if getattr(a, q)}
+    if chosen:
+        units.set_custom({**units.prefs(a.units), **chosen})
+        a.units = units.CUSTOM
     _apply_profile(a.profile)
     return a.fn(a)
 
