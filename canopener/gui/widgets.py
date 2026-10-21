@@ -6,6 +6,7 @@ from collections import deque
 
 from ..j1939.addresses import sa_name
 from ..j1939.dtc import Lamps
+from .flow import FlowLayout
 from .qt import Qt, QtCore, QtGui, QtWidgets
 
 MONO = QtGui.QFont("Monospace")
@@ -93,14 +94,18 @@ class LampPanel(QtWidgets.QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFrameShape(QtWidgets.QFrame.Shape.StyledPanel)
-        self._layout = QtWidgets.QHBoxLayout(self)
-        self._layout.setContentsMargins(8, 2, 8, 2)
+        # A flow layout so per-ECU lamp clusters wrap onto a second line on a narrow screen,
+        # instead of forcing the whole window's minimum width wide (one row per ECU could reach
+        # ~1100 px with a few ECUs, pushing the window off a small laptop screen).
+        self._layout = FlowLayout(self, margin=2, spacing=6)
+        sp = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Minimum)
+        sp.setHeightForWidth(True)              # let the strip grow taller when clusters wrap
+        self.setSizePolicy(sp)
         self._title = QtWidgets.QLabel("<b>Lamps</b>")
         self._layout.addWidget(self._title)
         self._empty = QtWidgets.QLabel("no DM1 received")
         self._empty.setStyleSheet("color: gray")
         self._layout.addWidget(self._empty)
-        self._layout.addStretch(1)
         self._groups: dict[int, tuple[QtWidgets.QWidget, list[LampIndicator]]] = {}
         self._blink = True
         t = QtCore.QTimer(self)
@@ -129,7 +134,7 @@ class LampPanel(QtWidgets.QFrame):
                 inds = [LampIndicator(n) for n, _ in lp.items()]
                 for ind in inds:
                     lay.addWidget(ind)
-                self._layout.insertWidget(self._layout.count() - 1, w)
+                self._layout.addWidget(w)
                 self._groups[sa] = (w, inds)
             for ind, (_, lamp) in zip(self._groups[sa][1], lp.items()):
                 ind.set_lamp(lamp)

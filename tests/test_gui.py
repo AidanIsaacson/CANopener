@@ -307,8 +307,11 @@ def test_profile_features_in_the_gui(app, tmp_path, monkeypatch):
 
 
 def test_window_fits_small_laptop(app, tmp_path):
-    """The window must stay narrow enough to fit (and so maximise / snap on) a 1366-wide
-    laptop screen. A control row that won't wrap used to pin the minimum width at ~1458."""
+    """The window must stay narrow enough to fit (and so maximise / snap on) a 1366-wide laptop,
+    both empty AND once content has loaded. Two non-wrapping rows used to pin the minimum width
+    wide: the Fault Codes controls (~1458 empty) and the per-ECU lamp strip (~1459 after a scan
+    populated several ECUs' lamps). Both now wrap."""
+    from canopener.core import connection
     from canopener.gui.main_window import MainWindow
 
     qt.QtCore.QSettings.setDefaultFormat(qt.QtCore.QSettings.Format.IniFormat)
@@ -317,9 +320,23 @@ def test_window_fits_small_laptop(app, tmp_path):
     w = MainWindow()
     w.show()
     app.processEvents()
-    assert w.minimumSizeHint().width() <= 1200
+    assert w.minimumSizeHint().width() <= 1200           # empty
+
+    # Populate: connect to the sim, scan so lamps + codes fill, select a row so the detail loads.
+    w.source.setCurrentIndex(w.source.findData(connection.SIMULATOR))
+    w.connect()
+    pump(app, 1.5)
+    w.ctx.run_preset("full")
+    pump(app, 5.0)
+    if w.codes.table.rowCount():
+        w.codes.table.selectRow(0)
+    app.processEvents()
+    assert w.lamps.minimumSizeHint().width() <= 700      # lamp strip wraps, no longer ~1068
+    assert w.minimumSizeHint().width() <= 1200           # still fits after content loaded
+
     # It must actually accept a laptop-sized geometry (not get clamped back up by a minimum).
     w.resize(1280, 720)
     app.processEvents()
     assert w.width() <= 1280 and w.height() <= 720
+    w.disconnect()
     w.close()

@@ -75,6 +75,7 @@ class MainWindow(QtWidgets.QMainWindow):
         config.set_data_dir(self.settings.value("data_dir") or None)
         self.setWindowTitle(f"CANopener {__version__}")
         self.setWindowIcon(app_icon())
+        self.setMinimumSize(760, 460)       # floor so it always fits a small laptop / instrument screen
         self.resize(1300, 850)
         self._last_counts = (time.time(), 0, 0)
         self._bus_load = 0.0
@@ -129,9 +130,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._session_changed(None)
 
     def _fit_to_screen(self):
-        """Keep the opening window within the screen so it fits a small laptop and can still be
-        moved, maximised and snapped. A window bigger than the work area can't be snapped on
-        Cinnamon/GNOME."""
+        """Keep the window within the screen so it fits a small laptop and can still be moved,
+        maximised and snapped. A window bigger than the work area can't be snapped on
+        Cinnamon/GNOME. Safe to call repeatedly: it only ever *shrinks* an oversized window and
+        nudges it back on-screen, so it never fights a user making the window smaller. It is
+        called again after content loads (fault lamps, a long report) in case a widget's content
+        has pushed the window past the screen edge."""
+        if self.isMaximized() or self.isFullScreen():
+            return
         screen = self.screen() or QtWidgets.QApplication.primaryScreen()
         if screen is None:
             return
@@ -139,8 +145,9 @@ class MainWindow(QtWidgets.QMainWindow):
         frame = self.frameGeometry().size() - self.size()      # title bar / borders
         max_w = avail.width() - frame.width()
         max_h = avail.height() - frame.height()
-        self.resize(min(self.width(), max_w), min(self.height(), max_h))
-        # Nudge fully onto the screen if restored geometry put it partly off.
+        if self.width() > max_w or self.height() > max_h:
+            self.resize(min(self.width(), max_w), min(self.height(), max_h))
+        # Nudge fully onto the screen if content growth or restored geometry put it partly off.
         g = self.frameGeometry()
         g.moveLeft(max(avail.left(), min(g.left(), avail.right() - g.width())))
         g.moveTop(max(avail.top(), min(g.top(), avail.bottom() - g.height())))
@@ -312,6 +319,7 @@ class MainWindow(QtWidgets.QMainWindow):
         hl = QtWidgets.QHBoxLayout(bar)
         hl.setContentsMargins(8, 3, 8, 3)
         self.detect_label = QtWidgets.QLabel()
+        self.detect_label.setWordWrap(True)        # wrap long "Looks like ..." text instead of forcing width
         hl.addWidget(self.detect_label, 1)
         use = QtWidgets.QPushButton("Use this profile")
         use.clicked.connect(self._use_detected)
@@ -347,6 +355,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._detected = matches[0].profile
         self.detect_label.setText(f"<b>Looks like:</b> {matches[0].describe()}")
         self.detect_bar.show()
+        QtCore.QTimer.singleShot(0, self._fit_to_screen)
 
     def _use_detected(self):
         if self._detected is not None:
@@ -656,6 +665,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if result.listen_only and not result.offline:
             msg += " (listen-only: only broadcast data)"
         self.statusBar().showMessage(msg, 8000)
+        # Results populate the lamp strip and tables; make sure that growth didn't push the
+        # window off-screen (belt-and-suspenders on top of the wrapping layouts).
+        QtCore.QTimer.singleShot(0, self._fit_to_screen)
 
     def _tick(self):
         s = self.ctx.session
