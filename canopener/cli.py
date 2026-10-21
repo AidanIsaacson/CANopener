@@ -9,6 +9,7 @@
 """
 
 import argparse
+import os
 import sys
 import time
 
@@ -107,6 +108,22 @@ def cmd_setup(a) -> int:
     return 0
 
 
+def cmd_capture(a) -> int:
+    from .core.capture import Capture
+    try:
+        c = Capture.load(a.folder)
+    except (OSError, ValueError) as e:
+        print(f"Not a capture folder: {e}", file=sys.stderr)
+        return 2
+    if c.state != "saved":
+        print("Capture was never saved (recording interrupted); recovering it.", file=sys.stderr)
+    c.save(system=a.units)
+    with open(os.path.join(c.folder, "summary.txt")) as f:
+        print(f.read())
+    print(f"(rewrote summary.txt and live_data.csv in {c.folder})", file=sys.stderr)
+    return 0
+
+
 def cmd_profiles(a) -> int:
     found, errors = profiles.available_profiles()
     for p in found:
@@ -151,6 +168,10 @@ def main(argv=None) -> int:
     u.add_argument("--listen-only", action="store_true", help="leave the controller in listen-only mode")
     u.set_defaults(fn=cmd_setup)
     sub.add_parser("profiles", help="list machine profiles").set_defaults(fn=cmd_profiles)
+
+    c = sub.add_parser("capture", help="re-generate and print a capture folder's summary")
+    c.add_argument("folder")
+    c.set_defaults(fn=cmd_capture)
 
     a = ap.parse_args(argv)
     _apply_profile(a.profile)

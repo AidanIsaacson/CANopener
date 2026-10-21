@@ -1,5 +1,6 @@
 """Reusable widgets: warning-lamp strip, strip-chart plotter, table helpers."""
 
+import os
 import time
 from collections import deque
 
@@ -11,7 +12,15 @@ MONO = QtGui.QFont("Monospace")
 MONO.setStyleHint(QtGui.QFont.StyleHint.TypeWriter)
 
 LAMP_COLORS = {"MIL": "#f2a900", "Stop": "#e03131", "Warn": "#f2a900", "Protect": "#f2a900"}
+MARKER_COLOR = "#c2255c"
 SERIES_COLORS = ["#1c7ed6", "#e8590c", "#2f9e44", "#ae3ec9", "#c92a2a", "#0c8599", "#5c940d", "#862e9c"]
+
+
+ICON_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "canopener.svg")
+
+
+def app_icon() -> QtGui.QIcon:
+    return QtGui.QIcon(ICON_PATH)
 
 
 def mono_font(size: int | None = None) -> QtGui.QFont:
@@ -136,6 +145,7 @@ class StripChart(QtWidgets.QWidget):
         self.series: dict[str, dict] = {}       # key -> {label, unit, points: deque}
         self.paused_at: float | None = None
         self.follow_data = False
+        self.markers: list[tuple[float, str]] = []     # (time, "3 - drive") from the Log tool
         self.setMinimumHeight(120)
         self.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding)
 
@@ -213,6 +223,23 @@ class StripChart(QtWidgets.QWidget):
             p.setPen(text_color)
             p.drawText(QtCore.QPointF(plot.right() + 4, plot.top() + fm.ascent()), f"{hi:.4g}")
             p.drawText(QtCore.QPointF(plot.right() + 4, plot.bottom()), f"{lo:.4g}")
+        self._draw_markers(p, now, t_min, left, right, fm)
         p.setPen(text_color)
         p.drawText(QtCore.QPointF(left, self.height() - 2),
                    f"last {int(self.window)} s" + ("  (paused)" if self.paused_at else ""))
+
+    def _draw_markers(self, p, now, t_min, left, right, fm):
+        """Capture timestamps as dashed vertical lines with their label."""
+        width = self.width() - left - right
+        pen = QtGui.QPen(QtGui.QColor(MARKER_COLOR), 1.2, Qt.PenStyle.DashLine)
+        last_label_x = -1e9
+        for t, title in sorted(self.markers):
+            if not t_min <= t <= now:
+                continue
+            x = left + (t - t_min) / self.window * width
+            p.setPen(pen)
+            p.drawLine(QtCore.QPointF(x, fm.height() + 4), QtCore.QPointF(x, self.height() - fm.height()))
+            if x - last_label_x > fm.horizontalAdvance(title) + 6:    # don't pile labels on each other
+                p.setPen(QtGui.QColor(MARKER_COLOR))
+                p.drawText(QtCore.QPointF(x + 3, self.height() - fm.descent() - fm.height()), title)
+                last_label_x = x

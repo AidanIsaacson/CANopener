@@ -207,6 +207,8 @@ class LiveTab(QtWidgets.QWidget):
             if it is not None:
                 it.setForeground(QtGui.QColor("gray") if stale else self.palette().color(QtGui.QPalette.ColorRole.Text))
         t.blockSignals(False)
+        c = self.ctx.capture
+        self.chart.markers = [(m.t, c.title(i)) for i, m in c.tagged()] if c is not None else []
         self.chart.update()
 
     # ------------------------------------------------------------------

@@ -43,3 +43,18 @@ straight on the display with no desktop session. Set in the service or environme
 `CANOPENER_ARGS="--fullscreen --scale 1.3"` enlarges everything for touch. The current GUI
 targets 1024x600 and up; 800x480 works but is cramped. The planned on-device UI is designed
 for small screens from the start (see docs/ARCHITECTURE.md).
+
+## Hardware buttons for the Log tool
+
+The Log tool's keys are remappable (Log → Keyboard shortcuts), and a physical button can send
+any key using the kernel's `gpio-key` overlay. For example, Start/Stop on GPIO17 and Timestamp
+on GPIO27, wired between the pin and ground, sending Enter and Space:
+
+```
+# /boot/firmware/config.txt
+dtoverlay=gpio-key,gpio=17,active_low=1,gpio_pull=up,keycode=28    # KEY_ENTER
+dtoverlay=gpio-key,gpio=27,active_low=1,gpio_pull=up,keycode=57    # KEY_SPACE
+```
+
+(Key codes are from `linux/input-event-codes.h`: F5 = 63, F6 = 64, 1 = 2 ... 9 = 10, 0 = 11.)
+

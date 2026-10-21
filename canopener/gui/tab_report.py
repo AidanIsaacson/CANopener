@@ -50,7 +50,7 @@ class ReportTab(QtWidgets.QWidget):
         if res is None:
             QtWidgets.QMessageBox.information(self, "Save", "Nothing to save yet - run a scan first.")
             return
-        d = config.ensure_dir(os.path.join(config.data_dir(), "reports"))
+        d = config.ensure_dir(config.reports_dir())
         stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save report", os.path.join(d, f"report_{stamp}.txt"),
                                                         "Text (*.txt);;All files (*)")
@@ -67,5 +67,6 @@ class ReportTab(QtWidgets.QWidget):
             channel = s.backend.channel if s.backend is not None and s.backend.kind == "socketcan" else "can0"
             write_log(logpath, frames, channel)
             saved.append(logpath)
+        self.ctx.saved_paths.extend(p for p in saved if p not in self.ctx.saved_paths)
         QtWidgets.QMessageBox.information(self, "Saved", "Saved:\n" + "\n".join(saved))
 

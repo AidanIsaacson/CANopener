@@ -33,3 +33,6 @@ Headless Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3` for Qt.
 * Anything that runs as root goes through `core.interfaces.run_privileged` as explicit argv
   lists (never `sh -c` with user input). Keep `deploy/raspberry-pi/canopener.sudoers` matching
   the commands `setup_steps()` produces.
+* Capture logic (tagging rules, saving, summaries) lives in `core/capture*.py` so the future
+  on-device UI shares it; `gui/log_panel.py` is only the screen. Captures must stay recoverable:
+  write `capture.json` / `markers.csv` on every change while recording.

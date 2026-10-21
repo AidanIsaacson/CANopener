@@ -22,7 +22,7 @@ install -m 755 "$HERE/canopener-launch.sh" "$LAUNCHER"
 
 echo "== Menu entry"
 mkdir -p "$HOME/.local/share/applications"
-sed "s|CANOPENER_LAUNCHER|$LAUNCHER|" "$HERE/canopener.desktop" > "$HOME/.local/share/applications/canopener.desktop"
+sed -e "s|CANOPENER_LAUNCHER|$LAUNCHER|" -e "s|CANOPENER_ICON|$REPO/canopener/assets/canopener.svg|" "$HERE/canopener.desktop" > "$HOME/.local/share/applications/canopener.desktop"
 
 for arg in "$@"; do
     case "$arg" in

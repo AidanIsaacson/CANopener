@@ -21,6 +21,7 @@ hardware.
 | **Bus monitor** | Raw frames, scrolling or one row per ID (like `cansniffer`) with changed bytes highlighted, for reverse-engineering proprietary frames. |
 | **Network** | Every ECU on the bus, its address-claim NAME, and each PGN it sends with rate and latest data. |
 | **Machine info** | Component / software / ECU IDs, VIN, engine hours, fuel used. |
+| **Log tool** | Plan timestamps for a job ("key on, start, drive, shutdown ..."), record, and tag them with single keys while you work the machine. After stopping, relabel and save. Each capture gets a raw log, a live-data spreadsheet with a marker column, and a summary of codes and ECU dropouts against your timestamps. |
 | **Reports and logs** | Text reports, `candump`-format recording, CSV export, copy everything to a USB stick, offline decode of a log, and real-time replay of a log. |
 | **Machine profiles** | Per make/model JSON files that name OEM source addresses, SPNs, proprietary PGNs, and add custom signals. |
 
@@ -39,7 +40,13 @@ pip install -e ".[gui,dev]"
 canopener --sim            # desktop GUI connected to the simulated telehandler
 canopener-cli scan --sim --full
 pytest                     # run the tests
+
+canopener --install-desktop --desktop-shortcut   # add CANopener (with icon) to the menu + desktop
 ```
+
+After `--install-desktop`, CANopener shows up in the application menu like any other program.
+It launches with this same Python environment, so there's no venv to activate. Run it again if
+you move the folder; `--uninstall-desktop` removes it.
 
 The simulator is a Deutz-style engine ECU (SA 00) and a machine controller (SA 27). It warms up,
 revs, throws an intermittent low-oil-pressure code at idle, and answers requests exactly like
@@ -92,10 +99,49 @@ Files the app writes:
 
 | Path | What |
 |---|---|
-| `~/canopener/logs/` | Recordings (`candump -l` format, readable by can-utils, SavvyCAN, etc.) |
+| `~/canopener/logs/` | Captures from the Log tool, one folder each (see above) |
 | `~/canopener/reports/` | Saved reports (plus the raw log alongside) |
 | `~/.config/canopener/profiles/*.json` | Your machine profiles |
 | `~/.config/canopener/spn_names.csv` | Optional extra SPN names, `spn,name` per line |
+
+## Log tool: recording a job
+
+Open it with the **📝 Log** button (or F2). Its keys only work while it's open, and never while
+you're typing in a box (press **Esc** to leave a box):
+
+| Key (default) | Not recording | Recording |
+|---|---|---|
+| **Enter** | start | stop |
+| **Space** | add a timestamp to the plan | tag the next untagged timestamp (adds a generic one once the plan runs out) |
+| **1** … **9**, **0** | | tag timestamp 1 … 10 directly (pressed twice: adds a "(2)" entry, never overwrites) |
+| **Backspace** | | undo the last tag |
+
+Remap any of them under **Log → Keyboard shortcuts…** (or the panel's **Keys…** button). Held
+keys don't repeat, and Start/Stop ignores a second press within 0.8 s.
+
+1. Name the job, write the customer concern, and list the timestamps, or load a template like
+   *Intermittent shutdown*. Save your own lists with **Save as…**.
+2. **Start**, then tag as you go. The Live Data chart shows each tag as a labelled line.
+3. **Stop**. Double-click to rename, add notes, delete or reorder, then **Save** / **Save As…**
+   (or **Discard**). If you just press Start again, the last capture is saved for you first.
+
+Each capture is a folder in `~/canopener/logs/` (change it with **Change…** in the panel):
+
+| File | Contents |
+|---|---|
+| `summary.txt` | Notes, timestamps, and one timeline of markers, codes going active / clearing, lamp changes and ECUs going silent / coming back, each with the phase it happened in. **The file to send back for debugging.** |
+| `live_data.csv` | Every live parameter twice a second, with `event` and `phase` columns. Opens in a spreadsheet. |
+| `markers.csv` | The timestamps with elapsed times. |
+| `capture.log` | Every raw frame (candump format; reopen with **Open…** → **View data**). |
+| `capture.json` | Everything above in machine-readable form. |
+
+Captures survive a crash: the next start offers to recover anything unsaved.
+`canopener-cli capture <folder>` regenerates and prints a capture's summary.
+
+**Export Logs** (in the panel, or Ctrl+E): tick what to export (this session's captures and
+reports are pre-ticked), insert a USB stick (it's picked up automatically), press **Export**. It
+copies everything into `CANopener_export_<date>/` on the stick, then ejects it. Or pick
+**Folder** to export anywhere else.
 
 ## Machine profiles
 

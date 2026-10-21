@@ -27,7 +27,7 @@ version = { attr = "canopener.__version__" }
 include = ["canopener*"]
 
 [tool.setuptools.package-data]
-canopener = ["profiles/*.json"]
+canopener = ["profiles/*.json", "assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

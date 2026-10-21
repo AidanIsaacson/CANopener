@@ -72,16 +72,50 @@ def test_removable_drives(tmp_path):
     assert [(d.label, d.path) for d in drives] == [("MY STICK", "/media/pi/MY STICK")]
 
 
-def test_export_to_copies_logs_and_reports(tmp_path):
-    src = tmp_path / "data"
-    (src / "logs").mkdir(parents=True)
-    (src / "reports" / "sub").mkdir(parents=True)
-    (src / "logs" / "a.log").write_text("x")
-    (src / "reports" / "sub" / "r.txt").write_text("y")
-    dest, n = storage.export_to(str(tmp_path / "usb"), [str(src / "logs"), str(src / "reports")])
-    assert n == 2
-    assert os.path.exists(os.path.join(dest, "logs", "a.log"))
-    assert os.path.exists(os.path.join(dest, "reports", "sub", "r.txt"))
+def test_export_items_copies_selected_captures_and_files(tmp_path):
+    cap1 = tmp_path / "logs" / "20260101_cap"
+    (cap1 / "sub").mkdir(parents=True)
+    (cap1 / "capture.log").write_text("x")
+    (cap1 / "sub" / "deep.txt").write_text("y")
+    report = tmp_path / "reports" / "r.txt"
+    report.parent.mkdir()
+    report.write_text("z")
+    (tmp_path / "logs" / "not_selected.log").write_text("nope")
+    seen = []
+    dest, n = storage.export_items([str(cap1), str(report)], str(tmp_path / "usb"),
+                                   progress=lambda d, t: seen.append((d, t)))
+    assert n == 3 and seen[-1][0] == seen[-1][1] == 3
+    assert os.path.exists(os.path.join(dest, "20260101_cap", "sub", "deep.txt"))
+    assert os.path.exists(os.path.join(dest, "r.txt"))
+    assert not os.path.exists(os.path.join(dest, "not_selected.log"))
+    assert storage.export_size([str(cap1), str(report)]) == 3
+
+
+def test_removable_only_trusts_mnt_for_usb_devices(tmp_path):
+    mounts = tmp_path / "mounts"
+    mounts.write_text("/dev/sdb1 /media/me/STICK vfat rw 0 0\n"
+                      "/dev/sdc1 /mnt/usb vfat rw 0 0\n"
+                      "/dev/nvme0n1p3 /mnt/data ext4 rw 0 0\n"
+                      "/dev/sdb1 /media/me/STICK2 vfat rw 0 0\n")
+    drives = storage.removable_drives(str(mounts), removable=lambda dev: dev == "/dev/sdc1")
+    assert [(d.device, d.path) for d in drives] == [("/dev/sdb1", "/media/me/STICK"), ("/dev/sdc1", "/mnt/usb")]
+
+
+def test_is_removable_reads_sysfs(tmp_path):
+    usb = tmp_path / "devices" / "pci0000:00" / "usb1" / "1-1" / "block" / "sdb"
+    (usb / "sdb1").mkdir(parents=True)
+    (usb / "sdb1" / "partition").write_text("1")
+    nvme = tmp_path / "devices" / "pci0000:00" / "nvme" / "nvme0n1"
+    (nvme / "nvme0n1p1").mkdir(parents=True)
+    (nvme / "nvme0n1p1" / "partition").write_text("1")
+    (nvme / "removable").write_text("0")
+    sysb = tmp_path / "class_block"
+    sysb.mkdir()
+    os.symlink(usb / "sdb1", sysb / "sdb1")
+    os.symlink(nvme / "nvme0n1p1", sysb / "nvme0n1p1")
+    assert storage.is_removable("/dev/sdb1", str(sysb))
+    assert not storage.is_removable("/dev/nvme0n1p1", str(sysb))
+    assert storage._parent_disk("/dev/sdb1").startswith("/dev/")
 
 
 def test_write_csv(tmp_path):

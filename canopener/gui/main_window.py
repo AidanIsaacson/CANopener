@@ -8,6 +8,9 @@ from .. import __version__
 from ..core import config, connection, interfaces, profiles, scan, storage, units
 from ..core.connection import load_log_session, open_connection
 from .context import AppContext
+from .export_dialog import ExportDialog
+from .hotkeys import Hotkeys, KeybindDialog
+from .log_panel import LogPanel
 from .qt import QT_API, Qt, QtCore, QtGui, QtWidgets
 from .tab_codes import CodesTab
 from .tab_info import InfoTab
@@ -15,7 +18,7 @@ from .tab_live import LiveTab
 from .tab_monitor import MonitorTab
 from .tab_network import NetworkTab
 from .tab_report import ReportTab
-from .widgets import LampPanel
+from .widgets import LampPanel, app_icon
 
 SOURCES = [("SocketCAN adapter", connection.SOCKETCAN), ("Simulator", connection.SIMULATOR),
            ("Replay log file", connection.REPLAY)]
@@ -28,7 +31,9 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.ctx = ctx or AppContext(self)
         self.settings = QtCore.QSettings("CANopener", "CANopener")
+        config.set_data_dir(self.settings.value("data_dir") or None)
         self.setWindowTitle(f"CANopener {__version__}")
+        self.setWindowIcon(app_icon())
         self.resize(1300, 850)
         self._last_counts = (time.time(), 0, 0)
         self._bus_load = 0.0
@@ -49,6 +54,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs.currentChanged.connect(lambda _: self._tick())
         lay.addWidget(self.tabs)
         self.setCentralWidget(central)
+
+        self.hotkeys = Hotkeys(self.settings, lambda: self.log_panel.isVisible() and self.isActiveWindow(), self)
+        self.log_panel = LogPanel(self.ctx, self.hotkeys, self.settings, self._capture_meta, self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.log_panel)
+        self.log_panel.export_requested.connect(self.export_logs)
+        self.log_panel.keys_requested.connect(self.edit_keys)
+        self.log_panel.open_capture_log.connect(self.open_log)
+        self.log_toggle.setDefaultAction(self.log_panel.toggleViewAction())
+        self.log_panel.toggleViewAction().setText("📝 Log")
+        self.log_panel.toggleViewAction().setToolTip("Show / hide the Log tool (its keys only work while it's open)")
+        QtWidgets.QApplication.instance().installEventFilter(self.hotkeys)
         self._build_menu()
         self._build_status()
 
@@ -115,11 +131,10 @@ class MainWindow(QtWidgets.QMainWindow):
         spacer = QtWidgets.QWidget()
         spacer.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
         tb.addWidget(spacer)
-        self.record_btn = QtWidgets.QPushButton("● Record")
-        self.record_btn.setCheckable(True)
-        self.record_btn.setToolTip("Record every frame to a candump log file")
-        self.record_btn.toggled.connect(self.toggle_record)
-        tb.addWidget(self.record_btn)
+        self.log_toggle = QtWidgets.QToolButton()
+        self.log_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.log_toggle.setStyleSheet("font-weight: bold; padding: 3px 10px;")
+        tb.addWidget(self.log_toggle)
         tb.addWidget(QtWidgets.QLabel(" Profile "))
         self.profile = QtWidgets.QComboBox()
         self.profile.setMinimumWidth(170)
@@ -140,9 +155,21 @@ class MainWindow(QtWidgets.QMainWindow):
         f.addSeparator()
         self._action(f, "&Save report...", self.report.save, "Ctrl+S")
         self._action(f, "Export frames as &CSV...", self.export_csv)
-        self._action(f, "Copy logs && reports to &USB drive...", self.export_usb)
+        self._action(f, "&Export Logs (USB drive / folder)...", self.export_logs, "Ctrl+E")
         f.addSeparator()
         self._action(f, "&Quit", self.close, "Ctrl+Q")
+        lg = m.addMenu("&Log")
+        toggle = self.log_panel.toggleViewAction()
+        toggle.setShortcut(QtGui.QKeySequence("F2"))
+        lg.addAction(toggle)
+        lg.addSeparator()
+        self._action(lg, "Start / stop recording", lambda: self.log_panel.handle_action("start_stop"))
+        self._action(lg, "Timestamp", lambda: self.log_panel.handle_action("timestamp"))
+        self._action(lg, "Open saved capture...", lambda: self.log_panel.open_saved())
+        lg.addSeparator()
+        self._action(lg, "Export Logs...", self.export_logs)
+        self._action(lg, "Change save folder...", self.log_panel._change_folder)
+        self._action(lg, "Keyboard shortcuts...", self.edit_keys)
         d = m.addMenu("&Diagnostics")
         for preset, (title, _, _) in scan.PRESETS.items():
             self._action(d, title, lambda _=False, p=preset: self._run(p))
@@ -197,6 +224,9 @@ class MainWindow(QtWidgets.QMainWindow):
         geo = s.value("geometry")
         if geo is not None:
             self.restoreGeometry(geo)
+        state = s.value("window_state")
+        if state is not None:
+            self.restoreState(state)
         self._source_changed()
 
     def _save_settings(self):
@@ -208,6 +238,7 @@ class MainWindow(QtWidgets.QMainWindow):
         s.setValue("units", self.units.currentData())
         s.setValue("profile", self.profile.currentData() or "")
         s.setValue("geometry", self.saveGeometry())
+        s.setValue("window_state", self.saveState())
 
     def _load_profiles(self, preferred=None):
         current = preferred if isinstance(preferred, str) else self.profile.currentData()
@@ -343,9 +374,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._replay_path = ""
 
     def disconnect(self):
-        if self.record_btn.isChecked():
-            self.record_btn.setChecked(False)
-        self.ctx.set_connection(None)
+        self.ctx.set_connection(None)       # the Log tool stops a running capture by itself
 
     def replay_log(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
@@ -382,7 +411,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if s is None or not s.raw:
             QtWidgets.QMessageBox.information(self, "Export CSV", "No frames to export yet.")
             return
-        d = config.ensure_dir(os.path.join(config.data_dir(), "logs"))
+        d = config.ensure_dir(config.logs_dir())
         stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export frames as CSV",
                                                         os.path.join(d, f"frames_{stamp}.csv"), "CSV (*.csv)")
@@ -391,51 +420,26 @@ class MainWindow(QtWidgets.QMainWindow):
         with s.lock:
             frames = list(s.raw)
         n = storage.write_csv(path, frames)
+        if path not in self.ctx.saved_paths:
+            self.ctx.saved_paths.append(path)
         self.statusBar().showMessage(f"Wrote {n} frames to {path}", 8000)
 
-    def export_usb(self):
-        drives = storage.removable_drives()
-        if not drives:
-            QtWidgets.QMessageBox.information(self, "Copy to USB", "No USB drive found. Plug one in and "
-                                              "wait for it to mount, then try again.")
-            return
-        labels = [d.describe() for d in drives]
-        choice, ok = QtWidgets.QInputDialog.getItem(self, "Copy to USB", "Copy logs and reports to:", labels, 0, False)
-        if not ok:
-            return
-        drive = drives[labels.index(choice)]
-        QtWidgets.QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            dest, n = storage.export_to(drive.path)
-        except OSError as e:
-            QtWidgets.QMessageBox.critical(self, "Copy to USB", str(e))
-            return
-        finally:
-            QtWidgets.QApplication.restoreOverrideCursor()
-        QtWidgets.QMessageBox.information(self, "Copy to USB", f"Copied {n} file(s) to\n{dest}" if n
-                                          else "Nothing to copy yet (no logs or reports saved).")
+    def export_logs(self):
+        ExportDialog(self.ctx, self).exec()
 
-    def toggle_record(self, on):
+    def edit_keys(self):
+        if KeybindDialog(self.hotkeys, self).exec():
+            self.log_panel._sync()
+
+    def _capture_meta(self) -> dict:
         s = self.ctx.session
-        if on:
-            if s is None or s.offline:
-                self.record_btn.setChecked(False)
-                return
-            d = config.ensure_dir(os.path.join(config.data_dir(), "logs"))
-            stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            path = os.path.join(d, f"capture_{stamp}.log")
-            try:
-                s.start_recording(path)
-            except OSError as e:
-                QtWidgets.QMessageBox.critical(self, "Record", str(e))
-                self.record_btn.setChecked(False)
-                return
-            self.record_btn.setText("■ Stop")
-        else:
-            done = s.stop_recording() if s else None
-            self.record_btn.setText("● Record")
-            if done:
-                self.statusBar().showMessage(f"Saved {done[1]} frames to {done[0]}", 10000)
+        meta = {"source": self.ctx.connection.describe() if self.ctx.connection else "offline",
+                "profile": self.profile.currentData() or "none", "units": self.ctx.units}
+        if self.ctx.connection is not None and self.ctx.connection.kind == connection.SOCKETCAN:
+            meta.update(interface=self.iface.currentText(), bitrate=self.ctx.bitrate)
+        if s is not None:
+            meta["listen_only"] = s.listen_only
+        return meta
 
     # ------------------------------------------------------------------
     # periodic updates
@@ -446,7 +450,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.connect_btn.setText("Disconnect" if (live or offline) else "Connect")
         for w in (self.source, self.iface, self.rescan_btn, self.bitrate):
             w.setEnabled(not live)
-        self.record_btn.setEnabled(live)
         if live:
             self.conn_label.setText(self.ctx.connection.describe()
                                     + ("  [listen-only]" if session.listen_only else ""))
@@ -469,6 +472,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _tick(self):
         s = self.ctx.session
         self.live.sample()
+        self.log_panel.refresh()
         cur = self.tabs.currentWidget()
         self.monitor.refresh()              # always: it consumes the frame stream
         for t in (self.codes, self.live, self.network):
@@ -501,8 +505,9 @@ class MainWindow(QtWidgets.QMainWindow):
         err = h.link_error or h.tx_error or recent
         self.error_label.setText(f"⚠ {err}" if err else "")
         self.error_label.setStyleSheet("color: #e03131" if err else "")
-        rec = s.recording
-        self.rec_label.setText(f"● REC {rec.count} frames" if rec else "")
+        c = self.log_panel.capture
+        rec = self.log_panel.recording
+        self.rec_label.setText(f"● REC {c.elapsed():.0f} s, {c.recorded_frames:,} frames" if rec else "")
         self.rec_label.setStyleSheet("color: #e03131; font-weight: bold" if rec else "")
 
     # ------------------------------------------------------------------
@@ -517,7 +522,17 @@ class MainWindow(QtWidgets.QMainWindow):
             "flow control. It never clears codes or writes to an ECU. Tick Listen-only to send nothing.</p>"
             f"<p>Qt binding: {QT_API}</p>")
 
+    def showEvent(self, ev):
+        super().showEvent(ev)
+        if not getattr(self, "_checked_pending", False):
+            self._checked_pending = True
+            QtCore.QTimer.singleShot(300, self.log_panel.check_pending)
+
     def closeEvent(self, ev):
+        if not self.log_panel.confirm_unsaved():
+            ev.ignore()
+            return
+        QtWidgets.QApplication.instance().removeEventFilter(self.hotkeys)
         self._save_settings()
         self.timer.stop()
         if self.ctx.connection is not None:

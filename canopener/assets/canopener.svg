@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- CANopener icon: a CAN bus differential pair (CAN-H / CAN-L) on a dark tile, with a magnifier -->
+  <rect x="8" y="8" width="240" height="240" rx="44" fill="#1f2a37"/>
+  <rect x="8" y="8" width="240" height="240" rx="44" fill="none" stroke="#f59f00" stroke-width="6"/>
+  <polyline points="34,92 70,92 70,62 104,62 104,92 124,92 124,62 168,62 168,92 222,92"
+            fill="none" stroke="#f59f00" stroke-width="12" stroke-linejoin="round" stroke-linecap="round"/>
+  <polyline points="34,112 70,112 70,142 104,142 104,112 124,112 124,142 168,142 168,112 222,112"
+            fill="none" stroke="#4dabf7" stroke-width="12" stroke-linejoin="round" stroke-linecap="round"/>
+  <circle cx="150" cy="176" r="34" fill="#1f2a37" stroke="#f8f9fa" stroke-width="12"/>
+  <line x1="175" y1="201" x2="210" y2="232" stroke="#f8f9fa" stroke-width="16" stroke-linecap="round"/>
+  <text x="150" y="187" font-family="DejaVu Sans, Arial, sans-serif" font-size="30" font-weight="bold"
+        fill="#f59f00" text-anchor="middle">J</text>
+</svg>

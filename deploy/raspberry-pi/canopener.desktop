@@ -3,6 +3,6 @@ Type=Application
 Name=CANopener
 Comment=J1939 / CAN diagnostics
 Exec=CANOPENER_LAUNCHER
-Icon=utilities-system-monitor
+Icon=CANOPENER_ICON
 Terminal=false
 Categories=Utility;Development;

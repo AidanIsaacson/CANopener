@@ -29,6 +29,8 @@ class AppContext(QtCore.QObject):
         self.units = units.METRIC
         self.busy = False
         self.bitrate = 250000
+        self.capture = None                   # the Log tool's current capture (core.capture.Capture)
+        self.saved_paths: list[str] = []      # captures / reports saved this session, for Export Logs
         self.result_ready.connect(self._store_result)
         # Worker threads never touch Qt: they post here and a main-thread timer emits the signals.
         self._done: queue.Queue = queue.Queue()
