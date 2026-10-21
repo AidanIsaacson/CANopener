@@ -73,17 +73,38 @@ The installer marks the desktop icon as trusted. If your desktop still asks abou
 2. In CANopener, pick **SocketCAN adapter** in the top-left box. The interface (usually `can0`)
    should appear next to it; press **⟳** if it doesn't.
 3. Pick the bitrate (**250k** for most J1939 machines, or **Auto** to detect it safely in
-   listen-only mode) and press **Set Up Interface**. It asks for your password: setting up a
-   network interface needs admin rights.
+   listen-only mode) and press **Set Up Interface**. It asks for your password the first time:
+   bringing a network interface up needs admin rights.
 4. Press **Connect**, then **Read Active** / **Full Scan**.
 
 Tick **Listen-only** if you want to be certain the laptop sends nothing at all onto the bus.
 
-Adapter notes:
+### Stop it asking for a password every time
+
+Bringing the interface up needs root, so by default you get a password prompt each session. To do
+it once and never again, use **Settings → Set up passwordless CAN access…** (or
+`.venv/bin/canopener-cli allow-setup`). It installs a small system rule — after one password
+prompt — that lets your user run **only** `ip link set canN …` as root. No password is stored
+anywhere, and the app itself never runs as root.
+
+### Which USB adapter?
+
+Get one that speaks **SocketCAN natively** (the `gs_usb` driver) so it just appears as `can0` with
+no extra setup.
+
+* **Recommended: CANable 2.0 with candleLight/gs_usb firmware** (~$30). Native SocketCAN, and it's
+  **CAN FD** — a good stand-in for the MCP2518FD in the planned handheld, and future-proof for
+  J1939-22 (it's fully backward-compatible with classic 250k CAN). Innomaker USB-CAN-FD or a CANine
+  are equivalent alternatives.
+* Make sure it's the **candleLight/gs_usb** firmware, not the older **slcan** one. slcan shows up as
+  a serial port and needs a manual step each plug-in (below).
+* `gs_usb` adapters don't support bus-off auto-restart (`restart-ms`); CANopener handles that
+  automatically, so the interface still comes up — you just don't get auto-recovery (your final
+  MCP2518FD hardware will, via the `mcp251xfd` driver).
 
 | Adapter | Shows up as |
 |---|---|
-| CANable / candleLight / other gs_usb, PEAK PCAN-USB, Kvaser, 8devices USB2CAN | `can0` straight away (drivers are built into Linux) |
+| CANable 2.0 / candleLight / other gs_usb, PEAK PCAN-USB, Kvaser, 8devices USB2CAN | `can0` straight away (drivers built into Linux) |
 | CANable with the original "slcan" firmware | a serial port. Run once after plugging in: `sudo slcand -o -s5 -t hw -S 3000000 /dev/ttyACM0 can0 && sudo ip link set can0 up` (`-s5` = 250k, `-s6` = 500k) |
 
 Check what Linux sees with `ip link show` (look for `can0`) and `.venv/bin/canopener-cli interfaces`.

@@ -71,8 +71,17 @@ dtparam=spi=on
 dtoverlay=mcp2515-can0,oscillator=16000000,interrupt=25
 ```
 
-(For the MCP2518FD board: `dtoverlay=mcp251xfd,spi0-0,interrupt=25`.) Save with Ctrl+O, Enter,
-Ctrl+X, then `sudo reboot`.
+(For the MCP2518FD board: `dtoverlay=mcp251xfd,spi0-0,interrupt=25`, and set `oscillator=` to the
+board's crystal — usually `40000000` on MCP2518FD modules.) Save with Ctrl+O, Enter, Ctrl+X, then
+`sudo reboot`.
+
+> **Validating the real chip.** The MCP2518FD on an SPI HAT uses the same mainline `mcp251xfd`
+> driver the CM4/CM5 build will use, so this is the most faithful way to exercise the planned
+> hardware — identical `ip link` behaviour, CAN FD, and bus-off auto-restart (`restart-ms`), which
+> the USB dongles can't do. A 2-channel MCP2518FD FD HAT also matches the dual-CAN design (add a
+> second `dtoverlay=mcp251xfd,spi0-1,interrupt=24` line). Do this on the Pi, not the laptop: there's
+> no clean SocketCAN path for a bare MCP2518FD over a USB-SPI bridge, so for laptop work a `gs_usb`
+> dongle (CANable 2.0) is the right tool.
 
 Check it worked:
 
