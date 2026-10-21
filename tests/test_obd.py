@@ -76,3 +76,27 @@ def test_obd_layering_is_pure():
     for banned in ("import canopener.core", "from ..core", "from ..gui", "from ..sim",
                    "import canopener.gui"):
         assert banned not in src, f"obd/ should not reference app layers: {banned}"
+
+
+def test_generic_dtc_descriptions():
+    assert obd.describe_dtc("P0133") == "O2 sensor circuit slow response (bank 1 sensor 1)"
+    assert obd.describe_dtc("P0300") == "Random/multiple cylinder misfire detected"
+    assert obd.describe_dtc("U0101") == "Lost communication with TCM"
+    # Unknown generic code falls back to the standardized subsystem from its structure.
+    assert obd.describe_dtc("P0333").startswith("Powertrain: Ignition")
+    # Manufacturer-specific code is flagged, not invented.
+    assert obd.is_generic("P0133") and not obd.is_generic("P1234")
+    assert "manufacturer-specific" in obd.describe_dtc("P1234")
+
+
+def test_mode09_infotypes():
+    assert obd.decode(bytes.fromhex("4904") + b"\x01" + b"CAL123").text == "CAL123"
+    cvn = obd.decode(bytes.fromhex("4906") + b"\x01" + bytes.fromhex("12345678"))
+    assert cvn.name == "Calibration verification (CVN)" and cvn.text == "12345678"
+
+
+def test_new_pid_formulas():
+    assert obd.decode(bytes.fromhex("4106 80")).value == 0          # fuel trim 0x80 -> 0%
+    assert round(obd.decode(bytes.fromhex("4106 00")).value, 1) == -100.0   # full lean
+    assert obd.decode(bytes.fromhex("412C 7F")).name == "Commanded EGR"
+    assert obd.decode(bytes.fromhex("415C 64")).value == 60         # oil temp 0x64-40

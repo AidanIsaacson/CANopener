@@ -76,8 +76,15 @@ def decode(payload: bytes) -> ObdResponse | None:
         body = payload[2:]
         if body and body[0] <= 8:       # leading "number of data items" byte
             body = body[1:]
-        r.text = bytes(b for b in body if 0x20 <= b < 0x7F).decode("ascii", "replace").strip()
-        r.name = "VIN" if r.pid == 0x02 else f"Info {r.pid:#04x}"
+        r.name = VEHICLE_INFO.get(r.pid, f"Info {r.pid:#04x}")
+        if r.pid == 0x06:               # CVN: calibration verification number(s), binary -> hex
+            r.text = " ".join(body[i:i + 4].hex().upper() for i in range(0, len(body), 4) if body[i:i + 4])
+        else:                           # VIN / calibration ID / ECU name: ASCII
+            r.text = bytes(b for b in body if 0x20 <= b < 0x7F).decode("ascii", "replace").strip()
         return r
 
     return r
+
+
+VEHICLE_INFO = {0x02: "VIN", 0x04: "Calibration ID", 0x06: "Calibration verification (CVN)",
+                0x08: "In-use performance tracking", 0x0A: "ECU name"}

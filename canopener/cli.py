@@ -77,12 +77,22 @@ def cmd_obd(a) -> int:
             print("OBD-II needs to send requests, so it can't run in listen-only mode.", file=sys.stderr)
             return 2
         time.sleep(0.3)
-        vin = client.read_vin()
-        print(f"VIN: {vin}" if vin else "VIN: (not reported)")
+        from . import obd as obdlib
+        info = client.read_info()
+        if info:
+            for name, value in info:
+                print(f"{name}: {value}")
+        else:
+            print("VIN: (not reported)")
         dtcs = client.read_dtcs()
         for label in ("stored", "pending", "permanent"):
             codes = dtcs.get(label) or []
-            print(f"{label.capitalize()} DTCs: {', '.join(codes) if codes else 'none'}")
+            if codes:
+                print(f"{label.capitalize()} DTCs:")
+                for c in codes:
+                    print(f"  {c}  {obdlib.describe_dtc(c)}")
+            else:
+                print(f"{label.capitalize()} DTCs: none")
         print("\nLive data:")
         live = client.read_live()
         if not live:

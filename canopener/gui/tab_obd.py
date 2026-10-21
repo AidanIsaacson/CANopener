@@ -8,6 +8,7 @@ shows the result.
 
 import threading
 
+from .. import obd
 from ..core import units
 from ..core.obd import ObdClient
 from .qt import Qt, QtWidgets, Signal
@@ -75,7 +76,7 @@ class ObdTab(QtWidgets.QWidget):
             try:
                 client = ObdClient(session)
                 try:
-                    payload["vin"] = client.read_vin()
+                    payload["info"] = client.read_info()
                     payload["dtcs"] = client.read_dtcs()
                     payload["live"] = [(r.name, r.value, r.unit) for r in client.read_live()]
                 finally:
@@ -96,14 +97,21 @@ class ObdTab(QtWidgets.QWidget):
             QtWidgets.QMessageBox.warning(self, "OBD-II", f"Read failed: {payload['error']}")
             return
         self._last = payload
-        vin = payload.get("vin")
-        self.vin_label.setText(f"VIN: {vin}" if vin else "VIN: (not reported)")
+        info = dict(payload.get("info") or [])
+        vin = info.get("VIN")
+        extra = "  ·  ".join(f"{k}: {v}" for k, v in info.items() if k != "VIN")
+        self.vin_label.setText((f"VIN: {vin}" if vin else "VIN: (not reported)")
+                               + (f"   ({extra})" if extra else ""))
         dtcs = payload.get("dtcs") or {}
-        parts = []
+        lines = []
         for label in ("stored", "pending", "permanent"):
             codes = dtcs.get(label) or []
-            parts.append(f"<b>{label.capitalize()}:</b> {', '.join(codes) if codes else 'none'}")
-        self.dtc_label.setText("Trouble codes &nbsp;&nbsp; " + " &nbsp;&nbsp; ".join(parts))
+            if not codes:
+                lines.append(f"<b>{label.capitalize()}:</b> none")
+                continue
+            described = "; ".join(f"{c} — {obd.describe_dtc(c)}" for c in codes)
+            lines.append(f"<b>{label.capitalize()}:</b> {described}")
+        self.dtc_label.setText("<br>".join(lines))
         self._reapply_units()
 
     def _reapply_units(self):

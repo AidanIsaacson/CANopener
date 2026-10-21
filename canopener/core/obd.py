@@ -115,3 +115,12 @@ class ObdClient:
     def read_vin(self) -> str | None:
         resp = self.query(obd.MODE_VEHICLE_INFO, 0x02)
         return resp.text if resp is not None and resp.ok and resp.text else None
+
+    def read_info(self) -> list[tuple[str, str]]:
+        """Mode 09 vehicle info: VIN, calibration ID, CVN and ECU name (those the ECU answers)."""
+        out = []
+        for pid in (0x02, 0x04, 0x06, 0x0A):
+            resp = self.query(obd.MODE_VEHICLE_INFO, pid)
+            if resp is not None and resp.ok and resp.text:
+                out.append((resp.name, resp.text))
+        return out

@@ -75,8 +75,15 @@ class ObdSimulator:
             return self._dtc_body(0x47, PENDING_DTCS)
         if mode == 0x0A:
             return self._dtc_body(0x4A, [])
-        if mode == 0x09 and pid == 0x02:
-            return bytes([0x49, 0x02, 0x01]) + VIN.encode("ascii")
+        if mode == 0x09:
+            if pid == 0x02:
+                return bytes([0x49, 0x02, 0x01]) + VIN.encode("ascii")
+            if pid == 0x04:
+                return bytes([0x49, 0x04, 0x01]) + b"SIMCAL-01A      "
+            if pid == 0x06:
+                return bytes([0x49, 0x06, 0x01, 0x12, 0x34, 0x56, 0x78])
+            if pid == 0x0A:
+                return bytes([0x49, 0x0A, 0x01]) + b"ECM-SIM\x00".ljust(20, b"\x00")
         return None
 
     @staticmethod
