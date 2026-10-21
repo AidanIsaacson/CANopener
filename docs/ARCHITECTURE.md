@@ -30,8 +30,10 @@ navigation encoder, a fullscreen Pygame UI, and Pico / ESP32 subsystems), descri
 
 Rules that keep it reusable:
 
-* **`j1939/` and `can/` never import from `core/`, `gui/` or `sim/`.** They are a plain library
-  with no state beyond lookup tables.
+* **`j1939/`, `obd/`, `uds/` and `can/` never import from `core/`, `gui/` or `sim/`.** They are
+  plain protocol libraries with no state beyond lookup tables (`obd/` = OBD-II J1979 + ISO-TP,
+  `uds/` = UDS ISO 14229; both reuse the ISO-TP reassembler and carry no OEM identifiers). Their
+  live clients — `core/obd.py`, `core/uds.py` — drive a `Session` the same way `scan.py` does.
 * **`core/` never imports a UI toolkit.** Everything a screen needs (fault-code rows, lamp status,
   latest values, per-ECU stats, raw frames since sequence N) is a thread-safe method on `Session`
   or a dataclass from `scan`.

@@ -36,15 +36,22 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[gui]"
 | **Bus monitor** | Raw frames, scrolling or one row per ID (like `cansniffer`) with changed bytes highlighted, for reverse-engineering proprietary frames. |
 | **Network** | Every ECU on the bus, its address-claim NAME, and each PGN it sends with rate and latest data. |
 | **Machine info** | Component / software / ECU IDs, VIN, engine hours, fuel used. |
+| **OBD-II (cars)** | Automotive J1979 over CAN: ~40 standard live PIDs, stored/pending/permanent trouble codes with generic (SAE) descriptions, and Mode 09 vehicle info (VIN, calibration ID, CVN, ECU name). A built-in OBD-II simulator to try it with no car. |
+| **UDS modules** | Read ABS, transmission, body and cluster modules over UDS (ISO 14229) — DTCs with their standard status flags, and data identifiers — which generic OBD-II can't reach (Diagnostics → Read a module). |
 | **Log tool** | Plan timestamps for a job ("key on, start, drive, shutdown ..."), record, and tag them with single keys while you work the machine. After stopping, relabel and save. Each capture gets a raw log, a live-data spreadsheet with a marker column, and a summary of codes and ECU dropouts against your timestamps. |
 | **Reports and logs** | Text reports, `candump`-format recording, CSV export, copy everything to a USB stick, offline decode of a log, and real-time replay of a log. |
 | **Machine profiles** | Per make/model JSON files that name OEM source addresses, SPNs and proprietary PGNs, and add custom signals: bit fields, signed values, enum text, groups and normal ranges. The app recognises a machine from the modules on its bus and offers the matching profile. A profile can also be run as a simulator. |
 | **Units** | Metric, imperial, or your own mix per quantity (Settings → Units…, e.g. psi with °C). |
 | **Plugins** | Separately installed packages can add tabs, menus, CLI commands and profiles (see below). |
 
-**Read-only by design.** The tool only transmits J1939 Requests (PGN 59904) and transport-protocol
-flow control (CTS / end-of-message ACK). It never sends DM3/DM11 clears or writes anything to an
-ECU. Tick **Listen-only** to transmit nothing at all (DM1 and live data still work, they're broadcast).
+**Read-first, with a separate confirm-first transmit path.** Diagnostics only transmit standard
+requests (J1939 Requests / OBD-II / UDS reads) and transport-protocol flow control. Actually
+*sending* onto the bus is deliberately walled off in **Diagnostics → Transmit a frame**: it's off
+by default, disabled in listen-only, shows the exact CAN ID, bytes and destination before every
+send, and logs what it sent. Only generic, publicly documented frames ship in the app (a J1939
+Request, a raw frame, a UDS request you compose); OEM/active commands come from plugins behind the
+same confirmation. Tick **Listen-only** to transmit nothing at all (DM1 and live data still work,
+they're broadcast).
 
 ## Developing (no hardware needed)
 
@@ -199,9 +206,11 @@ listen-only mode.
 ```
 canopener/
   j1939/     protocol library: IDs, DTCs/DMx, transport protocol, signals, address names
+  obd/       OBD-II (J1979) protocol: ISO-TP, Mode 01 PIDs, DTC + VIN/Mode 09 decode
+  uds/       UDS (ISO 14229) protocol: services, NRCs, DTC status, request builders
   can/       bus backends (SocketCAN, virtual, log replay) and candump log files
-  core/      session engine, scans, reports, profiles, units, interface setup
-  sim/       simulated machine
+  core/      session engine, scans, OBD/UDS clients, transmit, reports, profiles, units
+  sim/       simulated machine (J1939) and OBD-II/UDS simulator
   gui/       desktop GUI (Qt) - a thin front-end over core/
   cli.py     command-line front-end
 deploy/      Raspberry Pi launcher, systemd service, sudoers rule, installer
