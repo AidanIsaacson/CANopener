@@ -5,7 +5,7 @@ import os
 import time
 
 from .. import __version__
-from ..core import config, connection, interfaces, profiles, scan, storage, units
+from ..core import config, connection, interfaces, profiles, scan, storage, transmit, units
 from ..core.connection import load_log_session, open_connection
 from .context import AppContext
 from .export_dialog import ExportDialog
@@ -21,6 +21,7 @@ from .tab_monitor import MonitorTab
 from .tab_network import NetworkTab
 from .tab_obd import ObdTab
 from .tab_report import ReportTab
+from .transmit_dialog import TransmitDialog
 from .widgets import LampPanel, app_icon
 
 SOURCES = [("SocketCAN adapter", connection.SOCKETCAN), ("Simulator", connection.SIMULATOR),
@@ -57,6 +58,13 @@ class PluginApi:
         """Call ``fn()`` on every UI tick (5 times a second)."""
         self.window._plugin_refresh.append(fn)
 
+    def register_transmit_action(self, action):
+        """Add a named transmit action (a ``core.transmit.TransmitAction``) to the Transmit a frame
+        window. It appears behind the same confirm-first gate as the built-in actions: nothing is
+        sent unless the user turns transmit mode on and confirms each frame. This is how a plugin
+        contributes OEM/active commands without them living in this public repo."""
+        transmit.register_action(action)
+
     def status(self, text: str, ms: int = 6000):
         self.window.statusBar().showMessage(text, ms)
 
@@ -73,6 +81,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, ctx: AppContext | None = None):
         super().__init__()
         self.ctx = ctx or AppContext(self)
+        transmit.register_standard_actions()
+        self.transmitter = transmit.Transmitter(None)   # rebound (and re-disabled) on each connect
         self.settings = QtCore.QSettings("CANopener", "CANopener")
         config.set_data_dir(self.settings.value("data_dir") or None)
         self.setWindowTitle(f"CANopener {__version__}")
@@ -252,6 +262,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._action(d, title, lambda _=False, p=preset: self._run(p))
         d.addSeparator()
         self._action(d, "Request a PGN...", lambda: RequestDialog(self.ctx, self).exec())
+        self._action(d, "Transmit a frame...", self._open_transmit)
         v = m.addMenu("&View")
         self._action(v, "&Full screen", self._toggle_fullscreen, "F11")
         for i, t in enumerate(self.tab_list):
@@ -642,7 +653,12 @@ class MainWindow(QtWidgets.QMainWindow):
     # ------------------------------------------------------------------
     # periodic updates
     # ------------------------------------------------------------------
+    def _open_transmit(self):
+        TransmitDialog(self.ctx, self.transmitter, self).exec()
+
     def _session_changed(self, session):
+        # Fresh transmitter per connection: transmit mode is always off again on a new bus.
+        self.transmitter = transmit.Transmitter(session)
         live = self.ctx.live
         offline = session is not None and session.offline
         self.connect_btn.setText("Disconnect" if (live or offline) else "Connect")

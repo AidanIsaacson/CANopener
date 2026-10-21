@@ -47,7 +47,18 @@ They can add GUI tabs / menus (`register_gui(api)`, see `PluginApi` in `gui/main
 CLI commands (`register_cli`) and profile folders (`profile_dirs`). Two `Session` hooks exist for
 them: `add_listener(fn)` (every received frame, on the receive thread) and `send_frame(frame)`
 (any 11/29-bit frame; refused in listen-only). This is how OEM-specific and bidirectional tools
-live in separate, private packages while this repository stays generic and read-only.
+live in separate, private packages while this repository stays generic.
+
+### Transmitting (confirm-first)
+
+`core/transmit.py` is the one place that *sends* on purpose. A `Transmitter` wraps a `Session`
+with a gate (off by default, never sends in listen-only) and a log of every attempt; the UI
+(`gui/transmit_dialog.py`) shows the exact CAN ID, bytes and destination and asks before each
+send. Sendable actions are `TransmitAction`s in a registry: the repo ships only generic, publicly
+documented ones (a J1939 Request, a raw frame). A plugin adds its own — including OEM or active
+commands that change a machine — with `register_action` (or `PluginApi.register_transmit_action`
+from `register_gui`); they then appear in the same confirm-first window. Fault-clearing/reset and
+proprietary commands are intentionally **not** in this repository.
 
 ## Threading model
 
@@ -73,7 +84,7 @@ live in separate, private packages while this repository stays generic and read-
 | Boot to app on the Pi | `deploy/raspberry-pi/` (launcher, systemd user service, sudoers); Qt's `eglfs` / `linuxfb` back-ends need no desktop |
 | Start/stop log and timestamp keys | `core/capture.py` (plan, tag, save, recover) + `core/capture_report.py` (summary, live-data CSV). The GUI's Log tool and remappable keys are in `gui/log_panel.py` / `gui/hotkeys.py`; hardware buttons send the same keys via `gpio-key` |
 | Log export in the field | `core/storage.py`: copy logs + reports to a USB stick, CSV export |
-| Frame replay / command injection | Not implemented, see roadmap. It needs an explicit "transmit mode" with confirmations, kept separate from the read-only diagnostics path |
+| Frame replay / command injection | Transmit path in `core/transmit.py` + `gui/transmit_dialog.py`: explicit off-by-default transmit mode, per-frame confirmation, never in listen-only. Generic actions built in; OEM/active ones come from plugins |
 
 ### On-device UI reference: v0.1
 
@@ -119,5 +130,6 @@ point for the instrument UI:
 * Dropout / missing-ECU alerts in the Network view (expected SAs per profile).
 * DM1 history timeline (when each code went active / inactive).
 * Bit-level signals and enumerated states in profiles.
-* Optional, clearly separated transmit tools (DM11 clear with confirmation, saved frame replay).
+* More transmit actions on the confirm-first path (saved frame replay); machine-changing OEM
+  commands stay in private plugins.
 * Export to CSV for the live-data history.

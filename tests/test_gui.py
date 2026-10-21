@@ -329,6 +329,39 @@ def test_obd_tab_reads_simulator(app, tmp_path):
     w.close()
 
 
+def test_transmit_dialog_gating(app, tmp_path):
+    from canopener.core import connection
+    from canopener.gui.main_window import MainWindow
+    from canopener.gui.transmit_dialog import TransmitDialog
+
+    qt.QtCore.QSettings.setDefaultFormat(qt.QtCore.QSettings.Format.IniFormat)
+    qt.QtCore.QSettings.setPath(qt.QtCore.QSettings.Format.IniFormat, qt.QtCore.QSettings.Scope.UserScope,
+                                str(tmp_path))
+    w = MainWindow()
+    w.show()
+    w.source.setCurrentIndex(w.source.findData(connection.SIMULATOR))
+    w.connect()
+    pump(app, 0.4)
+    dlg = TransmitDialog(w.ctx, w.transmitter)
+    assert not dlg.send_btn.isEnabled()          # off by default
+    dlg.arm.setChecked(True)
+    assert dlg.send_btn.isEnabled()              # armed + connected + not listen-only
+    assert w.transmitter.enabled
+    w.disconnect()
+
+    # A fresh connection must start with transmit mode off again.
+    w.listen_only.setChecked(True)
+    w.source.setCurrentIndex(w.source.findData(connection.SIMULATOR))
+    w.connect()
+    pump(app, 0.4)
+    assert not w.transmitter.enabled
+    dlg2 = TransmitDialog(w.ctx, w.transmitter)
+    dlg2.arm.setChecked(True)
+    assert not dlg2.send_btn.isEnabled()         # listen-only overrides even when armed
+    w.disconnect()
+    w.close()
+
+
 def test_window_fits_small_laptop(app, tmp_path):
     """The window must stay narrow enough to fit (and so maximise / snap on) a 1366-wide laptop,
     both empty AND once content has loaded. Two non-wrapping rows used to pin the minimum width
