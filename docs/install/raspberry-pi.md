@@ -25,9 +25,13 @@ On the Pi, open **Terminal** (or `ssh yourname@<pi-name>.local` from the laptop)
 
 ```bash
 sudo apt update && sudo apt full-upgrade -y
-sudo apt install -y git
+sudo apt install -y git libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3
 git clone https://github.com/AidanIsaacson/CANopener.git ~/CANopener
 ```
+
+The four `lib*` packages are system libraries the Qt GUI needs. Raspberry Pi OS desktop usually
+has them already, but installing them is harmless and avoids a silent "window never opens" if
+one is missing.
 
 ## 3. Run the installer
 

@@ -13,11 +13,16 @@ Open a terminal (Menu → **Terminal**, or Ctrl+Alt+T) and paste:
 
 ```bash
 sudo apt update
-sudo apt install -y git python3-venv can-utils
+sudo apt install -y git python3-venv can-utils \
+  libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3
 ```
 
 It asks for your password; nothing shows as you type, which is normal.
-`can-utils` is optional but handy (`candump can0` shows raw traffic).
+`can-utils` is optional but handy (`candump can0` shows raw traffic). The four `lib*`
+packages are system libraries the Qt GUI needs; without them the app installs fine but the
+window never opens (you'd see a `libEGL.so.1: cannot open shared object file` error if you ran
+it from a terminal). Most desktops already have them, but installing them now saves a
+head-scratch later.
 
 ## 2. Download CANopener
 
