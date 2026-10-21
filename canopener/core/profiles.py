@@ -178,22 +178,32 @@ def available_profiles() -> tuple[list[Profile], list[str]]:
 @dataclass(frozen=True)
 class Match:
     profile: Profile
-    matched: int
-    total: int
+    matched: int            # detect addresses seen
+    total: int              # detect addresses listed
+    signals: int = 0        # profile signals whose PGN is on the bus from an accepted address
 
     @property
     def score(self) -> float:
         return self.matched / self.total if self.total else 0.0
 
     def describe(self) -> str:
-        return f"{self.profile.name} ({self.matched} of {self.total} expected modules seen)"
+        sig = f", {self.signals} of its signals on the bus" if self.signals else ""
+        return f"{self.profile.name} ({self.matched} of {self.total} expected modules seen{sig})"
 
 
-def detect(seen_addresses, candidates: list[Profile]) -> list[Match]:
+def signal_coverage(profile: Profile, present: dict[int, set[int]]) -> int:
+    """How many of the profile's signals have their PGN on the bus from an address they accept."""
+    return sum(1 for sig in profile.signals if any(sig.accepts(sa) for sa in present.get(sig.pgn, ())))
+
+
+def detect(seen_addresses, candidates: list[Profile], present: dict[int, set[int]] | None = None) -> list[Match]:
     """Profiles whose ``detect`` addresses are present on the bus, best match first.
 
-    A profile matches when at least ``min_match`` of its addresses are seen. Ranked by how many
-    of its addresses are present, then by the fraction (so a specific profile beats a vague one).
+    A profile matches when at least ``min_match`` of its addresses are seen. With ``present``
+    (PGN -> source addresses seen), matches are ranked by how many of their signals are actually
+    on the bus: real machines often have only some of a family's optional modules, and the
+    decodable data tells families apart better than the module list does. Without it, ranking
+    is by addresses matched, then by the fraction matched.
     """
     seen = set(seen_addresses)
     out = []
@@ -202,8 +212,18 @@ def detect(seen_addresses, candidates: list[Profile]) -> list[Match]:
             continue
         n = len(p.detect_addresses & seen)
         if n >= max(1, p.detect_min):
-            out.append(Match(p, n, len(p.detect_addresses)))
-    out.sort(key=lambda m: (-m.matched, -m.score, m.profile.name.lower()))
+            out.append(Match(p, n, len(p.detect_addresses), signal_coverage(p, present) if present else 0))
+    out.sort(key=lambda m: (-m.signals, -m.matched, -m.score, m.profile.name.lower()))
+    return out
+
+
+def present_pgns(session) -> dict[int, set[int]]:
+    """PGN -> source addresses, from a Session's latest messages (for ``detect``)."""
+    with session.lock:
+        keys = list(session.latest)
+    out: dict[int, set[int]] = {}
+    for pgn, sa in keys:
+        out.setdefault(pgn, set()).add(sa)
     return out
 
 

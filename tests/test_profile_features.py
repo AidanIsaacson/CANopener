@@ -95,6 +95,22 @@ def test_detect_ranks_specific_profiles():
     assert "3 of 4" in profiles.detect({0, 3, 39}, [b])[0].describe()
 
 
+def test_detect_prefers_the_profile_whose_signals_are_on_the_bus():
+    # A truck with only 3 of a big family's 16 modules: by addresses alone the small family wins,
+    # but the big family's signals are the ones actually on the bus.
+    big_sigs = [Signal(f"s{i}", 0xFF00 + i, 0, 1, 1, 0, "") for i in range(10)]
+    big = profiles.Profile("big", "Big family", signals=big_sigs,
+                           detect_addresses=frozenset({0, 3, 39} | set(range(200, 213))), detect_min=3)
+    small = profiles.Profile("small", "Small family", signals=[Signal("x", 0xFE00, 0, 1, 1, 0, "")],
+                             detect_addresses=frozenset({0, 3, 39, 236, 238}), detect_min=3)
+    seen = {0, 3, 39}
+    assert [m.profile.id for m in profiles.detect(seen, [big, small])][0] == "small"
+    present = {0xFF00 + i: {39} for i in range(8)}
+    ranked = profiles.detect(seen, [big, small], present)
+    assert [m.profile.id for m in ranked] == ["big", "small"] and ranked[0].signals == 8
+    assert "8 of its signals" in ranked[0].describe()
+
+
 def test_units_custom_and_aliases():
     units.set_custom({"pressure": "psi", "temperature": "°C", "speed": "nonsense"})
     try:

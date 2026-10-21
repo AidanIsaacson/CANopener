@@ -295,7 +295,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self._last_detect = now
         current = self.profile.currentData() or ""
-        matches = [m for m in profiles.detect(session.known_ecus(), self._profiles)
+        matches = [m for m in profiles.detect(session.known_ecus(), self._profiles, profiles.present_pgns(session))
                    if m.profile.id != current and m.profile.id not in self._detect_dismissed]
         active = profiles.active()
         if active is not None and active.detect_addresses and matches \
