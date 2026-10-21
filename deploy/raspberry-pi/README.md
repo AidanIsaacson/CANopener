@@ -1,7 +1,10 @@
 # Raspberry Pi deployment
 
-Tested layout: Raspberry Pi OS (64-bit, Bookworm or later), a SocketCAN adapter or an
-MCP2515/MCP2518FD HAT showing up as `can0`, and a touchscreen.
+Reference for the files in this folder. **For step-by-step setup from a blank SD card, follow
+[docs/install/raspberry-pi.md](../../docs/install/raspberry-pi.md).**
+
+Target setup: Raspberry Pi OS (64-bit, Bookworm or later), a SocketCAN adapter or an
+MCP2515/MCP2518FD HAT showing up as `can0`, and a touchscreen. (Not yet verified on Pi hardware.)
 
 ```bash
 git clone https://github.com/AidanIsaacson/CANopener.git ~/CANopener

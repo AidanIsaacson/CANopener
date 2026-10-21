@@ -12,6 +12,21 @@ This repository currently holds the **J1939 diagnostics tool**: a reusable proto
 engine, a desktop GUI, a command-line tool, and a built-in machine simulator for working without
 hardware.
 
+## Install
+
+| | |
+|---|---|
+| 💻 **[Linux laptop (Mint / Ubuntu / Debian)](docs/install/linux-laptop.md)** | ~10 min. Ends with CANopener in your app menu and on the desktop. Try it with the built-in simulator, no CAN adapter needed. |
+| 🍓 **[Raspberry Pi](docs/install/raspberry-pi.md)** | From a blank SD card to CANopener starting full-screen at power-on, with a USB adapter or a CAN HAT. |
+
+Short version for a Linux machine that already has `git` and `python3-venv`:
+
+```bash
+git clone https://github.com/AidanIsaacson/CANopener.git ~/CANopener && cd ~/CANopener
+python3 -m venv .venv && .venv/bin/pip install -e ".[gui]"
+.venv/bin/canopener --install-desktop --desktop-shortcut     # then start it from the menu
+```
+
 ## What it does
 
 | | |
@@ -29,7 +44,7 @@ hardware.
 flow control (CTS / end-of-message ACK). It never sends DM3/DM11 clears or writes anything to an
 ECU. Tick **Listen-only** to transmit nothing at all (DM1 and live data still work, they're broadcast).
 
-## Quick start (no hardware needed)
+## Developing (no hardware needed)
 
 ```bash
 git clone https://github.com/AidanIsaacson/CANopener.git
@@ -40,13 +55,8 @@ pip install -e ".[gui,dev]"
 canopener --sim            # desktop GUI connected to the simulated telehandler
 canopener-cli scan --sim --full
 pytest                     # run the tests
-
-canopener --install-desktop --desktop-shortcut   # add CANopener (with icon) to the menu + desktop
+ruff check .               # lint
 ```
-
-After `--install-desktop`, CANopener shows up in the application menu like any other program.
-It launches with this same Python environment, so there's no venv to activate. Run it again if
-you move the folder; `--uninstall-desktop` removes it.
 
 The simulator is a Deutz-style engine ECU (SA 00) and a machine controller (SA 27). It warms up,
 revs, throws an intermittent low-oil-pressure code at idle, and answers requests exactly like
@@ -86,13 +96,9 @@ candump vcan0                        # terminal 3: watch the traffic (can-utils)
 
 ## Install notes
 
-* **Ubuntu / Mint / Debian desktop:** `sudo apt install python3-venv can-utils`, then the quick
-  start above.
-* **Raspberry Pi OS (64-bit):** `./deploy/raspberry-pi/install.sh --sudoers --autostart` sets
-  up a venv, a launcher, passwordless CAN setup and start-at-login. See
-  [`deploy/raspberry-pi/README.md`](deploy/raspberry-pi/README.md). The GUI works with PySide6
-  or the distro's PyQt6 (`sudo apt install python3-pyqt6`). The core and CLI have **no
-  dependencies** beyond Python 3.10+.
+* Full guides: [Linux laptop](docs/install/linux-laptop.md), [Raspberry Pi](docs/install/raspberry-pi.md).
+* The GUI works with PySide6 (installed by `pip install -e ".[gui]"`) or the distro's PyQt6
+  (`sudo apt install python3-pyqt6`). The core and CLI have **no dependencies** beyond Python 3.10+.
 * Small touch screens: `canopener --fullscreen --scale 1.5`.
 
 Files the app writes:
@@ -164,7 +170,7 @@ canopener/
 deploy/      Raspberry Pi launcher, systemd service, sudoers rule, installer
 legacy/      the original j1939_codes.py script and the v0.1 Pi app (frozen, for reference)
 tests/       pytest suite, including headless GUI tests
-docs/        DESIGN.md (hardware + concept), ARCHITECTURE.md (software)
+docs/        DESIGN.md (hardware + concept), ARCHITECTURE.md (software), install/ (guides)
 ```
 
 ## License
