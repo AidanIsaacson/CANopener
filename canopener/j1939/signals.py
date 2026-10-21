@@ -109,7 +109,14 @@ SIGNALS: list[Signal] = [
     S("Fuel rate", 0xFEF2, 0, 2, 0.05, 0, "L/h", 183, 2),
     S("Fuel level", 0xFEFC, 1, 1, 0.4, 0, "%", 96),
     S("Vehicle speed", 0xFEF1, 1, 2, 1 / 256, 0, "km/h", 84),
+    # ETC1 / ETC2 - transmission (J1939-71)
+    S("Transmission output shaft speed", 0xF002, 1, 2, 0.125, 0, "rpm", 191, 0),
+    S("Transmission input shaft speed", 0xF002, 4, 2, 0.125, 0, "rpm", 161, 0),
+    S("Transmission selected gear", 0xF005, 0, 1, 1, -125, "", 524, 0),
+    S("Transmission actual gear ratio", 0xF005, 1, 2, 0.001, 0, "", 526, 3),
     S("Transmission current gear", 0xF005, 3, 1, 1, -125, "", 523, 0),
+    # EBC1 - brakes / ABS (J1939-71)
+    S("Brake pedal position", 0xF001, 1, 1, 0.4, 0, "%", 521),
     S("Hydraulic oil temp", 0xFE68, 0, 1, 1, -40, "°C", 1638, 0),
     S("Engine hours", 0xFEE5, 0, 4, 0.05, 0, "h", 247, 1),
     # Aftertreatment
@@ -125,7 +132,8 @@ _GROUPS = {
     0xFEEE: "Temperatures", 0xFE68: "Temperatures",
     0xFEEF: "Fluids", 0xFEF2: "Fuel", 0xFEFC: "Fuel",
     0xFEF6: "Intake / exhaust", 0xFEF5: "Intake / exhaust",
-    0xFEF7: "Electrical", 0xFEF1: "Drivetrain", 0xF005: "Drivetrain",
+    0xFEF7: "Electrical", 0xFEF1: "Drivetrain", 0xF005: "Drivetrain", 0xF002: "Drivetrain",
+    0xF001: "Brakes",
     0xFE56: "Aftertreatment", 0xFD7B: "Aftertreatment",
 }
 SIGNALS = [Signal(**{**{f: getattr(s, f) for f in s.__slots__}, "group": _GROUPS.get(s.pgn, "Other")})

@@ -63,6 +63,8 @@ PGN_LABEL = {
     DM6: "DM6 pending codes",
     DM12: "DM12 emissions-related active",
     DM23: "DM23 emissions-related previously active",
+    0xF001: "EBC1 electronic brake controller 1",
+    0xF002: "ETC1 electronic transmission controller 1",
     0xF003: "EEC2 electronic engine controller 2",
     0xF004: "EEC1 electronic engine controller 1",
     0xF005: "ETC2 electronic transmission controller 2",
