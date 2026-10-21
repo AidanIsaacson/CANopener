@@ -520,7 +520,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.disconnect()
         QtWidgets.QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            session, n = load_log_session(path)
+            session, n, markers = load_log_session(path)
             result = scan.offline_result(session)
             result.source = f"{path} ({n} frames)"
         except Exception as e:
@@ -530,6 +530,12 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QApplication.restoreOverrideCursor()
         self._offline_label = f"Log: {os.path.basename(path)} ({n} frames)"
         self.ctx.set_offline_session(session, result)
+        if markers:
+            t0 = session.raw[0].timestamp if session.raw else markers[0][0]
+            lines = "\n".join(f"  +{t - t0:7.2f}s   {label}" for t, label in markers)
+            QtWidgets.QMessageBox.information(
+                self, "Markers in log",
+                f"Found {len(markers)} timestamp marker(s) written by the capture tool:\n\n{lines}")
 
     def export_csv(self):
         s = self.ctx.session

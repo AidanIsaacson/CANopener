@@ -7,7 +7,7 @@ they get the same behaviour for real hardware, the simulator and log replay.
 from dataclasses import dataclass
 
 from ..can.backends import SocketCanBackend, VirtualBackend, VirtualBus
-from ..can.logfile import LogReplayBackend, read_log
+from ..can.logfile import LogReplayBackend, read_log_with_markers
 from .session import Session
 
 SOCKETCAN = "socketcan"
@@ -73,10 +73,14 @@ def open_connection(kind: str, channel: str = "can0", *, listen_only: bool = Fal
     return Connection(kind, session, sim)
 
 
-def load_log_session(path: str) -> tuple[Session, int]:
-    """Decode a whole log file offline into a backend-less Session."""
+def load_log_session(path: str) -> tuple[Session, int, list[tuple[float, str]]]:
+    """Decode a whole log file offline into a backend-less Session.
+
+    Returns the session, the frame count, and any ``# === MARKER ... ===`` comment lines a
+    field logger wrote into the log, as ``(epoch, label)`` aligned to the frame timestamps.
+    """
     session = Session(None)
-    frames = read_log(path)
+    frames, markers = read_log_with_markers(path)
     for fr in frames:
         session.feed(fr)
-    return session, len(frames)
+    return session, len(frames), markers

@@ -71,7 +71,7 @@ def test_recording_then_offline_decode(sim_session, tmp_path):
     session.stop_recording()
     frames = read_log(str(path))
     assert any(f.can_id == 0x18EAFFF9 for f in frames)      # our request was logged too
-    offline, n = load_log_session(str(path))
+    offline, n, _markers = load_log_session(str(path))
     assert n == len(frames)
     res = scan.offline_result(offline)
     assert ("Stored", 0x00, 168, 4) in {(r.status, r.sa, r.spn, r.fmi) for r in res.rows}

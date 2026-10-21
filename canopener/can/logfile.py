@@ -1,5 +1,6 @@
 """candump log files: reading (log and screen formats), writing, and real-time replay."""
 
+import datetime
 import re
 import threading
 import time
@@ -13,6 +14,21 @@ LOG_RE = re.compile(r"\((\d+(?:\.\d+)?)\)\s+\S+\s+([0-9A-Fa-f]{3,8})#(R|[0-9A-Fa
 # candump -ta:         (1700000000.123456)  can0  18FECA00   [8]  00 00 ...
 SCREEN_RE = re.compile(
     r"^\s*(?:\((\d+(?:\.\d+)?)\)\s+)?\S+\s+([0-9A-Fa-f]{3,8})\s+\[(\d)\]\s*((?:[0-9A-Fa-f]{2}\s*)*)")
+
+# Header/marker comment lines some field loggers write into the .log (lines starting with '#',
+# which the frame parsers ignore). Times are ISO-8601 wall clock, e.g.
+#   # === LIVE CAPTURE START: 2026-05-08T17:34:45.381308 ===
+#   # === MARKER 2026-05-08T17:35:23.658860  ===  (optionally followed by a label)
+#   # === LIVE CAPTURE END: 2026-05-08T17:35:33.134745 (47.8s, 67416 frames) ===
+_ISO = r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)"
+MARKER_RE = re.compile(r"#.*\bMARKER\b[:\s]*" + _ISO + r"\s*(.*?)\s*=*\s*$", re.IGNORECASE)
+START_RE = re.compile(r"#.*\bSTART\b[:\s]*" + _ISO, re.IGNORECASE)
+END_RE = re.compile(r"#.*\bEND\b[:\s]*" + _ISO, re.IGNORECASE)
+
+
+def _iso_seconds(iso: str) -> float:
+    """ISO-8601 time as naive seconds, used only for differences between two such times."""
+    return datetime.datetime.fromisoformat(iso).timestamp()
 
 
 def parse_line(line: str, line_no: int = 0) -> CanFrame | None:
@@ -32,13 +48,45 @@ def parse_line(line: str, line_no: int = 0) -> CanFrame | None:
 
 
 def read_log(path: str) -> list[CanFrame]:
-    frames = []
+    return read_log_with_markers(path)[0]
+
+
+def read_log_with_markers(path: str) -> tuple[list[CanFrame], list[tuple[float, str]]]:
+    """Frames plus any ``# === MARKER ... ===`` comment lines, as ``(epoch, label)``.
+
+    Field loggers timestamp frames with the epoch clock but write their comment lines in
+    local wall-clock ISO, so the two can't be compared directly. The marker, START and END
+    ISO times do share one clock, though, so we anchor that comment timeline onto the frame
+    epochs: END ISO lines up with the last frame (most accurate), else START ISO with the
+    first. Differences between ISO times are timezone-independent, so markers land on the
+    right frame wherever the log is opened. Logs without these comments return no markers.
+    """
+    frames: list[CanFrame] = []
+    markers_iso: list[tuple[str, str]] = []
+    start_iso = end_iso = None
     with open(path, errors="replace") as f:
         for i, line in enumerate(f):
             fr = parse_line(line, i)
             if fr:
                 frames.append(fr)
-    return frames
+                continue
+            if (m := MARKER_RE.search(line)):
+                markers_iso.append((m.group(1), m.group(2).strip().strip("=").strip()))
+            elif (m := START_RE.search(line)):
+                start_iso = m.group(1)
+            elif (m := END_RE.search(line)):
+                end_iso = m.group(1)
+
+    markers: list[tuple[float, str]] = []
+    if frames and markers_iso and (end_iso or start_iso):
+        if end_iso:
+            anchor_iso, anchor_epoch = end_iso, frames[-1].timestamp
+        else:
+            anchor_iso, anchor_epoch = start_iso, frames[0].timestamp
+        base = _iso_seconds(anchor_iso)
+        for n, (iso, label) in enumerate(markers_iso, 1):
+            markers.append((anchor_epoch + (_iso_seconds(iso) - base), label or f"Marker {n}"))
+    return frames, markers
 
 
 def format_line(frame: CanFrame, channel: str = "can0") -> str:

@@ -46,10 +46,15 @@ def cmd_scan(a) -> int:
 
 
 def cmd_decode(a) -> int:
-    session, n = connection.load_log_session(a.log)
+    session, n, markers = connection.load_log_session(a.log)
     result = scan.offline_result(session)
     result.source = f"{a.log} ({n} frames)"
     print(report.build_report(result, session, full=True, system=a.units))
+    if markers:
+        t0 = session.raw[0].timestamp if session.raw else (markers[0][0])
+        print(f"\nMarkers from log ({len(markers)}):")
+        for t, label in markers:
+            print(f"  +{t - t0:7.2f}s  {label}")
     if a.csv:
         from .core.storage import write_csv
         with session.lock:
