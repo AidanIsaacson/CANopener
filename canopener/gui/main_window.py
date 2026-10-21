@@ -122,10 +122,29 @@ class MainWindow(QtWidgets.QMainWindow):
         c.show_signal.connect(lambda spn: self.tabs.setCurrentWidget(self.live))
 
         self._restore_settings()
+        self._fit_to_screen()
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self._tick)
         self.timer.start(REFRESH_MS)
         self._session_changed(None)
+
+    def _fit_to_screen(self):
+        """Keep the opening window within the screen so it fits a small laptop and can still be
+        moved, maximised and snapped. A window bigger than the work area can't be snapped on
+        Cinnamon/GNOME."""
+        screen = self.screen() or QtWidgets.QApplication.primaryScreen()
+        if screen is None:
+            return
+        avail = screen.availableGeometry()
+        frame = self.frameGeometry().size() - self.size()      # title bar / borders
+        max_w = avail.width() - frame.width()
+        max_h = avail.height() - frame.height()
+        self.resize(min(self.width(), max_w), min(self.height(), max_h))
+        # Nudge fully onto the screen if restored geometry put it partly off.
+        g = self.frameGeometry()
+        g.moveLeft(max(avail.left(), min(g.left(), avail.right() - g.width())))
+        g.moveTop(max(avail.top(), min(g.top(), avail.bottom() - g.height())))
+        self.move(g.topLeft())
 
     # ------------------------------------------------------------------
     # construction
@@ -258,12 +277,32 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build_status(self):
         sb = self.statusBar()
+        # Busy indicator: a marching progress bar + label, shown only while a scan is running.
+        # Driven by ctx.busy_changed so it covers every preset and is visible on any tab.
+        self.busy_label = QtWidgets.QLabel("Working...")
+        self.busy_bar = QtWidgets.QProgressBar()
+        self.busy_bar.setRange(0, 0)                    # 0..0 = indeterminate ("marching ants")
+        self.busy_bar.setMaximumWidth(120)
+        self.busy_bar.setTextVisible(False)
+        self.busy_label.setVisible(False)
+        self.busy_bar.setVisible(False)
+        sb.addWidget(self.busy_label)
+        sb.addWidget(self.busy_bar)
         self.conn_label = QtWidgets.QLabel("Not connected")
         self.traffic_label = QtWidgets.QLabel("")
         self.error_label = QtWidgets.QLabel("")
         self.rec_label = QtWidgets.QLabel("")
         for w in (self.conn_label, self.traffic_label, self.error_label, self.rec_label):
             sb.addPermanentWidget(w)
+        self.ctx.busy_changed.connect(self._show_busy)
+
+    def _show_busy(self, busy: bool):
+        self.busy_label.setVisible(busy)
+        self.busy_bar.setVisible(busy)
+        if busy:
+            QtWidgets.QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
+        else:
+            QtWidgets.QApplication.restoreOverrideCursor()
 
     def _build_detect_bar(self) -> QtWidgets.QFrame:
         """'Looks like an X - use its profile?' banner, shown when the bus matches a profile."""

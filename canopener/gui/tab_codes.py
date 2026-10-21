@@ -9,6 +9,7 @@ from ..j1939.addresses import sa_name
 from ..j1939.constants import STATUS_ORDER, pgn_label
 from ..j1939.signals import all_signals
 from ..j1939.spn import PROPRIETARY_SPN_RANGE
+from .flow import FlowLayout
 from .qt import Qt, QtGui, QtWidgets
 from .widgets import item, setup_table
 
@@ -31,7 +32,9 @@ class CodesTab(QtWidgets.QWidget):
         self._last_hist_n = None
         lay = QtWidgets.QVBoxLayout(self)
 
-        bar = QtWidgets.QHBoxLayout()
+        # A flow layout so this control row wraps onto a second line on a narrow screen instead
+        # of pinning the window's minimum width wide (see gui/flow.py).
+        bar = FlowLayout(spacing=8)
         self.buttons = []
         for preset, label in (("active", "Read Active"), ("stored", "Read Stored"),
                               ("emissions", "Pending / Emissions"), ("full", "Full Scan")):
@@ -41,20 +44,17 @@ class CodesTab(QtWidgets.QWidget):
             b.clicked.connect(lambda _=False, p=preset: ctx.run_preset(p))
             bar.addWidget(b)
             self.buttons.append(b)
-        bar.addSpacing(16)
         self.history = QtWidgets.QCheckBox("Include every code seen this session")
         self.history.setToolTip("Catches intermittent faults: any DTC broadcast in DM1 since you "
                                 "connected stays listed, even if it has since cleared.")
         self.history.toggled.connect(self.rebuild)
         bar.addWidget(self.history)
-        bar.addSpacing(12)
         bar.addWidget(QtWidgets.QLabel("ECU"))
         self.ecu = QtWidgets.QComboBox()
         self.ecu.setMinimumWidth(190)
         self.ecu.addItem("All ECUs", None)
         self.ecu.currentIndexChanged.connect(lambda _: self.rebuild())
         bar.addWidget(self.ecu)
-        bar.addStretch(1)
         self.summary = QtWidgets.QLabel("")
         bar.addWidget(self.summary)
         lay.addLayout(bar)

@@ -304,3 +304,22 @@ def test_profile_features_in_the_gui(app, tmp_path, monkeypatch):
     w.disconnect()
     profiles.apply(None)
     w.close()
+
+
+def test_window_fits_small_laptop(app, tmp_path):
+    """The window must stay narrow enough to fit (and so maximise / snap on) a 1366-wide
+    laptop screen. A control row that won't wrap used to pin the minimum width at ~1458."""
+    from canopener.gui.main_window import MainWindow
+
+    qt.QtCore.QSettings.setDefaultFormat(qt.QtCore.QSettings.Format.IniFormat)
+    qt.QtCore.QSettings.setPath(qt.QtCore.QSettings.Format.IniFormat, qt.QtCore.QSettings.Scope.UserScope,
+                                str(tmp_path))
+    w = MainWindow()
+    w.show()
+    app.processEvents()
+    assert w.minimumSizeHint().width() <= 1200
+    # It must actually accept a laptop-sized geometry (not get clamped back up by a minimum).
+    w.resize(1280, 720)
+    app.processEvents()
+    assert w.width() <= 1280 and w.height() <= 720
+    w.close()
