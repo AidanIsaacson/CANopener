@@ -129,6 +129,20 @@ def _build_raw(v: dict) -> list[CanFrame]:
     return [raw_frame(can_id, data, extended=extended)]
 
 
+def _build_uds(v: dict) -> list[CanFrame]:
+    """A single-frame UDS (ISO 14229) request, ISO-TP wrapped. The user supplies the service +
+    payload bytes from the public standard (e.g. '22 F1 90' = ReadDataByIdentifier 0xF190); OEM
+    routine/DID/IO-control identifiers are theirs to provide. Multi-frame requests (>7 payload
+    bytes) aren't built here — use the UDS client for those."""
+    can_id = int(v["id"], 16)
+    payload = bytes.fromhex(v.get("request", "").replace(" ", ""))
+    if not 1 <= len(payload) <= 7:
+        raise ValueError("UDS request payload must be 1-7 bytes (single frame)")
+    frame = bytes([len(payload)]) + payload
+    extended = can_id > 0x7FF
+    return [raw_frame(can_id, frame.ljust(8, b"\x00"), extended=extended)]
+
+
 def register_standard_actions():
     """Register the built-in, public-protocol actions once."""
     if _ACTIONS:
@@ -143,3 +157,10 @@ def register_standard_actions():
         "Send a frame you compose yourself (standard CAN).",
         [("id", "CAN ID (hex)", "18EAFFFE"), ("data", "Data bytes (hex)", "EB FE 00")],
         _build_raw))
+    register_action(TransmitAction(
+        "UDS request (ISO 14229, single frame)",
+        "Send a UDS request to a module (ISO-TP wrapped). Service + payload are standard ISO 14229; "
+        "OEM routine/DID identifiers are yours to supply. Example reads VIN (0x22 0xF190).",
+        [("id", "Module request ID (hex, e.g. 7E0)", "7E0"),
+         ("request", "Service + payload (hex)", "22 F1 90")],
+        _build_uds))

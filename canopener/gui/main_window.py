@@ -262,6 +262,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._action(d, title, lambda _=False, p=preset: self._run(p))
         d.addSeparator()
         self._action(d, "Request a PGN...", lambda: RequestDialog(self.ctx, self).exec())
+        self._action(d, "Read a module (UDS)...", self._open_uds)
         self._action(d, "Transmit a frame...", self._open_transmit)
         v = m.addMenu("&View")
         self._action(v, "&Full screen", self._toggle_fullscreen, "F11")
@@ -655,6 +656,10 @@ class MainWindow(QtWidgets.QMainWindow):
     # ------------------------------------------------------------------
     def _open_transmit(self):
         TransmitDialog(self.ctx, self.transmitter, self).exec()
+
+    def _open_uds(self):
+        from .uds_dialog import UdsDialog
+        UdsDialog(self.ctx, self).exec()
 
     def _session_changed(self, session):
         # Fresh transmitter per connection: transmit mode is always off again on a new bus.

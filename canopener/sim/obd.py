@@ -128,11 +128,28 @@ class ObdSimulator:
         body = data[1:1 + n]
         if not body:
             return
-        mode = body[0]
-        pid = body[1] if len(body) > 1 else None
-        resp = self._response_body(mode, pid)
+        resp = self._uds_response(body) if body[0] >= 0x10 else self._response_body(
+            body[0], body[1] if len(body) > 1 else None)
         if resp is not None:
             self._send_message(resp)
+
+    def _uds_response(self, body: bytes) -> bytes | None:
+        """Minimal UDS (ISO 14229) responder: extended session, tester present, read a DTC list
+        (0x19/0x02) and one demo data identifier (0x22 F190 = VIN). Enough to exercise the client."""
+        sid = body[0]
+        if sid == 0x10:                                    # DiagnosticSessionControl -> positive
+            return bytes([0x50, body[1] if len(body) > 1 else 0x01, 0x00, 0x32, 0x01, 0xF4])
+        if sid == 0x3E:                                    # TesterPresent
+            return bytes([0x7E, 0x00])
+        if sid == 0x19 and len(body) >= 2 and body[1] == 0x02:   # ReadDTCInformation by status mask
+            # availability mask, then two DTCs (3 bytes + 1 status): C0561-00 and P0730-00.
+            return bytes([0x59, 0x02, 0xFF, 0x45, 0x61, 0x00, 0x08, 0x07, 0x30, 0x00, 0x08])
+        if sid == 0x22 and len(body) >= 3:                 # ReadDataByIdentifier
+            did = (body[1] << 8) | body[2]
+            if did == 0xF190:                              # VIN data identifier
+                return bytes([0x62, 0xF1, 0x90]) + VIN.encode("ascii")
+            return bytes([0x7F, 0x22, 0x31])               # requestOutOfRange for unknown DIDs
+        return bytes([0x7F, sid, 0x11])                    # serviceNotSupported
 
     # --- lifecycle (mirrors MachineSimulator) ---
     def start(self):

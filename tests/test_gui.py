@@ -329,6 +329,30 @@ def test_obd_tab_reads_simulator(app, tmp_path):
     w.close()
 
 
+def test_uds_dialog_reads_module(app, tmp_path):
+    from canopener.core import connection
+    from canopener.gui.main_window import MainWindow
+    from canopener.gui.uds_dialog import UdsDialog
+
+    qt.QtCore.QSettings.setDefaultFormat(qt.QtCore.QSettings.Format.IniFormat)
+    qt.QtCore.QSettings.setPath(qt.QtCore.QSettings.Format.IniFormat, qt.QtCore.QSettings.Scope.UserScope,
+                                str(tmp_path))
+    w = MainWindow()
+    w.show()
+    w.source.setCurrentIndex(w.source.findData(connection.OBD_SIM))
+    w.connect()
+    pump(app, 0.4)
+    dlg = UdsDialog(w.ctx)
+    assert dlg.read_btn.isEnabled()
+    dlg._read()
+    pump(app, 2.0)
+    text = dlg.out.toPlainText()
+    assert "C0561-00" in text and "P0730-00" in text
+    assert "1HGCM82633A004352" in text          # the F190 data identifier (VIN)
+    w.disconnect()
+    w.close()
+
+
 def test_transmit_dialog_gating(app, tmp_path):
     from canopener.core import connection
     from canopener.gui.main_window import MainWindow

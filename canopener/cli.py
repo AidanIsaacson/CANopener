@@ -106,6 +106,46 @@ def cmd_obd(a) -> int:
     return 0
 
 
+def cmd_uds(a) -> int:
+    from . import uds as udslib
+    from .core.uds import UdsClient
+    kind = connection.OBD_SIM if a.sim else connection.SOCKETCAN
+    try:
+        conn = connection.open_connection(kind, a.iface)
+    except OSError as e:
+        print(f"Could not open {a.iface}: {e}", file=sys.stderr)
+        return 2
+    req_id = int(a.module, 16)
+    client = UdsClient(conn.session, request_id=req_id)
+    try:
+        if not client.available:
+            print("UDS needs to send requests, so it can't run in listen-only mode.", file=sys.stderr)
+            return 2
+        print(f"Module 0x{req_id:X} (responses on 0x{client.response_id:X}):")
+        try:
+            dtcs = client.read_dtcs()
+            if dtcs:
+                print("  DTCs:")
+                for code, status, flags in dtcs:
+                    print(f"    {code}  status=0x{status:02X}  {', '.join(flags) or '-'}")
+            else:
+                print("  DTCs: none")
+        except udslib.UdsError as e:
+            print(f"  ReadDTCInformation: {e}")
+        if a.did is not None:
+            did = int(a.did, 16)
+            try:
+                data = client.read_data_by_identifier(did)
+                text = bytes(b for b in data if 0x20 <= b < 0x7F).decode("ascii", "replace")
+                print(f"  DID {did:04X}: {data.hex(' ').upper()}" + (f"  ({text})" if text.strip() else ""))
+            except udslib.UdsError as e:
+                print(f"  DID {did:04X}: {e}")
+    finally:
+        client.close()
+        conn.close()
+    return 0
+
+
 def cmd_sim(a) -> int:
     from .can.backends import SocketCanBackend
     from .sim import MachineSimulator
@@ -229,6 +269,13 @@ def main(argv=None) -> int:
     o.add_argument("--iface", default="can0")
     o.add_argument("--sim", action="store_true", help="read the built-in OBD-II simulator instead")
     o.set_defaults(fn=cmd_obd)
+
+    ud = sub.add_parser("uds", help="read a module via UDS (ISO 14229): DTCs with status, a data identifier")
+    ud.add_argument("--iface", default="can0")
+    ud.add_argument("--sim", action="store_true", help="read the built-in simulator instead")
+    ud.add_argument("--module", default="7E0", help="module request CAN ID in hex (default 7E0)")
+    ud.add_argument("--did", help="also read this data identifier (hex, e.g. F190)")
+    ud.set_defaults(fn=cmd_uds)
 
     c = sub.add_parser("capture", help="re-generate and print a capture folder's summary")
     c.add_argument("folder")
