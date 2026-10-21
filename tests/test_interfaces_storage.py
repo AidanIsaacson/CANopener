@@ -153,3 +153,18 @@ def test_write_csv(tmp_path):
     assert rows[0]["pgn"] == "0FECA" and rows[0]["sa_name"] == "Engine #1" and rows[0]["da"] == ""
     assert rows[1]["dir"] == "TX" and rows[1]["da"] == "00" and rows[1]["pgn_name"] == "Request"
     assert rows[2]["can_id"] == "123" and rows[2]["pgn"] == ""
+
+
+def test_sudoers_content_is_scoped_and_safe():
+    c = interfaces.sudoers_content("tech")
+    assert "NOPASSWD" in c and "ip link set can[0-9] *" in c
+    assert "tech ALL=(root)" in c
+    # Scoped to the ip-link alias only: no blanket grant, no shell.
+    assert "ALL=(ALL) ALL" not in c and "/bin/sh" not in c and "(ALL : ALL)" not in c
+
+
+def test_sudoers_content_rejects_bad_user():
+    import pytest
+    for bad in ("root; rm -rf /", "a b", "", "x" * 40):
+        with pytest.raises(ValueError):
+            interfaces.sudoers_content(bad)

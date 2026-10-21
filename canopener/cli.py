@@ -146,6 +146,15 @@ def cmd_uds(a) -> int:
     return 0
 
 
+def cmd_allow_setup(a) -> int:
+    if interfaces.sudoers_installed():
+        print("Already set up: bringing up a CAN interface won't ask for a password.")
+        return 0
+    ok, msg = interfaces.install_sudoers()
+    print(msg, file=sys.stderr if not ok else sys.stdout)
+    return 0 if ok else 2
+
+
 def cmd_sim(a) -> int:
     from .can.backends import SocketCanBackend
     from .sim import MachineSimulator
@@ -276,6 +285,10 @@ def main(argv=None) -> int:
     ud.add_argument("--module", default="7E0", help="module request CAN ID in hex (default 7E0)")
     ud.add_argument("--did", help="also read this data identifier (hex, e.g. F190)")
     ud.set_defaults(fn=cmd_uds)
+
+    sub.add_parser("allow-setup", help="install a sudoers rule so bringing up a CAN interface "
+                   "needs no password (only 'ip link set canN ...', no stored password)"
+                   ).set_defaults(fn=cmd_allow_setup)
 
     c = sub.add_parser("capture", help="re-generate and print a capture folder's summary")
     c.add_argument("folder")

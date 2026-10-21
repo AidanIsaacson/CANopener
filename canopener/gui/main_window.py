@@ -272,6 +272,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._action(st, "&Units...", self.edit_units)
         self._action(st, "Log tool &keys...", self.edit_keys)
         self._action(st, "&Save folder...", self.log_panel._change_folder)
+        self._action(st, "Set up &passwordless CAN access...", self._install_sudoers)
         p = m.addMenu("&Profiles")
         self._action(p, "Reload profiles", self._load_profiles)
         self._action(p, "Open user profile folder", self._open_profile_dir)
@@ -619,6 +620,31 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def export_logs(self):
         ExportDialog(self.ctx, self).exec()
+
+    def _install_sudoers(self):
+        if interfaces.sudoers_installed():
+            QtWidgets.QMessageBox.information(self, "Passwordless CAN access",
+                                              "Already set up — bringing up a CAN interface won't ask "
+                                              "for a password.")
+            return
+        import getpass
+        user = getpass.getuser()
+        if QtWidgets.QMessageBox.question(
+                self, "Set up passwordless CAN access",
+                f"This adds a system rule so your user ({user}) can bring CAN interfaces up without "
+                "a password.\n\nIt only permits 'ip link set canN ...' as root — nothing else — and "
+                "stores no password anywhere. You'll be asked for your password once now to install "
+                "it.\n\nProceed?",
+                QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.Cancel,
+                QtWidgets.QMessageBox.StandardButton.Cancel) != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+        QtWidgets.QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            ok, msg = interfaces.install_sudoers(user)
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+        box = QtWidgets.QMessageBox.information if ok else QtWidgets.QMessageBox.warning
+        box(self, "Passwordless CAN access", msg)
 
     def edit_units(self):
         start = units.prefs(self.units.currentData())

@@ -125,6 +125,57 @@ def setup_command(name: str, bitrate: int, listen_only: bool = False) -> str:
     return " && ".join(shlex.join(step) for step in setup_steps(name, bitrate, listen_only))
 
 
+SUDOERS_PATH = "/etc/sudoers.d/canopener"
+
+
+def sudoers_installed() -> bool:
+    """True if the passwordless rule for bringing up CAN interfaces is already in place."""
+    return passwordless_sudo([_ip(), "link", "set", "can0", "up"])
+
+
+def _valid_user(user: str) -> bool:
+    return bool(re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user or ""))
+
+
+def sudoers_content(user: str) -> str:
+    """A minimal sudoers rule letting ``user`` run only ``ip link set canN ...`` as root. No
+    shell, no password stored anywhere — the standard way to avoid a prompt on every bring-up."""
+    if not _valid_user(user):
+        raise ValueError(f"bad username: {user!r}")
+    return (
+        f"# CANopener: let {user} configure CAN interfaces without a password.\n"
+        f"# Installed from the app's Settings menu. Only 'ip link set canN ...' is allowed.\n"
+        "Cmnd_Alias CANOPENER_IP = /usr/sbin/ip link set can[0-9] *, /usr/bin/ip link set can[0-9] *\n"
+        f"{user} ALL=(root) NOPASSWD: CANOPENER_IP\n"
+    )
+
+
+def install_sudoers(user: str | None = None, timeout: float = 120) -> tuple[bool, str]:
+    """Install the passwordless-CAN-setup rule (validated with visudo). Asks for a password once
+    (via pkexec/sudo) to write the file; afterwards bringing an interface up needs no password.
+    Stores no secret of any kind."""
+    import getpass
+    import tempfile
+    user = user or getpass.getuser()
+    content = sudoers_content(user)                 # raises ValueError on a bad username
+    with tempfile.NamedTemporaryFile("w", suffix=".sudoers", delete=False) as f:
+        f.write(content)
+        tmp = f.name
+    try:
+        steps = [
+            ["visudo", "-cf", tmp],                 # validate before installing (never install a broken file)
+            ["install", "-o", "root", "-g", "root", "-m", "0440", tmp, SUDOERS_PATH],
+        ]
+        ok, msg = run_privileged(steps, timeout=timeout)
+        return (True, f"Installed {SUDOERS_PATH}. Bringing up a CAN interface no longer asks for a "
+                "password.") if ok else (False, msg)
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def passwordless_sudo(argv: list[str]) -> bool:
     """True if sudoers lets us run ``argv`` without a password (see deploy/raspberry-pi)."""
     if not shutil.which("sudo"):
