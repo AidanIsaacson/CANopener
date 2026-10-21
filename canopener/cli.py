@@ -193,7 +193,7 @@ def cmd_setup(a) -> int:
             print("Could not detect the bitrate. Key on? Harness connected? Or pass --bitrate.", file=sys.stderr)
             return 1
         bitrate = found
-    ok, msg = interfaces.run_privileged(interfaces.setup_steps(a.iface, int(bitrate), a.listen_only))
+    ok, msg = interfaces.bring_up(a.iface, int(bitrate), a.listen_only)
     if not ok:
         print(f"Setup failed: {msg}", file=sys.stderr)
         return 1

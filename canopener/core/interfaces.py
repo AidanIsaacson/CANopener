@@ -98,9 +98,26 @@ def setup_steps(name: str, bitrate: int, listen_only: bool = False,
     return [
         [ip, "link", "set", name, "down"],
         [ip, "link", "set", name, "type", "can", "bitrate", str(int(bitrate)),
-         "listen-only", "on" if listen_only else "off", "restart-ms", "100"],
+         "listen-only", "on" if listen_only else "off"],
         [ip, "link", "set", name, "up"],
     ]
+
+
+def restart_ms_step(name: str) -> list[str]:
+    """Best-effort auto-recovery from bus-off. Many USB adapters (gs_usb / candleLight) don't
+    support it and reject the command with 'Device does not support restart from Bus Off', so it
+    is run as an optional step: the interface still comes up when it fails."""
+    return [_ip(), "link", "set", name, "type", "can", "restart-ms", "100"]
+
+
+def bring_up(name: str, bitrate: int, listen_only: bool = False, timeout: float = 90) -> tuple[bool, str]:
+    """Configure and bring up an interface, setting restart-ms best-effort (see above)."""
+    steps = setup_steps(name, bitrate, listen_only)
+    optional: set[int] = set()
+    if not name.startswith("vcan"):
+        steps = steps[:-1] + [restart_ms_step(name)] + steps[-1:]   # restart-ms before 'up'
+        optional = {len(steps) - 2}
+    return run_privileged(steps, timeout=timeout, optional=optional)
 
 
 def setup_command(name: str, bitrate: int, listen_only: bool = False) -> str:
@@ -118,29 +135,45 @@ def passwordless_sudo(argv: list[str]) -> bool:
         return False
 
 
-def run_privileged(steps: list[list[str]], timeout: float = 90) -> tuple[bool, str]:
+def run_privileged(steps: list[list[str]], timeout: float = 90, optional=()) -> tuple[bool, str]:
     """Run each step as root. Returns (ok, message).
 
     Order of preference: already root; passwordless sudo for exactly these commands (the
     kiosk setup on a Pi, where there's nobody to type a password); pkexec, which pops up a
     graphical password prompt once for all steps.
+
+    ``optional`` is a set of step indices that may fail without failing the whole operation
+    (e.g. restart-ms on an adapter that doesn't support it). They keep their place in the order.
     """
-    manual = " && ".join(shlex.join(s) for s in steps)
+    optional = set(optional)
+    # Shell form: optional steps wrapped so their failure doesn't break the && chain.
+    manual = " && ".join(f"{{ {shlex.join(s)} || true; }}" if i in optional else shlex.join(s)
+                         for i, s in enumerate(steps))
     if os.geteuid() == 0:
         runs = list(steps)
     elif all(passwordless_sudo(step) for step in steps):
         runs = [["sudo", "-n", *step] for step in steps]
     elif shutil.which("pkexec"):
-        runs = [["pkexec", "sh", "-c", manual]]
+        return _run_one(["pkexec", "sh", "-c", manual], manual, timeout)
     else:
         return False, f"No way to get root (no sudo rule, no pkexec). Run manually:\n  sudo sh -c '{manual}'"
-    for argv in runs:
+    for i, argv in enumerate(runs):
         try:
             r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
         except (OSError, subprocess.SubprocessError) as e:
             return False, f"Could not run: {e}\n\nRun manually:\n  sudo sh -c '{manual}'"
-        if r.returncode != 0:
+        if r.returncode != 0 and i not in optional:
             return False, (r.stderr or r.stdout).strip() or f"exit status {r.returncode}"
+    return True, "ok"
+
+
+def _run_one(argv: list[str], manual: str, timeout: float) -> tuple[bool, str]:
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, f"Could not run: {e}\n\nRun manually:\n  sudo sh -c '{manual}'"
+    if r.returncode != 0:
+        return False, (r.stderr or r.stdout).strip() or f"exit status {r.returncode}"
     return True, "ok"
 
 

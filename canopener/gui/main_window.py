@@ -501,8 +501,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 bitrate = self._detect_bitrate(name)
                 if bitrate is None:
                     return
-            steps = interfaces.setup_steps(name, bitrate, self.listen_only.isChecked())
-            ok, msg = interfaces.run_privileged(steps)
+            ok, msg = interfaces.bring_up(name, bitrate, self.listen_only.isChecked())
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
         if not ok:

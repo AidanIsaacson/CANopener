@@ -8,10 +8,34 @@ from canopener.core import interfaces, storage
 def test_setup_steps_can_and_vcan(tmp_path):
     steps = interfaces.setup_steps("can0", 500000, listen_only=True)
     assert [s[1:4] for s in steps] == [["link", "set", "can0"]] * 3
-    assert steps[1][4:] == ["type", "can", "bitrate", "500000", "listen-only", "on", "restart-ms", "100"]
+    # The critical config no longer bundles restart-ms (it fails on adapters that lack it).
+    assert steps[1][4:] == ["type", "can", "bitrate", "500000", "listen-only", "on"]
+    assert not any("restart-ms" in s for s in steps)
     (tmp_path / "vcan0").mkdir()
     assert [s[0] for s in interfaces.setup_steps("vcan0", 0, sys_net=str(tmp_path))] == \
         ["modprobe", interfaces._ip()]          # already exists: no 'ip link add'
+
+
+def test_restart_ms_is_optional_and_does_not_fail_bringup(monkeypatch):
+    # Simulate an adapter that rejects restart-ms (as root, so steps run directly).
+    calls = []
+
+    class R:
+        def __init__(self, rc, err=""):
+            self.returncode, self.stderr, self.stdout = rc, err, ""
+
+    def fake_run(argv, **kw):
+        calls.append(argv)
+        if "restart-ms" in argv:
+            return R(1, "Device does not support restart from Bus Off")
+        return R(0)
+
+    monkeypatch.setattr(interfaces.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(interfaces.subprocess, "run", fake_run)
+    ok, msg = interfaces.bring_up("can0", 250000, listen_only=False)
+    assert ok, msg                               # restart-ms failure is tolerated
+    assert any("restart-ms" in c for c in calls) # but it was attempted
+    assert any(c[-1] == "up" for c in calls)     # and the interface was still brought up
 
 
 def test_setup_rejects_bad_names():
