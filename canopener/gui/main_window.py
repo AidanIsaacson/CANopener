@@ -19,11 +19,13 @@ from .tab_info import InfoTab
 from .tab_live import LiveTab
 from .tab_monitor import MonitorTab
 from .tab_network import NetworkTab
+from .tab_obd import ObdTab
 from .tab_report import ReportTab
 from .widgets import LampPanel, app_icon
 
 SOURCES = [("SocketCAN adapter", connection.SOCKETCAN), ("Simulator", connection.SIMULATOR),
-           ("Simulate the selected profile", connection.PROFILE_SIM), ("Replay log file", connection.REPLAY)]
+           ("Simulate the selected profile", connection.PROFILE_SIM),
+           ("OBD-II simulator (car)", connection.OBD_SIM), ("Replay log file", connection.REPLAY)]
 REFRESH_MS = 200
 AUTO_BITRATE = 0
 
@@ -91,10 +93,11 @@ class MainWindow(QtWidgets.QMainWindow):
         lay.addWidget(self.detect_bar)
         self.tabs = QtWidgets.QTabWidget()
         self.tab_list = [CodesTab(self.ctx), LiveTab(self.ctx), MonitorTab(self.ctx), NetworkTab(self.ctx),
-                         InfoTab(self.ctx), ReportTab(self.ctx)]
+                         InfoTab(self.ctx), ObdTab(self.ctx), ReportTab(self.ctx)]
         for t in self.tab_list:
             self.tabs.addTab(t, t.title)
-        self.codes, self.live, self.monitor, self.network, self.info, self.report = self.tab_list
+        (self.codes, self.live, self.monitor, self.network, self.info, self.obd,
+         self.report) = self.tab_list
         self.tabs.currentChanged.connect(lambda _: self._tick())
         lay.addWidget(self.tabs)
         self.setCentralWidget(central)

@@ -13,6 +13,7 @@ from .session import Session
 SOCKETCAN = "socketcan"
 SIMULATOR = "sim"
 PROFILE_SIM = "profile-sim"
+OBD_SIM = "obd-sim"
 REPLAY = "replay"
 
 
@@ -32,6 +33,8 @@ class Connection:
             return "Simulator (virtual bus)"
         if self.kind == PROFILE_SIM:
             return f"Profile simulator: {self.simulator.profile.name}"
+        if self.kind == OBD_SIM:
+            return "OBD-II simulator (virtual car)"
         if self.kind == REPLAY:
             return f"Replay: {self.session.backend.channel}"
         return f"SocketCAN {self.session.backend.channel}"
@@ -56,6 +59,12 @@ def open_connection(kind: str, channel: str = "can0", *, listen_only: bool = Fal
             raise ValueError("pick a machine profile to simulate first")
         bus = VirtualBus()
         sim = ProfileSimulator(VirtualBackend(bus, "sim-ecus"), profile, seed=sim_seed)
+        sim.start()
+        backend = VirtualBackend(bus, "sim")
+    elif kind == OBD_SIM:
+        from ..sim.obd import ObdSimulator
+        bus = VirtualBus()
+        sim = ObdSimulator(VirtualBackend(bus, "obd-ecu"), seed=sim_seed)
         sim.start()
         backend = VirtualBackend(bus, "sim")
     elif kind == REPLAY:

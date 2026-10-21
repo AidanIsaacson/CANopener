@@ -306,6 +306,29 @@ def test_profile_features_in_the_gui(app, tmp_path, monkeypatch):
     w.close()
 
 
+def test_obd_tab_reads_simulator(app, tmp_path):
+    from canopener.core import connection
+    from canopener.gui.main_window import MainWindow
+
+    qt.QtCore.QSettings.setDefaultFormat(qt.QtCore.QSettings.Format.IniFormat)
+    qt.QtCore.QSettings.setPath(qt.QtCore.QSettings.Format.IniFormat, qt.QtCore.QSettings.Scope.UserScope,
+                                str(tmp_path))
+    w = MainWindow()
+    w.show()
+    w.source.setCurrentIndex(w.source.findData(connection.OBD_SIM))
+    w.connect()
+    pump(app, 0.4)
+    w.tabs.setCurrentWidget(w.obd)
+    assert w.obd.read_btn.isEnabled()
+    w.obd._read()
+    pump(app, 2.5)
+    assert "1HGCM82633A004352" in w.obd.vin_label.text()
+    assert "P0133" in w.obd.dtc_label.text()
+    assert w.obd.table.rowCount() >= 4
+    w.disconnect()
+    w.close()
+
+
 def test_window_fits_small_laptop(app, tmp_path):
     """The window must stay narrow enough to fit (and so maximise / snap on) a 1366-wide laptop,
     both empty AND once content has loaded. Two non-wrapping rows used to pin the minimum width

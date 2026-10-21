@@ -63,6 +63,39 @@ def cmd_decode(a) -> int:
     return 0
 
 
+def cmd_obd(a) -> int:
+    from .core.obd import ObdClient
+    kind = connection.OBD_SIM if a.sim else connection.SOCKETCAN
+    try:
+        conn = connection.open_connection(kind, a.iface)
+    except OSError as e:
+        print(f"Could not open {a.iface}: {e}", file=sys.stderr)
+        return 2
+    client = ObdClient(conn.session)
+    try:
+        if not client.available:
+            print("OBD-II needs to send requests, so it can't run in listen-only mode.", file=sys.stderr)
+            return 2
+        time.sleep(0.3)
+        vin = client.read_vin()
+        print(f"VIN: {vin}" if vin else "VIN: (not reported)")
+        dtcs = client.read_dtcs()
+        for label in ("stored", "pending", "permanent"):
+            codes = dtcs.get(label) or []
+            print(f"{label.capitalize()} DTCs: {', '.join(codes) if codes else 'none'}")
+        print("\nLive data:")
+        live = client.read_live()
+        if not live:
+            print("  (no live PIDs answered)")
+        for r in live:
+            value = units.fmt(r.value, r.unit, system=a.units) if r.unit else str(r.value)
+            print(f"  {r.name}: {value}")
+    finally:
+        client.close()
+        conn.close()
+    return 0
+
+
 def cmd_sim(a) -> int:
     from .can.backends import SocketCanBackend
     from .sim import MachineSimulator
@@ -181,6 +214,11 @@ def main(argv=None) -> int:
     u.add_argument("--listen-only", action="store_true", help="leave the controller in listen-only mode")
     u.set_defaults(fn=cmd_setup)
     sub.add_parser("profiles", help="list machine profiles").set_defaults(fn=cmd_profiles)
+
+    o = sub.add_parser("obd", help="read OBD-II (automotive J1979): DTCs, live PIDs and VIN")
+    o.add_argument("--iface", default="can0")
+    o.add_argument("--sim", action="store_true", help="read the built-in OBD-II simulator instead")
+    o.set_defaults(fn=cmd_obd)
 
     c = sub.add_parser("capture", help="re-generate and print a capture folder's summary")
     c.add_argument("folder")

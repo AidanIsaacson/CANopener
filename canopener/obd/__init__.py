@@ -19,6 +19,7 @@ from .dtc import decode_dtc, decode_dtc_list, encode_dtc
 from .isotp import (
     FUNCTIONAL_REQUEST_ID,
     RESPONSE_IDS,
+    RESPONSE_OFFSET,
     IsoTpReassembler,
     flow_control_frame,
     is_response_id,
@@ -28,7 +29,7 @@ from .pids import PIDS, Pid, supported_pids
 
 __all__ = [
     "IsoTpReassembler", "request_frame", "flow_control_frame", "is_response_id",
-    "FUNCTIONAL_REQUEST_ID", "RESPONSE_IDS", "decode", "ObdResponse", "PIDS", "Pid",
+    "FUNCTIONAL_REQUEST_ID", "RESPONSE_IDS", "RESPONSE_OFFSET", "decode", "ObdResponse", "PIDS", "Pid",
     "supported_pids", "decode_dtc", "encode_dtc", "decode_dtc_list",
     "MODE_CURRENT_DATA", "MODE_STORED_DTCS", "MODE_PENDING_DTCS", "MODE_PERMANENT_DTCS",
     "MODE_VEHICLE_INFO",
