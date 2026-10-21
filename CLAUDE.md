@@ -13,7 +13,7 @@ canopener --sim                  # GUI against the simulator
 canopener-cli scan --sim --full  # CLI against the simulator
 ```
 
-Headless Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3` for Qt.
+Headless or minimal Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libxcb-cursor0` for Qt.
 
 ## Rules
 

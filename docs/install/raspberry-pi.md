@@ -25,7 +25,7 @@ On the Pi, open **Terminal** (or `ssh yourname@<pi-name>.local` from the laptop)
 
 ```bash
 sudo apt update && sudo apt full-upgrade -y
-sudo apt install -y git libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3
+sudo apt install -y git libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libxcb-cursor0
 git clone https://github.com/AidanIsaacson/CANopener.git ~/CANopener
 ```
 

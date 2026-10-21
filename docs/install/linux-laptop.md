@@ -14,7 +14,7 @@ Open a terminal (Menu → **Terminal**, or Ctrl+Alt+T) and paste:
 ```bash
 sudo apt update
 sudo apt install -y git python3-venv can-utils \
-  libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3
+  libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libxcb-cursor0
 ```
 
 It asks for your password; nothing shows as you type, which is normal.
@@ -112,7 +112,8 @@ Your saved captures and reports stay in `~/canopener/` (lower-case), and setting
 
 | Problem | Fix |
 |---|---|
-| `libEGL.so.1: cannot open shared object file` (or another `.so` missing) | `sudo apt install -y libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3` |
+| `libEGL.so.1: cannot open shared object file` (or another `.so` missing) | `sudo apt install -y libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libxcb-cursor0` |
+| `Could not load the Qt platform plugin "xcb"` / `xcb-cursor0 or libxcb-cursor0 is needed` | `sudo apt install -y libxcb-cursor0` (required by Qt 6.5+) |
 | `python3 -m venv` says ensurepip is not available | `sudo apt install -y python3-venv` (on some versions `python3.12-venv`), then repeat step 3 |
 | `Could not open can0: No such device` | The adapter isn't detected. Check `ip link show`; replug it; see the adapter notes above. |
 | Connected but no traffic, or lots of errors in the status bar | Wrong bitrate. Use **Auto**, or try 500k. Check the key is on. |
