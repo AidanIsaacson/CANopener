@@ -15,7 +15,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 echo "== can-utils"
-apt-get update -qq
+apt-get update -qq || echo "   WARNING: apt-get update reported errors; carrying on." >&2
 apt-get install -y can-utils kmod
 
 missing_modules() {

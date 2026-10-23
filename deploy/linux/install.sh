@@ -44,7 +44,10 @@ if [ "$UPDATE" -eq 1 ]; then
 fi
 
 echo "== System packages (asks for your password)"
-sudo apt-get update
+# A broken third-party source (an expired key, say) makes 'apt-get update' fail even though the
+# Ubuntu/Debian lists it needs were refreshed, so that's a warning, not a reason to stop.
+sudo apt-get update || echo "   WARNING: apt-get update reported errors (see above; usually a third-party" \
+    "source, not something CANopener needs). Carrying on." >&2
 # python3-venv: the app's private environment. lib*: what the Qt GUI needs to open a window
 # (without them it installs fine but never appears).
 sudo apt-get install -y git python3 python3-venv can-utils \
