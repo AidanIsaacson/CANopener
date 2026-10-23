@@ -73,9 +73,15 @@ The installer marks the desktop icon as trusted. If your desktop still asks abou
 2. In CANopener, pick **SocketCAN adapter** in the top-left box. The interface (usually `can0`)
    should appear next to it; press **⟳** if it doesn't.
 3. Pick the bitrate (**250k** for most J1939 machines, or **Auto** to detect it safely in
-   listen-only mode) and press **Set Up Interface**. It asks for your password the first time:
-   bringing a network interface up needs admin rights.
-4. Press **Connect**, then **Read Active** / **Full Scan**.
+   listen-only mode).
+4. Press **Connect**. That's it — if the interface is down (a USB adapter comes up down every time
+   you plug it in), CANopener brings it up for you first, then connects. Then **Read Active** /
+   **Full Scan**. (There's still a separate **Set Up Interface** button if you want to configure
+   the bus without connecting.)
+
+To skip the password prompt on bring-up, do the one-time **Settings → Set up passwordless CAN
+access** below. To have the app connect the moment it opens, tick **Settings → Connect on
+startup** — then launching CANopener with the adapter plugged in is all it takes.
 
 Tick **Listen-only** if you want to be certain the laptop sends nothing at all onto the bus.
 

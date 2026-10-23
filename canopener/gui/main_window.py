@@ -141,6 +141,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.timer.timeout.connect(self._tick)
         self.timer.start(REFRESH_MS)
         self._session_changed(None)
+        if (self.autoconnect_action.isChecked()
+                and self.source.currentData() == connection.SOCKETCAN):
+            QtCore.QTimer.singleShot(0, self.connect)      # after the window is shown
 
     def _fit_to_screen(self):
         """Keep the window within the screen so it fits a small laptop and can still be moved,
@@ -273,6 +276,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._action(st, "Log tool &keys...", self.edit_keys)
         self._action(st, "&Save folder...", self.log_panel._change_folder)
         self._action(st, "Set up &passwordless CAN access...", self._install_sudoers)
+        self.autoconnect_action = QtGui.QAction("&Connect on startup", self, checkable=True)
+        self.autoconnect_action.setToolTip("When the app opens, connect straight to the SocketCAN "
+                                           "adapter (brings the interface up for you).")
+        self.autoconnect_action.toggled.connect(
+            lambda on: self.settings.setValue("connect_on_startup", on))
+        st.addAction(self.autoconnect_action)
         p = m.addMenu("&Profiles")
         self._action(p, "Reload profiles", self._load_profiles)
         self._action(p, "Open user profile folder", self._open_profile_dir)
@@ -414,6 +423,7 @@ class MainWindow(QtWidgets.QMainWindow):
         state = s.value("window_state")
         if state is not None:
             self.restoreState(state)
+        self.autoconnect_action.setChecked(s.value("connect_on_startup", "false") in (True, "true"))
         self._source_changed()
 
     def _save_settings(self):
@@ -536,6 +546,35 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self.connect()
 
+    def _ensure_up(self, name: str) -> bool:
+        """Bring a real SocketCAN interface up at the selected bitrate if it's down, so Connect
+        works in one click without a trip to the terminal. A USB adapter like the CANable comes
+        up 'down' on every plug-in; this configures it (using the passwordless rule if installed,
+        else one graphical prompt). Returns False only if bring-up was needed and failed."""
+        if name.startswith("vcan"):
+            return True
+        info = next((i for i in interfaces.list_interfaces() if i.name == name), None)
+        if info is None or info.state == "up":
+            return True                     # missing: let open_connection give the 'plugged in?' error
+        bitrate = self.bitrate.currentData()
+        QtWidgets.QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            if bitrate == AUTO_BITRATE:
+                bitrate = self._detect_bitrate(name)
+                if bitrate is None:
+                    return False
+            ok, msg = interfaces.bring_up(name, bitrate, self.listen_only.isChecked())
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+        if not ok:
+            QtWidgets.QMessageBox.critical(
+                self, "Connect", f"Couldn't bring {name} up:\n{msg}\n\nIf it mentions a password, set up "
+                "Settings → passwordless CAN access once. If it mentions listen-only, untick it.")
+            return False
+        self.statusBar().showMessage(f"{name} is up at {bitrate // 1000}k", 4000)
+        self._refresh_interfaces(preferred=name)
+        return True
+
     def connect(self, kind=None):
         kind = kind or self.source.currentData()
         channel = self.iface.currentText().strip() or "can0"
@@ -547,12 +586,15 @@ class MainWindow(QtWidgets.QMainWindow):
                     return
                 self._replay_path = path
             channel = self._replay_path
+        if kind == connection.SOCKETCAN and not self._ensure_up(channel):
+            return
         try:
             conn = open_connection(kind, channel, listen_only=self.listen_only.isChecked(),
                                    profile=profiles.active())
         except Exception as e:
-            hint = ("\n\nIs the adapter plugged in? Try 'Set Up Interface' first, or pick 'Simulator' "
-                    "to try the app without hardware." if kind == connection.SOCKETCAN else "")
+            hint = ("\n\nIs the adapter plugged in? CANopener couldn't find the interface to bring up. "
+                    "Press ⟳ to re-scan, or pick 'Simulator' to try the app without hardware."
+                    if kind == connection.SOCKETCAN else "")
             QtWidgets.QMessageBox.critical(self, "Connect", f"Could not open {channel}: {e}{hint}")
             self._replay_path = ""
             return

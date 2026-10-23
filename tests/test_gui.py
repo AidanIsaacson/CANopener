@@ -420,3 +420,39 @@ def test_window_fits_small_laptop(app, tmp_path):
     assert w.width() <= 1280 and w.height() <= 720
     w.disconnect()
     w.close()
+
+
+def test_connect_brings_up_a_down_interface(app, tmp_path, monkeypatch):
+    from canopener.core import interfaces
+    from canopener.gui.main_window import MainWindow
+
+    qt.QtCore.QSettings.setDefaultFormat(qt.QtCore.QSettings.Format.IniFormat)
+    qt.QtCore.QSettings.setPath(qt.QtCore.QSettings.Format.IniFormat, qt.QtCore.QSettings.Scope.UserScope,
+                                str(tmp_path))
+    w = MainWindow()
+    w.show()
+    w.bitrate.setCurrentIndex(w.bitrate.findData(250000))
+    w.listen_only.setChecked(False)
+
+    calls = []
+    monkeypatch.setattr(interfaces, "list_interfaces",
+                        lambda *a, **k: [interfaces.CanInterface("can0", "down")])
+    monkeypatch.setattr(interfaces, "bring_up",
+                        lambda name, bitrate, lo, **k: (calls.append((name, bitrate, lo)) or (True, "ok")))
+    assert w._ensure_up("can0") is True
+    assert calls == [("can0", 250000, False)]          # auto-brought-up at the selected bitrate
+
+    # The listen-only choice is carried through to bring-up.
+    calls.clear()
+    w.listen_only.setChecked(True)
+    assert w._ensure_up("can0") is True and calls == [("can0", 250000, True)]
+
+    # Already up: no bring-up attempted.
+    calls.clear()
+    monkeypatch.setattr(interfaces, "list_interfaces",
+                        lambda *a, **k: [interfaces.CanInterface("can0", "up")])
+    assert w._ensure_up("can0") is True and calls == []
+
+    # vcan is never touched (the simulator manages it).
+    assert w._ensure_up("vcan0") is True
+    w.close()
