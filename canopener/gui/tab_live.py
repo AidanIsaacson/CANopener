@@ -1,33 +1,21 @@
-"""Live Data tab: decoded broadcast parameters with min/max and a rolling chart."""
+"""Live Data tab: decoded broadcast parameters with min/max and a rolling chart.
+
+The screen only: values, min/max, history and the picked signals live in ``core.live.LiveData``,
+which the on-device UI shares.
+"""
 
 import time
-from collections import deque
 
 from ..core import units
+from ..core.live import LiveData
 from ..j1939.addresses import sa_name
-from ..j1939.ids import parse_id
-from ..j1939.signals import Signal, all_signals
-from .qt import Qt, QtGui, QtWidgets
+from .qt import Qt, QtCore, QtGui, QtWidgets
 from .widgets import StripChart, item, setup_table
 
 COLS = ["Plot", "Signal", "Group", "Value", "Unit", "Min", "Max", "Source", "PGN", "SPN", "Age"]
 C_PLOT, C_NAME, C_GROUP, C_VALUE, C_UNIT, C_MIN, C_MAX, C_SRC, C_PGN, C_SPN, C_AGE = range(len(COLS))
 ALL_GROUPS = "All groups"
-HISTORY_SECONDS = 600
 STALE_AFTER = 3.0
-
-
-class _Row:
-    def __init__(self, sig: Signal, sa: int):
-        self.sig, self.sa = sig, sa
-        self.value = None
-        self.t = 0.0
-        self.lo = self.hi = None
-        self.points: deque = deque(maxlen=HISTORY_SECONDS * 10)
-
-    @property
-    def key(self):
-        return (self.sig.key, self.sa)
 
 
 class LiveTab(QtWidgets.QWidget):
@@ -36,9 +24,9 @@ class LiveTab(QtWidgets.QWidget):
     def __init__(self, ctx, parent=None):
         super().__init__(parent)
         self.ctx = ctx
-        self.rows: dict[tuple, _Row] = {}
-        self.order: list[tuple] = []
-        self.plotted: list[tuple] = []
+        self.model = LiveData()
+        # The model's own containers (cleared in place), under the names the tab always used.
+        self.rows, self.order, self.plotted = self.model.rows, self.model.order, self.model.selected
         lay = QtWidgets.QVBoxLayout(self)
 
         bar = QtWidgets.QHBoxLayout()
@@ -55,32 +43,57 @@ class LiveTab(QtWidgets.QWidget):
         reset = QtWidgets.QPushButton("Reset min/max")
         reset.clicked.connect(self._reset_minmax)
         bar.addWidget(reset)
-        bar.addWidget(QtWidgets.QLabel("Chart window"))
+        # Two view toggles (remembered between sessions): list only the ticked signals, and
+        # hide the chart to give the list the whole tab on a small screen.
+        settings = QtCore.QSettings()
+        self.only_checked = QtWidgets.QPushButton()
+        self.only_checked.setCheckable(True)
+        self.only_checked.setToolTip("List only the signals ticked in the Plot column")
+        self.only_checked.toggled.connect(self._only_checked_toggled)
+        bar.addWidget(self.only_checked)
+        self.hide_plots = QtWidgets.QPushButton()
+        self.hide_plots.setCheckable(True)
+        self.hide_plots.setToolTip("Hide the chart so the list fills the tab (ticked signals keep recording)")
+        self.hide_plots.toggled.connect(self._hide_plots_toggled)
+        bar.addWidget(self.hide_plots)
+        lay.addLayout(bar)
+
+        split = QtWidgets.QSplitter(Qt.Orientation.Vertical)
+        self.table = QtWidgets.QTableWidget()
+        # The signal name gets a fixed, readable width and Group takes up the slack: with the Log
+        # panel open on a 1280-wide laptop the table has ~850 px, and a stretching name column
+        # used to be squeezed to "En...".
+        setup_table(self.table, COLS, stretch=(C_GROUP,))
+        for c, w in ((C_PLOT, 44), (C_NAME, 210), (C_VALUE, 90), (C_UNIT, 55), (C_MIN, 70), (C_MAX, 70),
+                     (C_SRC, 110), (C_PGN, 55), (C_SPN, 55), (C_AGE, 50)):
+            self.table.setColumnWidth(c, w)
+        self.table.itemChanged.connect(self._item_changed)
+        split.addWidget(self.table)
+        # The chart and its own controls, in one pane that "Hide plots" hides.
+        self.chart_pane = QtWidgets.QWidget()
+        cl = QtWidgets.QVBoxLayout(self.chart_pane)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cbar = QtWidgets.QHBoxLayout()
+        cbar.addWidget(QtWidgets.QLabel("Chart window"))
         self.window = QtWidgets.QComboBox()
         for label, secs in (("30 s", 30), ("1 min", 60), ("2 min", 120), ("5 min", 300), ("10 min", 600)):
             self.window.addItem(label, secs)
         self.window.setCurrentIndex(1)
         self.window.currentIndexChanged.connect(lambda _: self.chart.set_window(self.window.currentData()))
-        bar.addWidget(self.window)
+        cbar.addWidget(self.window)
         self.pause = QtWidgets.QPushButton("Pause chart")
         self.pause.setCheckable(True)
         self.pause.toggled.connect(lambda on: self.chart.set_paused(on))
-        bar.addWidget(self.pause)
+        cbar.addWidget(self.pause)
         clear = QtWidgets.QPushButton("Clear plots")
+        clear.setToolTip("Untick every signal")
         clear.clicked.connect(self._clear_plots)
-        bar.addWidget(clear)
-        lay.addLayout(bar)
-
-        split = QtWidgets.QSplitter(Qt.Orientation.Vertical)
-        self.table = QtWidgets.QTableWidget()
-        setup_table(self.table, COLS, stretch=(C_NAME,))
-        for c, w in ((C_PLOT, 44), (C_GROUP, 130), (C_VALUE, 100), (C_UNIT, 60), (C_MIN, 80), (C_MAX, 80),
-                     (C_SRC, 170), (C_PGN, 60), (C_SPN, 60), (C_AGE, 55)):
-            self.table.setColumnWidth(c, w)
-        self.table.itemChanged.connect(self._item_changed)
-        split.addWidget(self.table)
+        cbar.addWidget(clear)
+        cbar.addStretch(1)
+        cl.addLayout(cbar)
         self.chart = StripChart()
-        split.addWidget(self.chart)
+        cl.addWidget(self.chart, 1)
+        split.addWidget(self.chart_pane)
         split.setStretchFactor(0, 3)
         split.setStretchFactor(1, 2)
         lay.addWidget(split)
@@ -88,15 +101,31 @@ class LiveTab(QtWidgets.QWidget):
         self.empty.setStyleSheet("color: gray")
         lay.addWidget(self.empty)
 
+        self.only_checked.setChecked(settings.value("live/only_checked", "false") in (True, "true"))
+        self.hide_plots.setChecked(settings.value("live/hide_plots", "false") in (True, "true"))
+        self._only_checked_toggled(self.only_checked.isChecked(), save=False)
+        self._hide_plots_toggled(self.hide_plots.isChecked(), save=False)
+
         ctx.session_changed.connect(self._session_changed)
         ctx.units_changed.connect(lambda _: self._units_changed())
         ctx.profile_changed.connect(lambda: self._session_changed(ctx.session))
         ctx.show_signal.connect(self.focus_spn)
 
+    def _only_checked_toggled(self, on: bool, save: bool = True):
+        self.only_checked.setText("Show unticked" if on else "Hide unticked")
+        if save:
+            QtCore.QSettings().setValue("live/only_checked", on)
+        self._apply_filter()
+        self.refresh(force=True)
+
+    def _hide_plots_toggled(self, on: bool, save: bool = True):
+        self.hide_plots.setText("Show plots" if on else "Hide plots")
+        self.chart_pane.setVisible(not on)
+        if save:
+            QtCore.QSettings().setValue("live/hide_plots", on)
+
     def _session_changed(self, session):
-        self.rows.clear()
-        self.order.clear()
-        self.plotted.clear()
+        self.model.clear()
         self.table.setRowCount(0)
         self.chart.follow_data = bool(session and session.offline)
         if session is not None and session.offline:
@@ -107,31 +136,7 @@ class LiveTab(QtWidgets.QWidget):
 
     def _load_history(self, session):
         """For a decoded log, rebuild each signal's full history from the raw frames."""
-        by_pgn = {}
-        for sig in all_signals():
-            by_pgn.setdefault(sig.pgn, []).append(sig)
-        with session.lock:
-            frames = list(session.raw)
-        for fr in frames:
-            if not fr.extended or fr.error:
-                continue
-            jid = parse_id(fr.can_id)
-            for sig in by_pgn.get(jid.pgn, ()):
-                if not sig.accepts(jid.sa):
-                    continue
-                v = sig.decode(fr.data)
-                key = (sig.key, jid.sa)
-                row = self.rows.get(key)
-                if row is None:
-                    if v is None:
-                        continue
-                    row = self.rows[key] = _Row(sig, jid.sa)
-                    self.order.append(key)
-                if v is not None:
-                    row.lo = v if row.lo is None else min(row.lo, v)
-                    row.hi = v if row.hi is None else max(row.hi, v)
-                    row.points.append((fr.timestamp, v))
-                row.t, row.value = fr.timestamp, v
+        self.model.load_history(session)
         self._rebuild_table()
 
     def _units_changed(self):
@@ -142,33 +147,7 @@ class LiveTab(QtWidgets.QWidget):
     def sample(self):
         """Pull the latest value of every signal from the session (called ~5x/s, any tab)."""
         s = self.ctx.session
-        if s is None:
-            return
-        added = False
-        by_pgn: dict[int, list] = {}            # one pass over the session, not one per signal
-        with s.lock:
-            for (pgn, sa), (t, d) in s.latest.items():
-                by_pgn.setdefault(pgn, []).append((sa, t, d))
-        for sig in all_signals():
-            for sa, t, d in by_pgn.get(sig.pgn, ()):
-                if not sig.accepts(sa):
-                    continue
-                key = (sig.key, sa)
-                row = self.rows.get(key)
-                v = sig.decode(d)
-                if row is None:
-                    if v is None:
-                        continue        # don't list parameters this machine doesn't support
-                    row = self.rows[key] = _Row(sig, sa)
-                    self.order.append(key)
-                    added = True
-                if t != row.t:
-                    row.t, row.value = t, v
-                    if v is not None:
-                        row.lo = v if row.lo is None else min(row.lo, v)
-                        row.hi = v if row.hi is None else max(row.hi, v)
-                        row.points.append((t, v))
-        if added:
+        if s is not None and self.model.sample(s):
             self._rebuild_table()
 
     def _rebuild_table(self):
@@ -201,7 +180,11 @@ class LiveTab(QtWidgets.QWidget):
     def refresh(self, force: bool = False):
         if not force and not self.isVisible():
             return
-        self.empty.setVisible(not self.order)
+        if not self.order:
+            self.empty.setText("No standard live parameters seen yet. Key on / engine running?")
+        elif self.only_checked.isChecked() and not self.plotted:
+            self.empty.setText("Nothing is ticked. Tick signals in the Plot column, or press Show unticked.")
+        self.empty.setVisible(not self.order or (self.only_checked.isChecked() and not self.plotted))
         now = time.time()
         offline = self.ctx.session is not None and self.ctx.session.offline
         sysu = self.ctx.units
@@ -241,7 +224,7 @@ class LiveTab(QtWidgets.QWidget):
 
     # ------------------------------------------------------------------
     def _sync_groups(self):
-        groups = sorted({self.rows[k].sig.group for k in self.order if self.rows[k].sig.group})
+        groups = self.model.groups()
         have = [self.group.itemText(i) for i in range(1, self.group.count())]
         if groups == have:
             return
@@ -254,24 +237,22 @@ class LiveTab(QtWidgets.QWidget):
         self.group.blockSignals(False)
 
     def _apply_filter(self):
-        q = self.filter.text().strip().lower()
+        q = self.filter.text()
         group = self.group.currentText()
+        group = None if group == ALL_GROUPS else group
+        only = self.only_checked.isChecked()
         for i, key in enumerate(self.order):
-            r = self.rows[key]
-            hay = f"{r.sig.name} {r.sig.spn or ''} {r.sig.pgn:04x} {sa_name(r.sa)} {r.sig.group}".lower()
-            hidden = (bool(q) and q not in hay) or (group != ALL_GROUPS and r.sig.group != group)
-            self.table.setRowHidden(i, hidden)
+            self.table.setRowHidden(i, not self.model.matches(key, q, group, only))
 
     def _item_changed(self, it):
         if it.column() != C_PLOT:
             return
         key = it.data(Qt.ItemDataRole.UserRole)
-        on = it.checkState() == Qt.CheckState.Checked
-        if on and key not in self.plotted:
-            self.plotted.append(key)
-        elif not on and key in self.plotted:
-            self.plotted.remove(key)
+        self.model.select(key, it.checkState() == Qt.CheckState.Checked)
         self._sync_chart()
+        if self.only_checked.isChecked():
+            self._apply_filter()           # an unticked row leaves the list
+            self.refresh(force=True)
 
     def _sync_chart(self):
         sysu = self.ctx.units
@@ -289,8 +270,7 @@ class LiveTab(QtWidgets.QWidget):
         self.chart.set_series(series)
 
     def _reset_minmax(self):
-        for r in self.rows.values():
-            r.lo = r.hi = r.value
+        self.model.reset_minmax()
         self.refresh(force=True)
 
     def _clear_plots(self):
@@ -301,17 +281,18 @@ class LiveTab(QtWidgets.QWidget):
     def focus_spn(self, spn: int):
         """Select and plot the row for an SPN (from the Fault Codes tab)."""
         self.sample()
-        for i, key in enumerate(self.order):
-            if self.rows[key].sig.spn == spn:
-                self.filter.clear()
-                self.group.setCurrentIndex(0)
-                if key not in self.plotted:
-                    self.plotted.append(key)
-                    self._rebuild_table()
-                    self._sync_chart()
-                self.table.selectRow(i)
-                self.table.scrollToItem(self.table.item(i, C_NAME))
-                return True
+        key = self.model.find_spn(spn)
+        if key is not None:
+            self.filter.clear()
+            self.group.setCurrentIndex(0)
+            if key not in self.plotted:
+                self.model.select(key)
+                self._rebuild_table()
+                self._sync_chart()
+            i = self.order.index(key)
+            self.table.selectRow(i)
+            self.table.scrollToItem(self.table.item(i, C_NAME))
+            return True
         self.ctx.status_message.emit(f"SPN {spn} is not being broadcast right now")
         return False
 

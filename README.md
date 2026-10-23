@@ -33,7 +33,7 @@ git clone https://github.com/AidanIsaacson/CANopener.git ~/CANopener
 | | |
 |---|---|
 | **Fault codes** | Active (DM1), stored (DM2), pending (DM6), emissions (DM12/DM23), freeze frames (DM4), readiness (DM5). Warning-lamp status per ECU. Optional "every code seen this session" view that catches intermittent faults. |
-| **Live data** | ~35 standard engine/chassis parameters (rpm, temps, pressures, voltages, DPF/DEF ...), min/max, a rolling multi-lane chart, metric or imperial. Jump straight from a fault code to its live parameter. |
+| **Live data** | ~35 standard engine/chassis parameters (rpm, temps, pressures, voltages, DPF/DEF ...), min/max, a rolling multi-lane chart, metric or imperial. Jump straight from a fault code to its live parameter. **Hide unticked** lists just the signals you picked, and **Hide plots** gives the list the whole tab on a small screen (both remembered). |
 | **Bus monitor** | Raw frames, scrolling or one row per ID (like `cansniffer`) with changed bytes highlighted, for reverse-engineering proprietary frames. |
 | **Network** | Every ECU on the bus, its address-claim NAME, and each PGN it sends with rate and latest data. |
 | **Machine info** | Component / software / ECU IDs, VIN, engine hours, fuel used. |
@@ -212,7 +212,7 @@ canopener/
   obd/       OBD-II (J1979) protocol: ISO-TP, Mode 01 PIDs, DTC + VIN/Mode 09 decode
   uds/       UDS (ISO 14229) protocol: services, NRCs, DTC status, request builders
   can/       bus backends (SocketCAN, virtual, log replay) and candump log files
-  core/      session engine, scans, OBD/UDS clients, transmit, reports, profiles, units
+  core/      session engine, scans, live-data model, OBD/UDS clients, transmit, reports, profiles, units
   sim/       simulated machine (J1939) and OBD-II/UDS simulator
   gui/       desktop GUI (Qt) - a thin front-end over core/
   cli.py     command-line front-end

@@ -206,7 +206,16 @@ class LogPanel(QtWidgets.QDockWidget):
         self.keys_label.setStyleSheet("color: gray; font-size: 9pt")
         lay.addWidget(self.keys_label)
 
-        self.setWidget(w)
+        # Scrollable, so the panel never sets the window's minimum height: on a 1280x720 laptop the
+        # whole window has ~650 px under the title bar and taskbar, and this panel alone wants ~530.
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(w)
+        scroll.setMinimumWidth(w.minimumSizeHint().width()
+                               + scroll.style().pixelMetric(QtWidgets.QStyle.PixelMetric.PM_ScrollBarExtent))
+        self.setWidget(scroll)
         self.setMinimumWidth(330)
 
     # ------------------------------------------------------------------

@@ -418,8 +418,121 @@ def test_window_fits_small_laptop(app, tmp_path):
     w.resize(1280, 720)
     app.processEvents()
     assert w.width() <= 1280 and w.height() <= 720
+
+    # A 1280x720 screen leaves ~1280x650 under the taskbar and title bar. Every tab (plugin tabs
+    # too), with the Log panel open, must fit that with room for a bigger desktop font.
+    assert w.log_panel.isVisible()
+    for i in range(w.tabs.count()):
+        w.tabs.setCurrentIndex(i)
+        app.processEvents()
+        m = w.minimumSizeHint()
+        assert m.width() <= 1200 and m.height() <= 600, (w.tabs.tabText(i), m.width(), m.height())
+
+    # Dialogs too.
+    from canopener.gui.export_dialog import ExportDialog
+    from canopener.gui.request_dialog import RequestDialog
+    from canopener.gui.settings_dialog import UnitsDialog
+    from canopener.gui.transmit_dialog import TransmitDialog
+    from canopener.gui.uds_dialog import UdsDialog
+    for d in (TransmitDialog(w.ctx, w.transmitter, w), RequestDialog(w.ctx, w), UdsDialog(w.ctx, w),
+              ExportDialog(w.ctx, w), UnitsDialog({}, w)):
+        d.show()
+        app.processEvents()
+        m = d.minimumSizeHint()
+        assert d.width() <= 1280 and d.height() <= 650 and m.width() <= 1200 and m.height() <= 600, \
+            (type(d).__name__, d.width(), d.height())
+        d.close()
     w.disconnect()
     w.close()
+
+
+def test_window_fits_a_real_1280x720_laptop_screen(tmp_path):
+    """Run the app on an emulated screen the size of a 1280x720 laptop's usable area (taskbar and
+    title bar taken off) with a saved oversized geometry, load content, and check the window
+    really fits. Separate process: the screen size is set when Qt starts."""
+    import json
+    import subprocess
+    import sys
+    cfg = tmp_path / "screen.json"
+    cfg.write_text(json.dumps({"synchronousWindowSystem": True, "windowFrameMargins": False, "screens": [
+        {"name": "laptop", "x": 0, "y": 0, "width": 1280, "height": 650, "logicalDpi": 96,
+         "logicalBaseDpi": 96, "dpr": 1}]}))
+    script = r"""
+import sys, time
+from canopener.gui.qt import QtCore, QtWidgets
+app = QtWidgets.QApplication([])
+QtCore.QSettings.setDefaultFormat(QtCore.QSettings.Format.IniFormat)
+QtCore.QSettings.setPath(QtCore.QSettings.Format.IniFormat, QtCore.QSettings.Scope.UserScope, sys.argv[1])
+from canopener.core import connection
+from canopener.gui.main_window import MainWindow
+w = MainWindow(); w.show()
+w.source.setCurrentIndex(w.source.findData(connection.SIMULATOR)); w.connect()
+end = time.time() + 1.5
+while time.time() < end: app.processEvents(); time.sleep(0.02)
+w.ctx.run_preset("full")
+end = time.time() + 5
+while time.time() < end: app.processEvents(); time.sleep(0.02)
+avail = app.primaryScreen().availableGeometry()
+bad = []
+for i in range(w.tabs.count()):
+    w.tabs.setCurrentIndex(i); app.processEvents(); w._fit_to_screen(); app.processEvents()
+    if not avail.contains(w.frameGeometry()):
+        bad.append((w.tabs.tabText(i), w.frameGeometry().width(), w.frameGeometry().height()))
+print("BAD", bad) if bad else print("OK")
+w.disconnect()
+"""
+    env = dict(__import__("os").environ, QT_QPA_PLATFORM=f"offscreen:configfile={cfg}")
+    r = subprocess.run([sys.executable, "-c", script, str(tmp_path / "cfg")], capture_output=True, text=True,
+                       env=env, timeout=60)
+    assert r.stdout.strip().endswith("OK"), r.stdout + r.stderr
+
+
+def test_live_data_view_toggles(app, tmp_path):
+    from canopener.core import connection
+    from canopener.gui.main_window import MainWindow
+
+    qt.QtCore.QSettings.setDefaultFormat(qt.QtCore.QSettings.Format.IniFormat)
+    qt.QtCore.QSettings.setPath(qt.QtCore.QSettings.Format.IniFormat, qt.QtCore.QSettings.Scope.UserScope,
+                                str(tmp_path))
+    w = MainWindow()
+    w.show()
+    w.source.setCurrentIndex(w.source.findData(connection.SIMULATOR))
+    w.connect()
+    pump(app, 1.5)
+    live = w.live
+    w.tabs.setCurrentWidget(live)
+    live.sample()
+    rows = live.table.rowCount()
+    assert rows > 5
+
+    def shown():
+        return [i for i in range(rows) if not live.table.isRowHidden(i)]
+
+    # Hide unticked: only the ticked rows stay; a hint when nothing is ticked.
+    assert live.only_checked.text() == "Hide unticked"
+    live.only_checked.setChecked(True)
+    assert live.only_checked.text() == "Show unticked" and shown() == []
+    assert "Nothing is ticked" in live.empty.text() and not live.empty.isHidden()
+    assert live.focus_spn(190)                         # plotting a signal brings it back
+    assert len(shown()) == 1 and live.empty.isHidden()
+    live.table.item(shown()[0], 0).setCheckState(qt.Qt.CheckState.Unchecked)
+    assert shown() == []                               # unticking removes it again
+    live.only_checked.setChecked(False)
+    assert len(shown()) == rows
+
+    # Hide plots: the chart (and its controls) go, the list gets the room.
+    assert live.chart_pane.isVisible()
+    live.hide_plots.setChecked(True)
+    assert not live.chart_pane.isVisible() and live.hide_plots.text() == "Show plots"
+    w.disconnect()
+    w.close()
+
+    # Both are remembered for next time.
+    w2 = MainWindow()
+    w2.show()
+    assert w2.live.hide_plots.isChecked() and not w2.live.chart_pane.isVisible()
+    assert not w2.live.only_checked.isChecked()
+    w2.close()
 
 
 def test_connect_brings_up_a_down_interface(app, tmp_path, monkeypatch):
