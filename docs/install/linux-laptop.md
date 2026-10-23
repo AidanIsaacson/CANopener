@@ -60,7 +60,8 @@ the **📝 Log** panel.
    set it up.
 2. Connect the adapter to the machine's diagnostic connector and turn the key on.
 3. In CANopener pick **SocketCAN adapter** in the top-left box. The interface (`can0`) appears
-   next to it. Press **⟳** if you plugged in after the app opened.
+   next to it. Its list shows only adapters that are connected right now, and it looks again
+   every time you open it (or press **⟳**), so plugging in after the app opened is fine.
 4. Pick the bitrate: **250k** for most J1939 machines, **500k** for cars (OBD-II) and some newer
    machines, or **Auto** to detect it. Auto listens in listen-only mode, so it never disturbs the
    bus while it searches.

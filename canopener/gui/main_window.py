@@ -22,7 +22,7 @@ from .tab_network import NetworkTab
 from .tab_obd import ObdTab
 from .tab_report import ReportTab
 from .transmit_dialog import TransmitDialog
-from .widgets import LampPanel, app_icon
+from .widgets import LampPanel, RefreshComboBox, app_icon
 
 SOURCES = [("SocketCAN adapter", connection.SOCKETCAN), ("Simulator", connection.SIMULATOR),
            ("Simulate the selected profile", connection.PROFILE_SIM),
@@ -183,10 +183,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.source.currentIndexChanged.connect(self._source_changed)
         tb.addWidget(self.source)
 
-        self.iface = QtWidgets.QComboBox()
+        # Lists only the interfaces that exist right now, re-checked each time the list opens.
+        # Still editable, so a name can be typed (e.g. vcan0 before creating it).
+        self.iface = RefreshComboBox(self._iface_list_opening)
         self.iface.setEditable(True)
         self.iface.setMinimumWidth(110)
-        self.iface.setToolTip("SocketCAN interface (can0, vcan0, slcan0 ...)")
         tb.addWidget(self.iface)
         self.rescan_btn = QtWidgets.QToolButton()
         self.rescan_btn.setText("⟳")
@@ -467,24 +468,36 @@ class MainWindow(QtWidgets.QMainWindow):
     # ------------------------------------------------------------------
     # connection
     # ------------------------------------------------------------------
-    def _refresh_interfaces(self, *_, preferred=None):
-        cur = preferred or self.iface.currentText() or "can0"
-        self.iface.clear()
+    def _refresh_interfaces(self, *_, preferred=None, sync_bitrate=True):
+        """Fill the interface list with the CAN interfaces that exist now. The text keeps the
+        preferred / current name (default can0) even when it isn't connected, so Connect can say
+        why. ``sync_bitrate`` matches the bitrate box to an interface that's already up; the
+        re-check when the list opens skips that, so it doesn't undo a bitrate just picked."""
+        cur = preferred or self.iface.currentText().strip() or "can0"
         found = interfaces.list_interfaces()
-        for i in found:
-            self.iface.addItem(i.name)
-            self.iface.setItemData(self.iface.count() - 1, i.describe(), Qt.ItemDataRole.ToolTipRole)
         if found and cur not in [i.name for i in found]:
             # The adapter came up under another name (can1, or can0 after using vcan0): use it.
             cur = next((i.name for i in found if not i.virtual), cur)
-        if self.iface.findText(cur) < 0:
-            self.iface.addItem(cur)
+        self.iface.blockSignals(True)
+        self.iface.clear()
+        for i in found:
+            self.iface.addItem(i.name)
+            self.iface.setItemData(self.iface.count() - 1, i.describe(), Qt.ItemDataRole.ToolTipRole)
         self.iface.setCurrentText(cur)
+        self.iface.blockSignals(False)
+        self.iface.setToolTip("CAN interfaces connected now: " + ", ".join(i.describe() for i in found)
+                              if found else "No CAN adapter connected. Plug it in, then open this list "
+                              "or press ⟳ to look again.")
         match = next((i for i in found if i.name == cur), None)
-        if match and match.bitrate:
+        if sync_bitrate and match and match.bitrate:
             idx = self.bitrate.findData(match.bitrate)
             if idx >= 0:
                 self.bitrate.setCurrentIndex(idx)
+
+    def _iface_list_opening(self):
+        self._refresh_interfaces(sync_bitrate=False)
+        if self.iface.count() == 0:
+            self.statusBar().showMessage(interfaces.no_adapter_hint().split("\n")[0], 10000)
 
     def _source_changed(self, *_):
         kind = self.source.currentData()

@@ -479,3 +479,33 @@ def test_adapter_under_another_name_and_quiet_startup(app, tmp_path, monkeypatch
     w._connect_on_startup()
     assert "No CAN adapter found" in w.statusBar().currentMessage()
     w.close()
+
+
+def test_interface_list_shows_only_connected_and_rechecks_on_open(app, tmp_path, monkeypatch):
+    from canopener.core import interfaces
+    from canopener.gui.main_window import MainWindow
+
+    qt.QtCore.QSettings.setDefaultFormat(qt.QtCore.QSettings.Format.IniFormat)
+    qt.QtCore.QSettings.setPath(qt.QtCore.QSettings.Format.IniFormat, qt.QtCore.QSettings.Scope.UserScope,
+                                str(tmp_path))
+    present = []
+    monkeypatch.setattr(interfaces, "list_interfaces", lambda *a, **k: list(present))
+    monkeypatch.setattr(interfaces, "usb_adapters", lambda *a, **k: [])
+    w = MainWindow()
+    w._refresh_interfaces(preferred="can0")
+    # Nothing plugged in: an empty list, but the box still reads can0.
+    assert w.iface.count() == 0 and w.iface.currentText() == "can0"
+
+    # Plugged in afterwards: opening the list finds it, without touching the chosen bitrate.
+    present[:] = [interfaces.CanInterface("can0", "up", bitrate=250000)]
+    w.bitrate.setCurrentIndex(w.bitrate.findData(500000))
+    w.iface._on_popup()                              # what showPopup() runs first
+    assert [w.iface.itemText(i) for i in range(w.iface.count())] == ["can0"]
+    assert w.iface.currentText() == "can0" and w.bitrate.currentData() == 500000
+
+    # Unplugged again: it drops out of the list.
+    present.clear()
+    w.iface._on_popup()
+    assert w.iface.count() == 0 and w.iface.currentText() == "can0"
+    assert "No CAN adapter found" in w.statusBar().currentMessage()
+    w.close()

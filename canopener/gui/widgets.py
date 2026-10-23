@@ -17,6 +17,18 @@ MARKER_COLOR = "#c2255c"
 SERIES_COLORS = ["#1c7ed6", "#e8590c", "#2f9e44", "#ae3ec9", "#c92a2a", "#0c8599", "#5c940d", "#862e9c"]
 
 
+class RefreshComboBox(QtWidgets.QComboBox):
+    """A combo box that calls ``on_popup`` (to refresh its items) just before its list opens."""
+
+    def __init__(self, on_popup, parent=None):
+        super().__init__(parent)
+        self._on_popup = on_popup
+
+    def showPopup(self):
+        self._on_popup()
+        super().showPopup()
+
+
 ICON_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "canopener.svg")
 
 
