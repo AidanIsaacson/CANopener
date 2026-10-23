@@ -14,7 +14,7 @@ cd ~/CANopener
 
 | File | Purpose |
 |---|---|
-| `install.sh` | Creates `~/canopener-venv`, installs the app, adds the launcher and a menu entry. `--sudoers` and `--autostart` are optional. |
+| `install.sh` | Runs [`../linux/adapter-setup.sh`](../linux) (USB CAN drivers, CANable plug-in rule), creates `~/canopener-venv`, installs the app, adds the launcher and a menu entry. `--sudoers` and `--autostart` are optional. |
 | `canopener-launch.sh` | Runs `canopener-cli setup` for the CAN interface, then the GUI fullscreen. Configured with `CANOPENER_*` environment variables (see the top of the file). |
 | `canopener.sudoers` | Lets your user run **only** `ip link set canN up/down/type can ...` without a password. Without it, interface setup asks for a password (pkexec), which a kiosk can't answer. |
 | `canopener.service` | systemd **user** service: start at login, restart on crash. |

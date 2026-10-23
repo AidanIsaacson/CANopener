@@ -62,6 +62,83 @@ def list_interfaces(sys_net: str = SYS_NET) -> list[CanInterface]:
     return out
 
 
+SYS_USB = "/sys/bus/usb/devices"
+SYS_TTY = "/sys/class/tty"
+
+# USB IDs of the adapters the install guides cover. gs_usb devices become canN by themselves;
+# slcan ones are a serial port that deploy/linux/70-canopener.rules attaches with slcand.
+USB_GS_USB = {("1d50", "606f"), ("1209", "2323")}     # candleLight / CANable gs_usb firmware
+USB_SLCAN = {("16d0", "117e")}                         # CANable / CANable 2.0 slcan firmware
+USB_DFU = {("0483", "df11")}                           # STM32 bootloader (firmware update mode)
+
+
+@dataclass
+class UsbAdapter:
+    kind: str           # "gs_usb" / "slcan" / "dfu"
+    product: str
+    tty: str = ""       # /dev/ttyACMn for slcan
+
+    def hint(self) -> str:
+        if self.kind == "slcan":
+            return (f"{self.product} with slcan firmware is plugged in at {self.tty or 'a serial port'} but "
+                    "isn't attached as a CAN interface. Run the installer (deploy/linux/install.sh), which "
+                    "attaches it automatically on plug-in, then unplug and replug it. (Needs Linux 6.0+.)")
+        if self.kind == "dfu":
+            return (f"{self.product} is in firmware-update (DFU) mode. Remove the BOOT jumper / release the "
+                    "boot button and replug it.")
+        return (f"{self.product} is plugged in but no CAN interface appeared. The gs_usb driver may be "
+                "missing: run the installer (deploy/linux/install.sh), or 'sudo modprobe gs_usb'.")
+
+
+def _read(path: str) -> str:
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def usb_adapters(sys_usb: str = SYS_USB, sys_tty: str = SYS_TTY) -> list[UsbAdapter]:
+    """USB CAN adapters that are plugged in, recognised by USB ID (CANable-style ones; the
+    other gs_usb adapters still work, they just aren't listed here). Used to explain why no CAN
+    interface showed up."""
+    ttys = {}
+    try:
+        for name in os.listdir(sys_tty):
+            dev = os.path.realpath(os.path.join(sys_tty, name, "device"))
+            ttys[os.path.dirname(dev)] = name          # tty's interface -> its USB device dir
+    except OSError:
+        pass
+    out = []
+    try:
+        names = sorted(os.listdir(sys_usb))
+    except OSError:
+        return out
+    for name in names:
+        d = os.path.join(sys_usb, name)
+        ids = (_read(os.path.join(d, "idVendor")).lower(), _read(os.path.join(d, "idProduct")).lower())
+        product = _read(os.path.join(d, "product")) or "USB adapter"
+        if ids in USB_GS_USB:
+            out.append(UsbAdapter("gs_usb", product))
+        elif ids in USB_DFU:
+            out.append(UsbAdapter("dfu", product))
+        else:
+            tty = ttys.get(os.path.realpath(d), "")
+            # Clones of the slcan firmware sometimes use other IDs but keep "CANable" in the name.
+            if ids in USB_SLCAN or (tty and "canable" in product.lower()):
+                out.append(UsbAdapter("slcan", product, f"/dev/{tty}" if tty else ""))
+    return out
+
+
+def no_adapter_hint(sys_usb: str = SYS_USB, sys_tty: str = SYS_TTY) -> str:
+    """Why there is no CAN interface to connect to, as specifically as we can tell."""
+    found = usb_adapters(sys_usb, sys_tty)
+    if found:
+        return "\n".join(a.hint() for a in found)
+    return ("No CAN adapter found. Is it plugged in? Press ⟳ to re-scan after plugging it in, or pick "
+            "'Simulator' to try the app without hardware.")
+
+
 def _fill_details(iface: CanInterface):
     ip = shutil.which("ip")
     if not ip or iface.virtual:

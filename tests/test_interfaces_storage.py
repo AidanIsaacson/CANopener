@@ -168,3 +168,48 @@ def test_sudoers_content_rejects_bad_user():
     for bad in ("root; rm -rf /", "a b", "", "x" * 40):
         with pytest.raises(ValueError):
             interfaces.sudoers_content(bad)
+
+
+def _fake_usb(root, name, vid, pid, product, tty=None):
+    dev = root / "devices" / name
+    dev.mkdir(parents=True)
+    for attr, val in (("idVendor", vid), ("idProduct", pid), ("product", product)):
+        (dev / attr).write_text(val + "\n")
+    bus = root / "bus"
+    bus.mkdir(exist_ok=True)
+    (bus / name).symlink_to(dev)
+    if tty:
+        intf = dev / f"{name}:1.0"
+        intf.mkdir()
+        (root / "tty" / tty).mkdir(parents=True)
+        (root / "tty" / tty / "device").symlink_to(intf)
+
+
+def test_usb_adapters_recognises_canable_firmwares(tmp_path):
+    (tmp_path / "tty").mkdir()
+    _fake_usb(tmp_path, "1-1", "1d50", "606f", "canable gs_usb")
+    _fake_usb(tmp_path, "1-2", "16d0", "117e", "CANable2 b158aa7", tty="ttyACM0")
+    _fake_usb(tmp_path, "1-3", "0483", "df11", "STM32  BOOTLOADER")
+    _fake_usb(tmp_path, "1-4", "046d", "c52b", "USB Receiver")              # a mouse: ignored
+    _fake_usb(tmp_path, "1-5", "0483", "5740", "MKS CANable V2.0 Pro", tty="ttyACM1")  # clone ID
+    found = interfaces.usb_adapters(str(tmp_path / "bus"), str(tmp_path / "tty"))
+    assert [(a.kind, a.tty) for a in found] == [
+        ("gs_usb", ""), ("slcan", "/dev/ttyACM0"), ("dfu", ""), ("slcan", "/dev/ttyACM1")]
+    hint = interfaces.no_adapter_hint(str(tmp_path / "bus"), str(tmp_path / "tty"))
+    assert "slcan firmware" in hint and "/dev/ttyACM0" in hint and "DFU" in hint
+    assert "No CAN adapter found" in interfaces.no_adapter_hint(str(tmp_path / "none"), str(tmp_path / "none"))
+
+
+def test_slcan_udev_rule_starts_the_attach_service():
+    import re
+    here = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "deploy", "linux")
+    rules = open(os.path.join(here, "70-canopener.rules")).read()
+    unit = open(os.path.join(here, "canopener-slcan@.service")).read()
+    # The rule's USB ID matches the one the app recognises, and starts the unit that exists.
+    for vid, pid in interfaces.USB_SLCAN:
+        assert f'ATTRS{{idVendor}}=="{vid}", ATTRS{{idProduct}}=="{pid}"' in rules
+    assert re.findall(r'SYSTEMD_WANTS}\+="([^"@]+)@', rules) == ["canopener-slcan"] * 2
+    assert "ID_MM_DEVICE_IGNORE" in rules
+    # slcand attaches only: no -s/-o, so CANopener sets the bitrate and listen-only via ip link.
+    exec_line = next(line for line in unit.splitlines() if line.startswith("ExecStart="))
+    assert exec_line.split() == ["ExecStart=/usr/bin/slcand", "-F", "/dev/%I"]

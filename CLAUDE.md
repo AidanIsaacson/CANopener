@@ -42,6 +42,10 @@ Headless or minimal Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-
 * Anything that runs as root goes through `core.interfaces.run_privileged` as explicit argv
   lists (never `sh -c` with user input). Keep `deploy/raspberry-pi/canopener.sudoers` matching
   the commands `setup_steps()` produces.
+* First-plug-in adapter support lives in `deploy/linux/` (`install.sh` installs and updates;
+  `adapter-setup.sh` adds drivers + the CANable udev rule / slcand unit). Keep the USB IDs in
+  `70-canopener.rules` matching `interfaces.USB_SLCAN` (a test checks), and keep
+  `docs/install/` in step with the installers.
 * Capture logic (tagging rules, saving, summaries) lives in `core/capture*.py` so the future
   on-device UI shares it; `gui/log_panel.py` is only the screen. Captures must stay recoverable:
   write `capture.json` / `markers.csv` on every change while recording.

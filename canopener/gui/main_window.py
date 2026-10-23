@@ -143,7 +143,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._session_changed(None)
         if (self.autoconnect_action.isChecked()
                 and self.source.currentData() == connection.SOCKETCAN):
-            QtCore.QTimer.singleShot(0, self.connect)      # after the window is shown
+            QtCore.QTimer.singleShot(0, self._connect_on_startup)   # after the window is shown
 
     def _fit_to_screen(self):
         """Keep the window within the screen so it fits a small laptop and can still be moved,
@@ -474,6 +474,9 @@ class MainWindow(QtWidgets.QMainWindow):
         for i in found:
             self.iface.addItem(i.name)
             self.iface.setItemData(self.iface.count() - 1, i.describe(), Qt.ItemDataRole.ToolTipRole)
+        if found and cur not in [i.name for i in found]:
+            # The adapter came up under another name (can1, or can0 after using vcan0): use it.
+            cur = next((i.name for i in found if not i.virtual), cur)
         if self.iface.findText(cur) < 0:
             self.iface.addItem(cur)
         self.iface.setCurrentText(cur)
@@ -546,6 +549,15 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self.connect()
 
+    def _connect_on_startup(self):
+        """'Connect on startup' without an error dialog on every launch when the adapter isn't
+        plugged in: just say so in the status bar."""
+        self._refresh_interfaces()
+        if not any(i.name == self.iface.currentText() for i in interfaces.list_interfaces()):
+            self.statusBar().showMessage("Not connected: " + interfaces.no_adapter_hint().split("\n")[0], 15000)
+            return
+        self.connect()
+
     def _ensure_up(self, name: str) -> bool:
         """Bring a real SocketCAN interface up at the selected bitrate if it's down, so Connect
         works in one click without a trip to the terminal. A USB adapter like the CANable comes
@@ -586,15 +598,19 @@ class MainWindow(QtWidgets.QMainWindow):
                     return
                 self._replay_path = path
             channel = self._replay_path
-        if kind == connection.SOCKETCAN and not self._ensure_up(channel):
-            return
+        if kind == connection.SOCKETCAN:
+            if channel not in [i.name for i in interfaces.list_interfaces()]:
+                self._refresh_interfaces()          # plugged in since the list was filled?
+                channel = self.iface.currentText().strip() or "can0"
+            if not self._ensure_up(channel):
+                return
         try:
             conn = open_connection(kind, channel, listen_only=self.listen_only.isChecked(),
                                    profile=profiles.active())
         except Exception as e:
-            hint = ("\n\nIs the adapter plugged in? CANopener couldn't find the interface to bring up. "
-                    "Press ⟳ to re-scan, or pick 'Simulator' to try the app without hardware."
-                    if kind == connection.SOCKETCAN else "")
+            missing = kind == connection.SOCKETCAN and not any(
+                i.name == channel for i in interfaces.list_interfaces())
+            hint = "\n\n" + interfaces.no_adapter_hint() if missing else ""
             QtWidgets.QMessageBox.critical(self, "Connect", f"Could not open {channel}: {e}{hint}")
             self._replay_path = ""
             return

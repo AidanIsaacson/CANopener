@@ -42,8 +42,9 @@ cd ~/CANopener
 
 What the options do:
 
-* *(always)*: creates `~/canopener-venv`, installs CANopener into it, and adds a **CANopener**
-  entry to the Pi's menu.
+* *(always)*: installs the USB CAN adapter drivers and the CANable plug-in rule (same as the
+  [laptop installer](linux-laptop.md#your-usb-adapter-canable-20--20-pro)), creates
+  `~/canopener-venv`, installs CANopener into it, and adds a **CANopener** entry to the Pi's menu.
 * `--sudoers`: lets CANopener bring `can0` up **without a password**. This is limited to exactly
   `ip link set canN up/down/type can …` and nothing else (see
   [`canopener.sudoers`](../../deploy/raspberry-pi/canopener.sudoers)). Needed for a screen-only
@@ -55,7 +56,9 @@ The installer downloads the GUI library (about 100 MB); on a Pi 3B+ that can tak
 
 ## 4. Connect the CAN hardware
 
-**USB adapter** (CANable, PCAN-USB, ...): just plug it in; it appears as `can0`.
+**USB adapter** (CANable 2.0 / 2.0 Pro, PCAN-USB, ...): just plug it in; it appears as `can0`.
+A CANable works with either of its firmwares (candleLight or slcan); see
+[Your USB adapter](linux-laptop.md#your-usb-adapter-canable-20--20-pro) in the laptop guide.
 
 **SPI CAN HAT** (MCP2515 now, the MCP2518FD board later): tell Linux about it once. Open the
 boot config:
@@ -120,10 +123,11 @@ Hardware buttons for the Log tool's Start/Stop and Timestamp keys: see
 
 ```bash
 cd ~/CANopener && git pull
-~/canopener-venv/bin/pip install -e ".[gui]"
+./deploy/raspberry-pi/install.sh --sudoers --autostart
 ```
 
-then reboot (or `systemctl --user restart canopener`).
+(the same options you installed with), then reboot (or `systemctl --user restart canopener`).
+Re-running the installer also picks up new drivers, rules and dependencies.
 
 ## Troubleshooting
 
@@ -132,6 +136,7 @@ then reboot (or `systemctl --user restart canopener`).
 | Doesn't start at login | `systemctl --user status canopener` and `journalctl --user -u canopener` show why. Fallback: `mkdir -p ~/.config/autostart && cp ~/.local/share/applications/canopener.desktop ~/.config/autostart/` |
 | Startup log | `~/.local/state/canopener/launch.log` (interface setup + app output) |
 | `pip` can't find PySide6 | You're on the 32-bit OS. Reflash with Raspberry Pi OS **(64-bit)**, or use `sudo apt install python3-pyqt6` and `~/canopener-venv/bin/pip install -e .` |
+| `can0` doesn't exist with a USB adapter | `~/canopener-venv/bin/canopener-cli interfaces` says why (e.g. slcan firmware not attached, adapter in DFU mode). See the laptop guide's [troubleshooting](linux-laptop.md#troubleshooting). |
 | `can0` doesn't exist with a HAT | Check the overlay line, the HAT's crystal (`8000000` / `16000000` / `20000000` / `40000000`) and interrupt pin, then reboot. `dmesg \| grep -i -E "mcp|can"` shows driver messages. |
 | Interface setup asks for a password | Re-run the installer with `--sudoers`. |
 | Everything is tiny on the touchscreen | Set `CANOPENER_ARGS=--fullscreen --scale 1.5` (see above). |

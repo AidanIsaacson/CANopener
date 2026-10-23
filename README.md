@@ -19,12 +19,13 @@ hardware.
 | 💻 **[Linux laptop (Mint / Ubuntu / Debian)](docs/install/linux-laptop.md)** | ~10 min. Ends with CANopener in your app menu and on the desktop. Try it with the built-in simulator, no CAN adapter needed. |
 | 🍓 **[Raspberry Pi](docs/install/raspberry-pi.md)** | From a blank SD card to CANopener starting full-screen at power-on, with a USB adapter or a CAN HAT. |
 
-Short version for a Linux machine that already has `git` and `python3-venv`:
+Short version (Mint / Ubuntu / Debian): installs the app, the USB CAN adapter drivers, and a
+menu entry and desktop icon:
 
 ```bash
-git clone https://github.com/AidanIsaacson/CANopener.git ~/CANopener && cd ~/CANopener
-python3 -m venv .venv && .venv/bin/pip install -e ".[gui]"
-.venv/bin/canopener --install-desktop --desktop-shortcut     # then start it from the menu
+sudo apt update && sudo apt install -y git
+git clone https://github.com/AidanIsaacson/CANopener.git ~/CANopener
+~/CANopener/deploy/linux/install.sh            # update later with: install.sh --update
 ```
 
 ## What it does
@@ -74,17 +75,19 @@ a real ECU (single frame, BAM, and RTS/CTS transport).
 ## On a real machine
 
 Any adapter that shows up as a SocketCAN interface works: candleLight / gs_usb (CANable etc.),
-PEAK, 8devices USB2CAN, Kvaser, MCP2515/MCP2518FD SPI HATs (`can0`), or `slcan` adapters after
-`slcand`.
+PEAK, 8devices USB2CAN, Kvaser, MCP2515/MCP2518FD SPI HATs (`can0`). A CANable with the `slcan`
+firmware is attached as `can0` automatically once the installer's plug-in rule is in place
+([deploy/linux](deploy/linux)); other `slcan` adapters need `sudo slcand /dev/ttyACM0 can0`.
 
 1. Plug in the adapter and connect to the diagnostic port (J1939 is usually 250 kbit/s; some newer
    machines use 500 kbit/s).
 2. In the GUI pick **SocketCAN adapter**, choose the interface and bitrate, and click
-   **Set Up Interface**. It asks for your password and runs
-   `ip link set can0 type can bitrate 250000 ... && ip link set can0 up`.
+   **Connect**. It brings the interface up first
+   (`ip link set can0 type can bitrate 250000 ... && ip link set can0 up`), without a password
+   if the installer's sudoers rule is in place, otherwise after one password prompt.
    Pick **Auto** to detect the bitrate. It listens at each rate in listen-only mode, so nothing
    is transmitted onto the machine's bus while it searches.
-3. Click **Connect**, then **Read Active** / **Read Stored** / **Full Scan**. **Diagnostics →
+3. Then **Read Active** / **Read Stored** / **Full Scan**. **Diagnostics →
    Request a PGN…** asks one ECU (or all) for any parameter group and shows the reply.
 
 From a terminal:
@@ -213,7 +216,7 @@ canopener/
   sim/       simulated machine (J1939) and OBD-II/UDS simulator
   gui/       desktop GUI (Qt) - a thin front-end over core/
   cli.py     command-line front-end
-deploy/      Raspberry Pi launcher, systemd service, sudoers rule, installer
+deploy/      Linux installer + USB adapter plug-in rules; Raspberry Pi launcher, service, sudoers
 legacy/      the original j1939_codes.py script and the v0.1 Pi app (frozen, for reference)
 tests/       pytest suite, including headless GUI tests
 docs/        DESIGN.md (hardware + concept), ARCHITECTURE.md (software), install/ (guides)

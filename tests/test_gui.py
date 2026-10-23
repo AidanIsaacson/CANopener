@@ -456,3 +456,26 @@ def test_connect_brings_up_a_down_interface(app, tmp_path, monkeypatch):
     # vcan is never touched (the simulator manages it).
     assert w._ensure_up("vcan0") is True
     w.close()
+
+
+def test_adapter_under_another_name_and_quiet_startup(app, tmp_path, monkeypatch):
+    from canopener.core import interfaces
+    from canopener.gui.main_window import MainWindow
+
+    qt.QtCore.QSettings.setDefaultFormat(qt.QtCore.QSettings.Format.IniFormat)
+    qt.QtCore.QSettings.setPath(qt.QtCore.QSettings.Format.IniFormat, qt.QtCore.QSettings.Scope.UserScope,
+                                str(tmp_path))
+    w = MainWindow()
+    # Saved choice is can0 but the adapter came up as can1 (vcan0 is ignored): pick can1.
+    monkeypatch.setattr(interfaces, "list_interfaces", lambda *a, **k: [
+        interfaces.CanInterface("can1", "down"), interfaces.CanInterface("vcan0", "up")])
+    w._refresh_interfaces(preferred="can0")
+    assert w.iface.currentText() == "can1"
+
+    # Connect on startup with nothing plugged in: a status message, no connection, no dialog.
+    monkeypatch.setattr(interfaces, "list_interfaces", lambda *a, **k: [])
+    monkeypatch.setattr(interfaces, "usb_adapters", lambda *a, **k: [])
+    monkeypatch.setattr(w, "connect", lambda *a, **k: pytest.fail("should not connect"))
+    w._connect_on_startup()
+    assert "No CAN adapter found" in w.statusBar().currentMessage()
+    w.close()

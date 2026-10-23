@@ -1,0 +1,13 @@
+# /etc/systemd/system/canopener-slcan@.service - installed by deploy/linux/adapter-setup.sh and
+# started by 70-canopener.rules when a CANable with slcan firmware is plugged in (instance =
+# ttyACMn). Attaches the serial port as the next free canN; stops when the adapter is unplugged.
+# The bitrate is not set here: CANopener sets it (ip link set canN type can bitrate ...).
+[Unit]
+Description=Attach CANable (slcan firmware) on /dev/%I as a CAN interface
+BindsTo=dev-%i.device
+After=dev-%i.device
+
+[Service]
+Type=simple
+ExecStartPre=-/sbin/modprobe slcan
+ExecStart=/usr/bin/slcand -F /dev/%I

@@ -184,10 +184,13 @@ def cmd_sim(a) -> int:
 def cmd_interfaces(a) -> int:
     found = interfaces.list_interfaces()
     if not found:
-        print("No CAN interfaces found. Plug in the adapter, or create a virtual one:\n  sudo sh -c "
+        print("No CAN interfaces found.\n" + interfaces.no_adapter_hint()
+              + "\nOr create a virtual one to test with:\n  sudo sh -c "
               f"'{interfaces.setup_command('vcan0', 0)}'")
     for i in found:
         print(i.describe())
+    for a in interfaces.usb_adapters():
+        print(f"USB: {a.product} ({a.kind}{', ' + a.tty if a.tty else ''})")
     return 0
 
 

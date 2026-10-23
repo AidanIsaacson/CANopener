@@ -1,150 +1,151 @@
 # Install on a Linux laptop (Mint / Ubuntu / Debian)
 
-About 10 minutes. You'll end up with CANopener in your application menu, and optionally an icon
-on the desktop, that you can click to start like any other program. Nothing here needs a CAN
-adapter: the built-in simulator lets you try everything first.
+About 10 minutes, almost all of it downloading. At the end CANopener is in your application menu
+and on your desktop. Click it to start, like any other program, and a USB CAN adapter works the
+first time you plug it in. You run three commands in a terminal once. After that you never need
+the terminal again.
+
+**You need:** Linux Mint 21 or newer, Ubuntu 22.04 or newer, or Debian 12 or newer, an internet
+connection, and your login password. You don't need the CAN adapter yet.
 
 > **Windows / macOS:** not supported for talking to a real bus yet (CANopener uses Linux's
-> built-in CAN support, "SocketCAN"). The Raspberry Pi guide is the other supported setup.
+> built-in CAN support, "SocketCAN"). The [Raspberry Pi guide](raspberry-pi.md) is the other
+> supported setup.
 
-## 1. Install the system tools
+## 1. Open a terminal
 
-Open a terminal (Menu → **Terminal**, or Ctrl+Alt+T) and paste:
+Menu → **Terminal**, or press **Ctrl+Alt+T**.
 
-```bash
-sudo apt update
-sudo apt install -y git python3-venv can-utils \
-  libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libxcb-cursor0
-```
+## 2. Install
 
-It asks for your password; nothing shows as you type, which is normal.
-`can-utils` is optional but handy (`candump can0` shows raw traffic). The four `lib*`
-packages are system libraries the Qt GUI needs; without them the app installs fine but the
-window never opens (you'd see a `libEGL.so.1: cannot open shared object file` error if you ran
-it from a terminal). Most desktops already have them, but installing them now saves a
-head-scratch later.
-
-## 2. Download CANopener
+Paste these three lines (right-click → Paste, or Ctrl+Shift+V) and press Enter:
 
 ```bash
-cd ~
-git clone https://github.com/AidanIsaacson/CANopener.git
-cd CANopener
+sudo apt update && sudo apt install -y git
+git clone https://github.com/AidanIsaacson/CANopener.git ~/CANopener
+~/CANopener/deploy/linux/install.sh
 ```
 
-This makes a `CANopener` folder in your home folder. Keep it there; the menu icon points at it.
+When it asks for your password, type it and press Enter. Nothing shows while you type, which is
+normal. The installer:
 
-## 3. Install it into its own Python environment
+1. installs the system packages: Python, `can-utils`, and the libraries the window needs (without
+   them the app installs but its window never opens);
+2. installs the **USB CAN adapter drivers** (`gs_usb` and `slcan`; on Ubuntu/Mint it adds the
+   `linux-modules-extra` package if your kernel doesn't include them) and a plug-in rule so a
+   **CANable** becomes `can0` by itself, whichever firmware it has (see
+   [the adapter section](#your-usb-adapter-canable-20--20-pro));
+3. installs CANopener and its GUI library (~100 MB) into `~/CANopener/.venv`, kept separate from
+   the rest of your system;
+4. lets CANopener bring the CAN interface up **without asking for a password**. This only allows
+   `ip link set canN …` as root. No password is stored, and the app never runs as root.
+   Use `--no-sudoers` if you'd rather type your password at each connect;
+5. adds **CANopener** to the application menu and puts an icon on the desktop.
 
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -e ".[gui]"
-```
+It ends with `Done.` and a list of the CAN adapters it can see. It's safe to run again at any
+time; it just repairs anything missing.
 
-This downloads the Qt GUI library (about 100 MB) into `CANopener/.venv`, so it can't interfere
-with the rest of your system.
+The first time you double-click the desktop icon, some desktops ask whether to trust the launcher.
+Choose **Trust and Launch** (or **Allow Launching**). It only asks once.
 
-## 4. Try it with the simulator
+## 3. Try it with the simulator (no adapter needed)
 
-```bash
-.venv/bin/canopener --sim
-```
+Start CANopener from the menu or the desktop icon. Pick **Simulator** in the top-left box and press
+**Connect**. Try **Full Scan** on the Fault Codes tab, tick a few signals on **Live Data**, and open
+the **📝 Log** panel.
 
-The window opens already connected to a simulated telehandler. Try **Full Scan** on the Fault
-Codes tab, tick a few signals on **Live Data**, and open the **📝 Log** panel. Close the window
-when you're done.
+## 4. Connect to a real machine
 
-## 5. Add it to the menu and desktop
+1. Plug the USB adapter into the laptop. On the first plug-in, wait about 5 seconds for Linux to
+   set it up.
+2. Connect the adapter to the machine's diagnostic connector and turn the key on.
+3. In CANopener pick **SocketCAN adapter** in the top-left box. The interface (`can0`) appears
+   next to it. Press **⟳** if you plugged in after the app opened.
+4. Pick the bitrate: **250k** for most J1939 machines, **500k** for cars (OBD-II) and some newer
+   machines, or **Auto** to detect it. Auto listens in listen-only mode, so it never disturbs the
+   bus while it searches.
+5. Press **Connect**, then **Read Active** / **Full Scan**.
 
-```bash
-.venv/bin/canopener --install-desktop --desktop-shortcut
-```
+Connect sets the bitrate and brings the interface up for you, every time, without a password.
 
-CANopener is now in the application menu (under **Accessories** / **Utilities**, or just
-search "CANopener"), with an icon on the desktop. From now on you never need the terminal to
-start it. Leave out `--desktop-shortcut` if you only want the menu entry.
-
-The installer marks the desktop icon as trusted. If your desktop still asks about an
-"untrusted launcher" the first time, choose the option to trust / launch it; it only asks once.
-
-## 6. Connect to a real machine
-
-1. Plug the USB-CAN adapter into the laptop and the machine's diagnostic connector, key on.
-2. In CANopener, pick **SocketCAN adapter** in the top-left box. The interface (usually `can0`)
-   should appear next to it; press **⟳** if it doesn't.
-3. Pick the bitrate (**250k** for most J1939 machines, or **Auto** to detect it safely in
-   listen-only mode).
-4. Press **Connect**. That's it — if the interface is down (a USB adapter comes up down every time
-   you plug it in), CANopener brings it up for you first, then connects. Then **Read Active** /
-   **Full Scan**. (There's still a separate **Set Up Interface** button if you want to configure
-   the bus without connecting.)
-
-To skip the password prompt on bring-up, do the one-time **Settings → Set up passwordless CAN
-access** below. To have the app connect the moment it opens, tick **Settings → Connect on
-startup** — then launching CANopener with the adapter plugged in is all it takes.
+**One-click from then on:** tick **Settings → Connect on startup**. After that, clicking the icon
+with the adapter plugged in opens CANopener already connected. If the adapter isn't plugged in, the
+app just says so in the status bar. With **Auto** bitrate selected as well, it works safely on any
+machine.
 
 Tick **Listen-only** if you want to be certain the laptop sends nothing at all onto the bus.
 
-### Stop it asking for a password every time
+## Your USB adapter (CANable 2.0 / 2.0 Pro)
 
-Bringing the interface up needs root, so by default you get a password prompt each session. To do
-it once and never again, use **Settings → Set up passwordless CAN access…** (or
-`.venv/bin/canopener-cli allow-setup`). It installs a small system rule — after one password
-prompt — that lets your user run **only** `ip link set canN …` as root. No password is stored
-anywhere, and the app itself never runs as root.
+CANable boards are sold with one of two firmwares, and which one you get depends on the seller.
+**Both work after the installer above, with nothing more to do.**
 
-### Which USB adapter?
+| Firmware | What Linux sees | What happens |
+|---|---|---|
+| **candleLight** (gs_usb) | a native CAN device, USB ID `1d50:606f` | Linux's `gs_usb` driver makes it `can0` immediately. |
+| **slcan** | a serial port `/dev/ttyACM0`, USB ID `16d0:117e` | The installer's plug-in rule attaches it with `slcand` so it becomes `can0` too, and stops ModemManager from probing it as a modem. Needs Linux 6.0 or newer (`uname -r`): Mint 22, Ubuntu 24.04 and Debian 12 have it. |
 
-Get one that speaks **SocketCAN natively** (the `gs_usb` driver) so it just appears as `can0` with
-no extra setup.
+To see which one you have, plug it in and run `lsusb`: `1d50:606f` is candleLight and `16d0:117e`
+is slcan. `~/CANopener/.venv/bin/canopener-cli interfaces` lists what CANopener sees, including an
+adapter that's plugged in but not set up, with the reason.
 
-* **Recommended: CANable 2.0 with candleLight/gs_usb firmware** (~$30). Native SocketCAN, and it's
-  **CAN FD** — a good stand-in for the MCP2518FD in the planned handheld, and future-proof for
-  J1939-22 (it's fully backward-compatible with classic 250k CAN). Innomaker USB-CAN-FD or a CANine
-  are equivalent alternatives.
-* Make sure it's the **candleLight/gs_usb** firmware, not the older **slcan** one. slcan shows up as
-  a serial port and needs a manual step each plug-in (below).
-* `gs_usb` adapters don't support bus-off auto-restart (`restart-ms`); CANopener handles that
-  automatically, so the interface still comes up — you just don't get auto-recovery (your final
-  MCP2518FD hardware will, via the `mcp251xfd` driver).
+**candleLight is the better firmware** (faster, no serial layer, works on any kernel). If yours
+has slcan and you want to switch, open the CANable firmware updater (linked from canable.io) in
+Chrome or Edge. Set the adapter's **BOOT** jumper (or hold its boot button) while plugging it in,
+pick the candleLight build for your board (**CANable 2.0** for 2.0 / 2.0 Pro boards, unless your
+seller supplies their own), and flash. Then remove the jumper and replug. The installer already
+lets your user flash it without root.
 
-| Adapter | Shows up as |
-|---|---|
-| CANable 2.0 / candleLight / other gs_usb, PEAK PCAN-USB, Kvaser, 8devices USB2CAN | `can0` straight away (drivers built into Linux) |
-| CANable with the original "slcan" firmware | a serial port. Run once after plugging in: `sudo slcand -o -s5 -t hw -S 3000000 /dev/ttyACM0 can0 && sudo ip link set can0 up` (`-s5` = 250k, `-s6` = 500k) |
+Wiring: connect CAN-H, CAN-L and **GND** (on the isolated 2.0 Pro, GND is the isolated side's
+ground and is needed for a reliable link). If you're connecting at the end of a
+bus that isn't already terminated (e.g. bench-testing one ECU), turn on the board's 120 Ω
+termination switch or jumper. A machine's diagnostic connector is normally already terminated,
+so leave it off there.
 
-Check what Linux sees with `ip link show` (look for `can0`) and `.venv/bin/canopener-cli interfaces`.
+Other adapters that work with no extra setup: Innomaker USB2CAN / USB-CAN-FD, CANine, PEAK
+PCAN-USB, Kvaser, 8devices USB2CAN (all native SocketCAN). `gs_usb` adapters don't support bus-off
+auto-restart (`restart-ms`). CANopener handles that, so the interface still comes up; you just don't
+get automatic recovery from bus-off.
 
 ## Updating
 
 ```bash
-cd ~/CANopener
-git pull
-.venv/bin/pip install -e ".[gui]"
+~/CANopener/deploy/linux/install.sh --update
 ```
 
-The menu entry and desktop icon keep working; there's nothing to reinstall.
+This downloads the latest version and re-runs the installer, so new drivers, rules or
+dependencies are picked up too. The menu entry and desktop icon keep working. Your settings,
+captures and profiles are untouched.
 
 ## Uninstalling
 
 ```bash
 ~/CANopener/.venv/bin/canopener --uninstall-desktop
+sudo rm -f /etc/sudoers.d/canopener /etc/udev/rules.d/70-canopener.rules \
+           /etc/systemd/system/canopener-slcan@.service
 rm -rf ~/CANopener
 ```
 
 Your saved captures and reports stay in `~/canopener/` (lower-case), and settings in
-`~/.config/canopener/`. Delete those too if you want them gone.
+`~/.config/canopener/` and `~/.config/CANopener/`. Delete those too if you want them gone.
 
 ## Troubleshooting
 
+First run `~/CANopener/.venv/bin/canopener-cli interfaces`. It shows the CAN interfaces and any
+recognised USB adapter, and explains what's wrong if the adapter is plugged in but no interface
+appeared.
+
 | Problem | Fix |
 |---|---|
-| `libEGL.so.1: cannot open shared object file` (or another `.so` missing) | `sudo apt install -y libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libxcb-cursor0` |
-| `Could not load the Qt platform plugin "xcb"` / `xcb-cursor0 or libxcb-cursor0 is needed` | `sudo apt install -y libxcb-cursor0` (required by Qt 6.5+) |
-| `python3 -m venv` says ensurepip is not available | `sudo apt install -y python3-venv` (on some versions `python3.12-venv`), then repeat step 3 |
-| `Could not open can0: No such device` | The adapter isn't detected. Check `ip link show`; replug it; see the adapter notes above. |
-| Connected but no traffic, or lots of errors in the status bar | Wrong bitrate. Use **Auto**, or try 500k. Check the key is on. |
-| `Network is down` | Press **Set Up Interface** (the interface has to be brought up after every replug or reboot). |
-| The menu icon does nothing | Run `~/CANopener/.venv/bin/canopener` in a terminal to see the error, then re-run step 5. Re-run step 5 after moving the folder. |
+| Anything odd after an update or a system upgrade | Re-run `~/CANopener/deploy/linux/install.sh`. It repairs packages, drivers, rules and the app's environment (it rebuilds the environment if a system upgrade broke it). |
+| The menu icon does nothing | Run `~/CANopener/.venv/bin/canopener` in a terminal to see the error. Usually re-running the installer fixes it. If you moved the `CANopener` folder, re-run the installer from its new place. |
+| `libEGL.so.1: cannot open shared object file` / `Could not load the Qt platform plugin "xcb"` | A system library is missing: re-run the installer. |
+| "No CAN adapter found" with it plugged in | Check `lsusb` shows it. Try another USB port or cable (some cables only carry power). On a brand-new install, unplug and replug once. |
+| "slcan firmware … isn't attached" | Linux older than 6.0 (Mint 21 ships 5.15): install a newer kernel (Mint: Update Manager → View → Linux kernels → 6.x, then reboot), or flash candleLight firmware (above). Otherwise re-run the installer, then replug. |
+| "is in firmware-update (DFU) mode" | Remove the BOOT jumper / don't hold the button, and replug. |
+| `this kernel has no driver for: gs_usb …` during install | Your kernel is a cut-down one. `sudo apt install linux-generic` (Ubuntu/Mint) or `linux-image-amd64` (Debian), reboot, re-run the installer. |
+| Connected but no traffic, or lots of errors in the status bar | Wrong bitrate. Use **Auto**, or try 500k. Check the key is on and CAN-H/CAN-L aren't swapped. |
+| Connect asks for a password | The passwordless rule isn't installed. Re-run the installer (or use **Settings → Set up passwordless CAN access…**). |
 
-Still stuck? Open an issue on GitHub with the error text, or attach a capture's `summary.txt`.
+Still stuck? Open an issue on GitHub with the output of `canopener-cli interfaces` and the error
+text, or attach a capture's `summary.txt`.

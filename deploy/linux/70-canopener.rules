@@ -1,0 +1,18 @@
+# /etc/udev/rules.d/70-canopener.rules - installed by deploy/linux/adapter-setup.sh.
+#
+# CANable / CANable 2.0 (and "CANable 2.0 Pro" clones) come with one of two firmwares:
+#   * candleLight (USB 1d50:606f): Linux's gs_usb driver makes it can0 by itself. Nothing here.
+#   * slcan (USB 16d0:117e): it shows up as a serial port, /dev/ttyACM0. These rules
+#     1. keep ModemManager from probing it as a modem (that garbles the adapter for ~30 s), and
+#     2. start canopener-slcan@ttyACMn.service, which attaches it with slcand so it becomes
+#        can0 too. CANopener then sets the bitrate and brings it up like any other adapter
+#        (needs Linux 6.0+, where slcan accepts 'ip link set canN type can bitrate ...').
+SUBSYSTEM=="tty", KERNEL=="ttyACM[0-9]*", ATTRS{idVendor}=="16d0", ATTRS{idProduct}=="117e", \
+  ENV{ID_MM_DEVICE_IGNORE}="1", TAG+="systemd", ENV{SYSTEMD_WANTS}+="canopener-slcan@%k.service"
+# Clones of the slcan firmware with other USB IDs that still call themselves "CANable".
+SUBSYSTEM=="tty", KERNEL=="ttyACM[0-9]*", ATTRS{product}=="*CANable*", \
+  ENV{ID_MM_DEVICE_IGNORE}="1", TAG+="systemd", ENV{SYSTEMD_WANTS}+="canopener-slcan@%k.service"
+
+# STM32 bootloader (the adapter with its BOOT jumper set): let the logged-in user flash new
+# firmware (e.g. candleLight from a browser-based updater) without root.
+SUBSYSTEM=="usb", ATTR{idVendor}=="0483", ATTR{idProduct}=="df11", TAG+="uaccess"

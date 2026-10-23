@@ -10,11 +10,17 @@ VENV="${CANOPENER_VENV:-$HOME/canopener-venv}"
 BIN="$HOME/.local/bin"
 LAUNCHER="$BIN/canopener-launch"
 
+echo "== System packages"
+sudo apt-get install -y python3-venv can-utils \
+    libegl1 libgl1 libfontconfig1 libdbus-1-3 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0
+
+echo "== USB CAN adapter drivers"
+sudo "$REPO/deploy/linux/adapter-setup.sh"
+
 echo "== Python environment in $VENV"
-sudo apt-get install -y python3-venv can-utils
 python3 -m venv "$VENV"
 "$VENV/bin/pip" install --upgrade pip
-"$VENV/bin/pip" install -e "$REPO[gui]"
+"$VENV/bin/pip" install -e "${REPO}[gui]"
 
 echo "== Launcher $LAUNCHER"
 mkdir -p "$BIN"
