@@ -1,4 +1,4 @@
-"""Reusable widgets: warning-lamp strip, strip-chart plotter, table helpers."""
+"""Reusable widgets: warning-lamp strip, connection status lamps, strip-chart plotter, table helpers."""
 
 import os
 import time
@@ -7,7 +7,7 @@ from collections import deque
 from ..j1939.addresses import sa_name
 from ..j1939.dtc import Lamps
 from .flow import FlowLayout
-from .qt import Qt, QtCore, QtGui, QtWidgets
+from .qt import Qt, QtCore, QtGui, QtWidgets, Signal
 
 MONO = QtGui.QFont("Monospace")
 MONO.setStyleHint(QtGui.QFont.StyleHint.TypeWriter)
@@ -15,6 +15,33 @@ MONO.setStyleHint(QtGui.QFont.StyleHint.TypeWriter)
 LAMP_COLORS = {"MIL": "#f2a900", "Stop": "#e03131", "Warn": "#f2a900", "Protect": "#f2a900"}
 MARKER_COLOR = "#c2255c"
 SERIES_COLORS = ["#1c7ed6", "#e8590c", "#2f9e44", "#ae3ec9", "#c92a2a", "#0c8599", "#5c940d", "#862e9c"]
+
+
+STATUS_COLORS = {"ok": "#2f9e44", "wait": "#f08c00", "bad": "#e03131", "off": "#868e96", "sim": "#1c7ed6"}
+
+
+class StatusLamp(QtWidgets.QLabel):
+    """A coloured dot and a few words (a ``core.link.Status``). Clickable."""
+
+    clicked = Signal()
+
+    def __init__(self, text: str = "", big: bool = False, parent=None):
+        super().__init__(parent)
+        self.big = big
+        self.level = "off"
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.set_status("off", text)
+
+    def set_status(self, level: str, text: str, detail: str = ""):
+        color = STATUS_COLORS.get(level, STATUS_COLORS["off"])
+        self.level = level
+        size = "15pt" if self.big else "11pt"
+        self.setText(f'<span style="color:{color}; font-size:{size}">●</span> <b>{text}</b>')
+        self.setToolTip(detail or text)
+
+    def mousePressEvent(self, ev):
+        self.clicked.emit()
+        super().mousePressEvent(ev)
 
 
 class RefreshComboBox(QtWidgets.QComboBox):

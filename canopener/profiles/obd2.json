@@ -1,0 +1,5 @@
+{
+  "name": "OBD-II vehicle (car / light truck)",
+  "protocol": "obd2",
+  "description": "Cars and light trucks speaking OBD-II (SAE J1979) over CAN, usually at 500k: VIN, trouble codes and live PIDs. Shows the OBD-II reader instead of the J1939 screens."
+}

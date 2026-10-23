@@ -34,7 +34,9 @@ class CanInterface:
         return f"{self.name} ({', '.join(bits)})"
 
 
-def list_interfaces(sys_net: str = SYS_NET) -> list[CanInterface]:
+def list_interfaces(sys_net: str = SYS_NET, details: bool = True) -> list[CanInterface]:
+    """CAN interfaces that exist now. ``details=False`` skips the bitrate / listen-only lookup
+    (one ``ip`` call per interface), for the once-a-second adapter check."""
     out = []
     try:
         names = sorted(os.listdir(sys_net))
@@ -57,7 +59,8 @@ def list_interfaces(sys_net: str = SYS_NET) -> list[CanInterface]:
         except (OSError, ValueError):
             pass
         iface = CanInterface(name, state)
-        _fill_details(iface)
+        if details:
+            _fill_details(iface)
         out.append(iface)
     return out
 
@@ -253,6 +256,19 @@ def install_sudoers(user: str | None = None, timeout: float = 120) -> tuple[bool
             pass
 
 
+def can_configure_quietly(name: str) -> bool:
+    """True if (re)configuring ``name`` won't ask for a password: we're root, or the sudoers rule
+    covers its setup steps. The signal finder changes the bitrate every second or so, which is
+    only workable without a password prompt each time."""
+    if os.geteuid() == 0:
+        return True
+    try:
+        steps = setup_steps(name, BITRATES[0], listen_only=True)
+    except ValueError:
+        return False
+    return all(passwordless_sudo(step) for step in steps)
+
+
 def passwordless_sudo(argv: list[str]) -> bool:
     """True if sudoers lets us run ``argv`` without a password (see deploy/raspberry-pi)."""
     if not shutil.which("sudo"):
@@ -305,6 +321,24 @@ def _run_one(argv: list[str], manual: str, timeout: float) -> tuple[bool, str]:
     return True, "ok"
 
 
+def count_traffic(backend, secs: float, enough: int | None = None, stop=None) -> tuple[int, int]:
+    """Listen on an open backend for up to ``secs``. Returns (good frames, error frames). Ends
+    early once ``enough`` good frames have arrived, or when ``stop()`` returns True."""
+    good = errors = 0
+    end = time.monotonic() + secs
+    while time.monotonic() < end and (enough is None or good < enough):
+        if stop is not None and stop():
+            break
+        fr = backend.recv()
+        if fr is None:
+            continue
+        if fr.error:
+            errors += 1
+        else:
+            good += 1
+    return good, errors
+
+
 def detect_bitrate(name: str, candidates=BITRATES, listen_secs: float = 1.5, min_frames: int = 3,
                    runner=run_privileged, open_backend=None, progress=None) -> tuple[int | None, list[str]]:
     """Find the bus bitrate by listening at each candidate rate. Returns (bitrate or None, log).
@@ -329,17 +363,8 @@ def detect_bitrate(name: str, candidates=BITRATES, listen_secs: float = 1.5, min
         except OSError as e:
             log.append(f"{br // 1000}k: {e}")
             return None, log
-        good = errors = 0
-        end = time.monotonic() + listen_secs
         try:
-            while time.monotonic() < end and good < min_frames:
-                fr = backend.recv()
-                if fr is None:
-                    continue
-                if fr.error:
-                    errors += 1
-                else:
-                    good += 1
+            good, errors = count_traffic(backend, listen_secs, enough=min_frames)
         finally:
             backend.close()
         log.append(f"{br // 1000}k: {good} frame(s), {errors} error frame(s)")

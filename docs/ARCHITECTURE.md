@@ -81,6 +81,8 @@ proprietary commands are intentionally **not** in this repository.
 | CAN Node & PID Label Profiles | `core/profiles.py` + `canopener/profiles/*.json` |
 | Paged screens: Live Data, Fault Codes, Capture Log ... | GUI tabs today; the same core calls back each Pygame page. Live Data's model (values, min/max, history, picked signals) is `core/live.py` |
 | Fault code → live PID (use-case step 2) | `Signal.spn` links; GUI "Show in Live Data" button |
+| CAN status pill / "is the adapter hearing the machine" | `core/link.py`: `adapter_status`, `bus_status` (GUI: Adapter / Bus lamps) |
+| Placing probes: wait for good traffic, chime, lock bitrate | `core/link.SignalFinder` (listen-only, never stops on errors) + `core/sound.py` (speaker WAV, or piezo via sysfs PWM / kernel beeper). GUI: `gui/connection_panel.py`; CLI: `canopener-cli find` |
 | Subsystem fault management ("CAN interface" state) | `Session.health` (link error, tx error, error frames incl. bus-off / no-ACK) |
 | Shared timebase with Pico captures | Every `CanFrame` carries a wall-clock `timestamp`. A capture start (T+0) can be recorded alongside and subtracted |
 | Install, update, USB adapter drivers | `deploy/linux/` (`install.sh`, CANable udev rule + slcand unit); used by the Pi installer too |

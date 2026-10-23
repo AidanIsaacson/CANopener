@@ -37,7 +37,7 @@ git clone https://github.com/AidanIsaacson/CANopener.git ~/CANopener
 | **Bus monitor** | Raw frames, scrolling or one row per ID (like `cansniffer`) with changed bytes highlighted, for reverse-engineering proprietary frames. |
 | **Network** | Every ECU on the bus, its address-claim NAME, and each PGN it sends with rate and latest data. |
 | **Machine info** | Component / software / ECU IDs, VIN, engine hours, fuel used. |
-| **OBD-II (cars)** | Automotive J1979 over CAN: ~40 standard live PIDs, stored/pending/permanent trouble codes with generic (SAE) descriptions, and Mode 09 vehicle info (VIN, calibration ID, CVN, ECU name). A built-in OBD-II simulator to try it with no car. |
+| **OBD-II (cars)** | Automotive J1979 over CAN: ~40 standard live PIDs, stored/pending/permanent trouble codes with generic (SAE) descriptions, and Mode 09 vehicle info (VIN, calibration ID, CVN, ECU name). A built-in OBD-II simulator to try it with no car. Pick the **OBD-II vehicle** profile to get the OBD-II reader in place of the J1939 tabs. |
 | **UDS modules** | Read ABS, transmission, body and cluster modules over UDS (ISO 14229) — DTCs with their standard status flags, and data identifiers — which generic OBD-II can't reach (Diagnostics → Read a module). |
 | **Log tool** | Plan timestamps for a job ("key on, start, drive, shutdown ..."), record, and tag them with single keys while you work the machine. After stopping, relabel and save. Each capture gets a raw log, a live-data spreadsheet with a marker column, and a summary of codes and ECU dropouts against your timestamps. |
 | **Reports and logs** | Text reports, `candump`-format recording, CSV export, copy everything to a USB stick, offline decode of a log, and real-time replay of a log. |
@@ -81,19 +81,41 @@ firmware is attached as `can0` automatically once the installer's plug-in rule i
 
 1. Plug in the adapter and connect to the diagnostic port (J1939 is usually 250 kbit/s; some newer
    machines use 500 kbit/s).
-2. In the GUI pick **SocketCAN adapter**, choose the interface and bitrate, and click
-   **Connect**. It brings the interface up first
+2. Open **🔌 Connection** (top-left, or F3): a sidebar like the Log tool. Pick **SocketCAN
+   adapter**, choose the interface and bitrate, and click **Connect**. It brings the interface up first
    (`ip link set can0 type can bitrate 250000 ... && ip link set can0 up`), without a password
    if the installer's sudoers rule is in place, otherwise after one password prompt.
    Pick **Auto** to detect the bitrate. It listens at each rate in listen-only mode, so nothing
    is transmitted onto the machine's bus while it searches.
-3. Then **Read Active** / **Read Stored** / **Full Scan**. **Diagnostics →
+3. Two lamps at the bottom of the window show the link at a glance: **Adapter** (is the CAN
+   adapter plugged into this computer?) and **Bus** (is it hearing the machine: green = traffic,
+   amber = connected but silent, red = only error frames / link error). Click either to open
+   Connection setup.
+4. Then **Read Active** / **Read Stored** / **Full Scan**.
+
+### Finding the wires: signal finder
+
+When you're back-probing a harness and don't know yet which wires are CAN-H / CAN-L, press
+**Find signal** in the Connection sidebar (or F4), then go and move the probes. It keeps
+listening in listen-only mode (cycling bitrates if **Auto**), never stops on an error or an
+unplugged adapter, and as soon as it hears a second of steady traffic it **chimes**, locks that
+bitrate in and connects (untick *Connect when found* to just lock). A good probe position is
+usually confirmed within 5 seconds. While connected, a falling tone means traffic dropped out
+(a probe slipped) and a rising one that it's back.
+
+Cues play on the computer's speaker and/or a piezo buzzer: **Settings → Sound cues**. On a Pi, a
+PWM-driven piezo plays the same notes (see [deploy/raspberry-pi](deploy/raspberry-pi/README.md#buzzer-for-sound-cues)).
+Searching every bitrate changes the adapter's bitrate about once a second, so it needs the
+passwordless CAN access rule (the Linux installer adds it; on a Pi run its installer with
+`--sudoers`; otherwise the app offers to). With a fixed
+bitrate picked it asks for a password at most once. **Diagnostics →
    Request a PGN…** asks one ECU (or all) for any parameter group and shows the reply.
 
 From a terminal:
 
 ```bash
 canopener-cli setup --iface can0 --bitrate auto     # or --bitrate 250000
+canopener-cli find --iface can0 --sound             # signal finder: wait for traffic, chime, leave it up
 canopener-cli scan --iface can0 --full --units imperial
 canopener-cli decode ~/canopener/logs/capture_20260101_120000.log --csv frames.csv
 ```
@@ -212,7 +234,8 @@ canopener/
   obd/       OBD-II (J1979) protocol: ISO-TP, Mode 01 PIDs, DTC + VIN/Mode 09 decode
   uds/       UDS (ISO 14229) protocol: services, NRCs, DTC status, request builders
   can/       bus backends (SocketCAN, virtual, log replay) and candump log files
-  core/      session engine, scans, live-data model, OBD/UDS clients, transmit, reports, profiles, units
+  core/      session engine, scans, live-data model, OBD/UDS clients, transmit, reports, profiles, units,
+             link status + signal finder, sound cues (speaker / buzzer)
   sim/       simulated machine (J1939) and OBD-II/UDS simulator
   gui/       desktop GUI (Qt) - a thin front-end over core/
   cli.py     command-line front-end

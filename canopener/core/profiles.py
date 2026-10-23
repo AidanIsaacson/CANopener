@@ -7,6 +7,7 @@ so OEM data never has to live in this repository). Numbers may be decimal or "0x
     {
       "name": "Example loader",
       "description": "...",
+      "protocol": "j1939",
       "sources": {"0x27": "Machine controller"},
       "spns":    {"520205": "OEM code description"},
       "pgns":    {"0xFF10": "Boom status (proprietary)"},
@@ -30,6 +31,10 @@ Signal keys: ``name``, ``pgn``, ``start`` (0-based byte) are required. Optional:
 * ``na_check``: treat all-ones / J1939 error values as "not available" (default true for
   standard PGNs, false for proprietary ones)
 
+``protocol`` is what the machine speaks: ``"j1939"`` (the default: fault codes, live data,
+network, machine info) or ``"obd2"`` (a car / light truck: the OBD-II reader instead). Front-ends
+show only the screens for the active profile's protocol.
+
 ``detect`` lets the app recognise a machine from the source addresses it sees on the bus and
 offer to switch to the profile.
 
@@ -46,6 +51,8 @@ from ..j1939 import addresses, constants, signals, spn
 from ..j1939.signals import Signal
 from . import config, units
 
+J1939, OBD2 = "j1939", "obd2"
+PROTOCOLS = (J1939, OBD2)
 BUILTIN_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "profiles")
 
 
@@ -66,6 +73,7 @@ class Profile:
     detect_min: int = 0
     path: str = ""
     builtin: bool = False
+    protocol: str = J1939
 
 
 class ProfileError(ValueError):
@@ -135,8 +143,11 @@ def parse_profile(doc: dict, pid: str = "custom", path: str = "") -> Profile:
         det_min = int(det.get("min_match", min(2, len(det_addr))))
     except (ValueError, TypeError) as e:
         raise ProfileError(f"bad detect section: {e}") from None
+    protocol = str(doc.get("protocol", J1939)).lower()
+    if protocol not in PROTOCOLS:
+        raise ProfileError(f"protocol must be one of {', '.join(PROTOCOLS)}, not {protocol!r}")
     return Profile(
-        id=pid, name=str(doc["name"]), description=str(doc.get("description", "")),
+        id=pid, name=str(doc["name"]), description=str(doc.get("description", "")), protocol=protocol,
         sources=_num_map(doc.get("sources"), "sources"), spns=_num_map(doc.get("spns"), "spns"),
         pgns=_num_map(doc.get("pgns"), "pgns"), signals=sigs,
         detect_addresses=det_addr, detect_min=det_min, path=path,
@@ -247,6 +258,11 @@ def apply(profile: Profile | None, *, spn_csv: str | None = None):
         constants.PGN_OVERRIDES.update(profile.pgns)
         spn.SPN_OVERRIDES.update(profile.spns)
     spn.load_spn_csv(spn_csv if spn_csv is not None else config.spn_csv_path())
+
+
+def protocol() -> str:
+    """The active profile's protocol (J1939 with no profile)."""
+    return _active.protocol if _active is not None else J1939
 
 
 def find(pid: str) -> Profile | None:

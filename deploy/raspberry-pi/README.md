@@ -61,3 +61,25 @@ dtoverlay=gpio-key,gpio=27,active_low=1,gpio_pull=up,keycode=57    # KEY_SPACE
 
 (Key codes are from `linux/input-event-codes.h`: F5 = 63, F6 = 64, 1 = 2 ... 9 = 10, 0 = 11.)
 
+## Buzzer for sound cues
+
+The signal finder chimes when it locks on, and a falling / rising tone marks traffic dropping
+out / coming back. Besides HDMI or headphone audio, a piezo buzzer works; pick it under
+**Settings → Sound cues** (or `canopener-cli find --buzzer SPEC`). Two ways to drive it:
+
+* **PWM (passive piezo, plays the actual notes).** Enable a hardware PWM channel, wire the piezo
+  (through a transistor for anything loud) to that pin, and use `pwm:0:0` as the buzzer:
+
+  ```
+  # /boot/firmware/config.txt
+  dtoverlay=pwm,pin=18,func=2        # GPIO18 = PWM0 channel 0 -> /sys/class/pwm/pwmchip0/pwm0
+  ```
+
+  On Raspberry Pi OS the `gpio` group can write the PWM files (the default user is in it). The
+  chip number differs between models (a Pi 5's RP1 PWM is not `pwmchip0`): check
+  `ls /sys/class/pwm` and use the **Test** button in Sound cues.
+* **Kernel beeper device.** A `pwm-beeper` (or `gpio-beeper`) node in a device-tree overlay
+  appears as `/dev/input/eventN` and is found automatically (**Auto-detect**). The user needs to
+  be in the `input` group (`sudo usermod -aG input $USER`, then log in again).
+
+Each cue also has its own rhythm, so they stay distinct on a buzzer that can only beep.

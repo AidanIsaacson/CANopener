@@ -55,3 +55,18 @@ def test_bad_profile_reports_error():
         profiles.parse_profile({"name": "x", "signals": [{"name": "a", "pgn": 1, "start": 0, "length": 3}]})
     with pytest.raises(profiles.ProfileError):
         profiles.parse_profile({"sources": {}})
+
+
+def test_profile_protocol():
+    assert profiles.parse_profile({"name": "x"}).protocol == profiles.J1939
+    assert profiles.parse_profile({"name": "car", "protocol": "OBD2"}).protocol == profiles.OBD2
+    with pytest.raises(profiles.ProfileError):
+        profiles.parse_profile({"name": "x", "protocol": "canopen"})
+    car = profiles.find("obd2")
+    assert car is not None and car.builtin and car.protocol == profiles.OBD2
+    try:
+        profiles.apply(car)
+        assert profiles.protocol() == profiles.OBD2
+    finally:
+        profiles.apply(None)
+    assert profiles.protocol() == profiles.J1939

@@ -102,7 +102,7 @@ logs in. Without it, start it from the menu (**CANopener**) or run `canopener-la
 Make sure the Pi logs in to the desktop by itself: `sudo raspi-config` → **System Options** →
 **Boot / Auto Login** → **Desktop Autologin** (this is usually the default).
 
-To try it without a machine, pick **Simulator** in the top-left box and press **Connect**.
+To try it without a machine, open **🔌 Connection**, pick **Simulator** and press **Connect**.
 
 ## Settings for the launcher
 

@@ -59,10 +59,11 @@ the **📝 Log** panel.
 1. Plug the USB adapter into the laptop. On the first plug-in, wait about 5 seconds for Linux to
    set it up.
 2. Connect the adapter to the machine's diagnostic connector and turn the key on.
-3. In CANopener pick **SocketCAN adapter** in the top-left box. The interface (`can0`) appears
-   next to it. Its list shows only adapters that are connected right now, and it looks again
+3. In CANopener open **🔌 Connection** (top-left button, or F3) and pick **SocketCAN adapter**.
+   The interface (`can0`) appears below it. Its list shows only adapters that are connected right now, and it looks again
    every time you open it (or press **⟳**), so plugging in after the app opened is fine.
-4. Pick the bitrate: **250k** for most J1939 machines, **500k** for cars (OBD-II) and some newer
+4. Pick the bitrate: **250k** for most J1939 machines, **500k** for cars (OBD-II: also pick the
+   **OBD-II vehicle** profile, top right) and some newer
    machines, or **Auto** to detect it. Auto listens in listen-only mode, so it never disturbs the
    bus while it searches.
 5. Press **Connect**, then **Read Active** / **Full Scan**.
@@ -75,6 +76,11 @@ app just says so in the status bar. With **Auto** bitrate selected as well, it w
 machine.
 
 Tick **Listen-only** if you want to be certain the laptop sends nothing at all onto the bus.
+
+The **Adapter** and **Bus** lamps at the bottom of the window show whether the adapter is plugged
+in and whether it hears the machine. Probing for the CAN wires? Press **Find signal** in the
+Connection sidebar and go move the probes: it chimes and connects as soon as it hears steady
+traffic. Turn the laptop's volume up.
 
 ## Your USB adapter (CANable 2.0 / 2.0 Pro)
 

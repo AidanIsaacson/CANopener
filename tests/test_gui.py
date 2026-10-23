@@ -622,3 +622,109 @@ def test_interface_list_shows_only_connected_and_rechecks_on_open(app, tmp_path,
     assert w.iface.count() == 0 and w.iface.currentText() == "can0"
     assert "No CAN adapter found" in w.statusBar().currentMessage()
     w.close()
+
+
+def test_connection_sidebar_lamps_and_signal_finder(app, tmp_path, monkeypatch):
+    from canopener.core import connection, interfaces, link
+    from canopener.gui import connection_panel
+    from canopener.gui.main_window import MainWindow
+
+    qt.QtCore.QSettings.setDefaultFormat(qt.QtCore.QSettings.Format.IniFormat)
+    qt.QtCore.QSettings.setPath(qt.QtCore.QSettings.Format.IniFormat, qt.QtCore.QSettings.Scope.UserScope,
+                                str(tmp_path))
+    monkeypatch.setattr(interfaces, "list_interfaces", lambda *a, **k: [interfaces.CanInterface("can0", "up")])
+    monkeypatch.setattr(interfaces, "usb_adapters", lambda *a, **k: [])
+    w = MainWindow()
+    w.show()
+    # The connection controls live in the Connection sidebar now, not the toolbar.
+    assert w.conn_panel.isAncestorOf(w.source) and w.conn_panel.isAncestorOf(w.connect_btn)
+    cues = []
+    monkeypatch.setattr(w.conn_panel, "cue", cues.append)
+
+    # Simulator: blue adapter lamp, then green bus lamp once traffic flows.
+    w.source.setCurrentIndex(w.source.findData(connection.SIMULATOR))
+    w.connect()
+    pump(app, 1.0)
+    assert w.adapter_lamp.level == link.SIM and w.bus_lamp.level == link.OK
+    assert w.conn_panel.bus_lamp.level == link.OK
+    # Traffic stops (probe knocked off): amber lamp and a "lost" cue, once.
+    w.ctx.session.last_rx_t = 0.0
+    w.ctx.connection.simulator.stop()
+    pump(app, 2.6)
+    assert w.bus_lamp.level == link.WAIT and cues == ["lost"]
+    w.disconnect()
+
+    # Signal finder: Auto without passwordless access asks first (declined: nothing starts).
+    w.source.setCurrentIndex(w.source.findData(connection.SOCKETCAN))
+    w.iface.setCurrentText("can0")
+    w.bitrate.setCurrentIndex(w.bitrate.findData(connection_panel.AUTO_BITRATE))
+    monkeypatch.setattr(qt.QtWidgets.QMessageBox, "question",
+                        lambda *a, **k: qt.QtWidgets.QMessageBox.StandardButton.Cancel)
+    assert not w.conn_panel.start_finder(quiet_check=lambda name: False)
+
+    # With access: it runs (a fake finder here), locks, chimes, sets the bitrate and connects.
+    started = []
+
+    class FakeFinder:
+        def __init__(self, name, order, on_event, listen_only):
+            started.append((name, order, listen_only))
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+    monkeypatch.setattr(link, "SignalFinder", FakeFinder)
+    connects = []
+    monkeypatch.setattr(w, "connect", lambda *a, **k: connects.append(1))
+    w.conn_panel.connect_when_found.setChecked(True)
+    assert w.conn_panel.start_finder(quiet_check=lambda name: True)
+    assert started[0][0] == "can0" and len(started[0][1]) == len(interfaces.BITRATES)
+    assert not w.connect_btn.isEnabled() and w.conn_panel.finding
+    pump(app, 0.3)
+    assert "finding" in w.bus_lamp.text()
+    w.conn_panel.handle_event(link.FinderEvent("searching", "250k: nothing heard", 250000))
+    assert w.conn_panel.history.count() == 1
+    w.conn_panel.handle_event(link.FinderEvent("locked", "Locked on 500k", 500000, 40, 0))
+    assert not w.conn_panel.finding and w.connect_btn.isEnabled()
+    assert w.bitrate.currentData() == 500000 and "LOCKED" in w.conn_panel.finder_state.text()
+    assert cues[-1] == "found" and connects == [1]
+    assert int(w.settings.value("finder/last_bitrate")) == 500000
+    w.close()
+
+
+def test_obd2_is_its_own_profile(app, tmp_path):
+    from canopener.core import connection, profiles
+    from canopener.gui.main_window import MainWindow
+
+    qt.QtCore.QSettings.setDefaultFormat(qt.QtCore.QSettings.Format.IniFormat)
+    qt.QtCore.QSettings.setPath(qt.QtCore.QSettings.Format.IniFormat, qt.QtCore.QSettings.Scope.UserScope,
+                                str(tmp_path))
+    w = MainWindow()
+    w.show()
+    tabs = w.tabs
+
+    def shown():
+        return {tabs.widget(i).title for i in range(tabs.count()) if tabs.isTabVisible(i)}
+    # A J1939 profile: no OBD-II tab.
+    assert "OBD-II (Auto)" not in shown() and "Fault Codes" in shown() and w.lamps.isVisible()
+    # The OBD-II profile: the reader and the bus monitor only; no J1939 lamps or scans.
+    w.profile.setCurrentIndex(w.profile.findData("obd2"))
+    assert shown() == {"OBD-II (Auto)", "Bus Monitor"}
+    assert tabs.currentWidget() is w.obd and not w.lamps.isVisible()
+    assert not any(a.isEnabled() for a in w._j1939_actions)
+    # Connecting the J1939 simulator brings the J1939 screens back (and vice versa).
+    w.source.setCurrentIndex(w.source.findData(connection.SIMULATOR))
+    w.connect()
+    assert profiles.protocol() == profiles.J1939 and "Fault Codes" in shown()
+    w.disconnect()
+    w.source.setCurrentIndex(w.source.findData(connection.OBD_SIM))
+    w.connect()
+    assert profiles.protocol() == profiles.OBD2 and "OBD-II (Auto)" in shown()
+    w.disconnect()
+    w.close()
+    # Remembered next time.
+    w2 = MainWindow()
+    assert w2.profile.currentData() == "obd2" and "Fault Codes" not in {
+        w2.tabs.widget(i).title for i in range(w2.tabs.count()) if w2.tabs.isTabVisible(i)}
+    w2.close()

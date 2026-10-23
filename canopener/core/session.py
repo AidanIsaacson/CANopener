@@ -119,6 +119,7 @@ class Session:
         self.rx_count = 0
         self.tx_count = 0
         self.bytes_count = 0
+        self.last_rx_t = 0.0        # wall clock of the last good received frame (bus "alive" check)
         self.health = BusHealth()
         self.started_at = time.time()
 
@@ -248,6 +249,7 @@ class Session:
             return
         self.rx_count += 1
         self.bytes_count += len(frame.data)
+        self.last_rx_t = time.time()
         self._log_frame(frame)
         for fn in list(self._listeners):
             try:

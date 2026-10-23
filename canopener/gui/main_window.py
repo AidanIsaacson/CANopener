@@ -1,19 +1,20 @@
-"""Main window: connection toolbar, lamp strip, tabs, status bar."""
+"""Main window: toolbar, lamp strip, tabs, Connection and Log sidebars, status bar with link lamps."""
 
 import datetime
 import os
 import time
 
 from .. import __version__
-from ..core import config, connection, interfaces, profiles, scan, storage, transmit, units
+from ..core import config, connection, interfaces, link, profiles, scan, storage, transmit, units
 from ..core.connection import load_log_session, open_connection
+from .connection_panel import AUTO_BITRATE, ConnectionPanel
 from .context import AppContext
 from .export_dialog import ExportDialog
 from .hotkeys import Hotkeys, KeybindDialog
 from .log_panel import LogPanel
 from .qt import QT_API, Qt, QtCore, QtGui, QtWidgets
 from .request_dialog import RequestDialog
-from .settings_dialog import UnitsDialog
+from .settings_dialog import SoundDialog, UnitsDialog
 from .tab_codes import CodesTab
 from .tab_info import InfoTab
 from .tab_live import LiveTab
@@ -22,13 +23,10 @@ from .tab_network import NetworkTab
 from .tab_obd import ObdTab
 from .tab_report import ReportTab
 from .transmit_dialog import TransmitDialog
-from .widgets import LampPanel, RefreshComboBox, app_icon
+from .widgets import LampPanel, StatusLamp, app_icon
 
-SOURCES = [("SocketCAN adapter", connection.SOCKETCAN), ("Simulator", connection.SIMULATOR),
-           ("Simulate the selected profile", connection.PROFILE_SIM),
-           ("OBD-II simulator (car)", connection.OBD_SIM), ("Replay log file", connection.REPLAY)]
 REFRESH_MS = 200
-AUTO_BITRATE = 0
+LINK_CHECK_SECS = 1.0       # how often the adapter lamp re-checks for the interface
 
 
 class PluginApi:
@@ -92,7 +90,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._last_counts = (time.time(), 0, 0)
         self._bus_load = 0.0
         self._replay_path = ""
+        self._link_checked = 0.0
+        self._adapter = link.Status(link.OFF, "Adapter")
+        self._bus_level = link.OFF
+        self._bus_session = None
+        self._bus_was_ok = False
+        self._protocol = None               # the profile protocol whose screens are shown
 
+        self._build_conn_panel()
         self._build_toolbar()
         central = QtWidgets.QWidget()
         lay = QtWidgets.QVBoxLayout(central)
@@ -116,12 +121,16 @@ class MainWindow(QtWidgets.QMainWindow):
                                naming_box=lambda w: self.log_panel.owns_name_editor(w))
         self.log_panel = LogPanel(self.ctx, self.hotkeys, self.settings, self._capture_meta, self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.log_panel)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.conn_panel)
         self.log_panel.export_requested.connect(self.export_logs)
         self.log_panel.keys_requested.connect(self.edit_keys)
         self.log_panel.open_capture_log.connect(self.open_log)
         self.log_toggle.setDefaultAction(self.log_panel.toggleViewAction())
         self.log_panel.toggleViewAction().setText("📝 Log")
         self.log_panel.toggleViewAction().setToolTip("Show / hide the Log tool (its keys only work while it's open)")
+        self.conn_toggle.setDefaultAction(self.conn_panel.toggleViewAction())
+        self.conn_panel.toggleViewAction().setText("🔌 Connection")
+        self.conn_panel.toggleViewAction().setToolTip("Show / hide Connection setup and the signal finder")
         QtWidgets.QApplication.instance().installEventFilter(self.hotkeys)
         self._build_menu()
         self._plugin_refresh: list = []
@@ -172,50 +181,31 @@ class MainWindow(QtWidgets.QMainWindow):
     # ------------------------------------------------------------------
     # construction
     # ------------------------------------------------------------------
-    def _build_toolbar(self):
-        tb = QtWidgets.QToolBar("Connection")
-        tb.setMovable(False)
-        tb.setObjectName("connection")
-        self.addToolBar(tb)
-        self.source = QtWidgets.QComboBox()
-        for label, kind in SOURCES:
-            self.source.addItem(label, kind)
+    def _build_conn_panel(self):
+        """The Connection sidebar. Its controls stay reachable as window attributes (``source``,
+        ``iface``, ``bitrate`` ...) since connecting is still done here."""
+        p = self.conn_panel = ConnectionPanel(self.settings, self._iface_list_opening, self)
+        self.source, self.iface, self.rescan_btn = p.source, p.iface, p.rescan_btn
+        self.bitrate, self.bitrate_label, self.listen_only = p.bitrate, p.bitrate_label, p.listen_only
+        self.setup_btn, self.connect_btn = p.setup_btn, p.connect_btn
         self.source.currentIndexChanged.connect(self._source_changed)
-        tb.addWidget(self.source)
-
-        # Lists only the interfaces that exist right now, re-checked each time the list opens.
-        # Still editable, so a name can be typed (e.g. vcan0 before creating it).
-        self.iface = RefreshComboBox(self._iface_list_opening)
-        self.iface.setEditable(True)
-        self.iface.setMinimumWidth(110)
-        tb.addWidget(self.iface)
-        self.rescan_btn = QtWidgets.QToolButton()
-        self.rescan_btn.setText("⟳")
-        self.rescan_btn.setToolTip("Look for CAN interfaces again")
         self.rescan_btn.clicked.connect(self._refresh_interfaces)
-        tb.addWidget(self.rescan_btn)
-
-        self.bitrate_label = QtWidgets.QLabel(" Bitrate ")
-        tb.addWidget(self.bitrate_label)
-        self.bitrate = QtWidgets.QComboBox()
-        for br in interfaces.BITRATES:
-            self.bitrate.addItem(f"{br // 1000}k", br)
-        self.bitrate.addItem("Auto", AUTO_BITRATE)
-        self.bitrate.setItemData(self.bitrate.count() - 1, "Listen at each bitrate (listen-only, so nothing "
-                                 "is transmitted) until valid traffic is seen", Qt.ItemDataRole.ToolTipRole)
-        tb.addWidget(self.bitrate)
-        self.listen_only = QtWidgets.QCheckBox("Listen-only")
-        self.listen_only.setToolTip("Transmit nothing at all. DM1 and live data still work (they're broadcast).")
         self.listen_only.toggled.connect(self._listen_only_toggled)
-        tb.addWidget(self.listen_only)
-        self.setup_btn = QtWidgets.QPushButton("Set Up Interface")
-        self.setup_btn.setToolTip("Configure bitrate / listen-only and bring the interface up (asks for your password)")
         self.setup_btn.clicked.connect(self.setup_interface)
-        tb.addWidget(self.setup_btn)
-        self.connect_btn = QtWidgets.QPushButton("Connect")
-        self.connect_btn.setMinimumWidth(100)
         self.connect_btn.clicked.connect(self.toggle_connect)
-        tb.addWidget(self.connect_btn)
+        p.finder_starting.connect(self.disconnect)
+        p.sudoers_requested.connect(self._install_sudoers)
+        p.locked.connect(self._finder_locked)
+
+    def _build_toolbar(self):
+        tb = QtWidgets.QToolBar("Main")
+        tb.setMovable(False)
+        tb.setObjectName("main_toolbar")
+        self.addToolBar(tb)
+        self.conn_toggle = QtWidgets.QToolButton()
+        self.conn_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.conn_toggle.setStyleSheet("font-weight: bold; padding: 3px 10px;")
+        tb.addWidget(self.conn_toggle)
 
         spacer = QtWidgets.QWidget()
         spacer.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
@@ -249,6 +239,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._action(f, "&Export Logs (USB drive / folder)...", self.export_logs, "Ctrl+E")
         f.addSeparator()
         self._action(f, "&Quit", self.close, "Ctrl+Q")
+        cn = m.addMenu("&Connection")
+        toggle = self.conn_panel.toggleViewAction()
+        toggle.setShortcut(QtGui.QKeySequence("F3"))
+        cn.addAction(toggle)
+        cn.addSeparator()
+        self._action(cn, "Connect / disconnect", self.toggle_connect, "Ctrl+K")
+        self._action(cn, "Find signal (start / stop)", self._toggle_finder, "F4")
+        self._action(cn, "Set up interface", self.setup_interface)
         lg = m.addMenu("&Log")
         toggle = self.log_panel.toggleViewAction()
         toggle.setShortcut(QtGui.QKeySequence("F2"))
@@ -262,19 +260,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self._action(lg, "Change save folder...", self.log_panel._change_folder)
         self._action(lg, "Keyboard shortcuts...", self.edit_keys)
         d = m.addMenu("&Diagnostics")
-        for preset, (title, _, _) in scan.PRESETS.items():
-            self._action(d, title, lambda _=False, p=preset: self._run(p))
+        self._j1939_actions = [self._action(d, title, lambda _=False, p=preset: self._run(p))
+                               for preset, (title, _, _) in scan.PRESETS.items()]
         d.addSeparator()
         self._action(d, "Request a PGN...", lambda: RequestDialog(self.ctx, self).exec())
         self._action(d, "Read a module (UDS)...", self._open_uds)
         self._action(d, "Transmit a frame...", self._open_transmit)
         v = m.addMenu("&View")
         self._action(v, "&Full screen", self._toggle_fullscreen, "F11")
-        for i, t in enumerate(self.tab_list):
-            self._action(v, t.title, lambda _=False, w=t: self.tabs.setCurrentWidget(w), f"Ctrl+{i + 1}")
+        self._view_actions = {t: self._action(v, t.title, lambda _=False, w=t: self.tabs.setCurrentWidget(w),
+                                              f"Ctrl+{i + 1}") for i, t in enumerate(self.tab_list)}
         st = m.addMenu("&Settings")
         self._action(st, "&Units...", self.edit_units)
         self._action(st, "Log tool &keys...", self.edit_keys)
+        self._action(st, "Sound &cues (speaker / buzzer)...", self.edit_sound)
         self._action(st, "&Save folder...", self.log_panel._change_folder)
         self._action(st, "Set up &passwordless CAN access...", self._install_sudoers)
         self.autoconnect_action = QtGui.QAction("&Connect on startup", self, checkable=True)
@@ -325,6 +324,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.traffic_label = QtWidgets.QLabel("")
         self.error_label = QtWidgets.QLabel("")
         self.rec_label = QtWidgets.QLabel("")
+        # The two link lamps: is the adapter plugged in, and is it hearing the machine?
+        # Click either to open Connection setup.
+        self.adapter_lamp = StatusLamp("Adapter")
+        self.bus_lamp = StatusLamp("Bus")
+        for lamp in (self.adapter_lamp, self.bus_lamp):
+            lamp.clicked.connect(self._show_conn_panel)
+            sb.addPermanentWidget(lamp)
         for w in (self.conn_label, self.traffic_label, self.error_label, self.rec_label):
             sb.addPermanentWidget(w)
         self.ctx.busy_changed.connect(self._show_busy)
@@ -459,7 +465,35 @@ class MainWindow(QtWidgets.QMainWindow):
     def _profile_changed(self, *_):
         pid = self.profile.currentData()
         profiles.apply(profiles.find(pid) if pid else None)
+        self._show_protocol(profiles.protocol())
         self.ctx.profile_changed.emit()
+
+    def _show_protocol(self, protocol: str):
+        """Only the screens for the profile's protocol: the OBD-II reader for a car, the J1939
+        tabs, lamp strip and scans for everything else. Bus Monitor (and plugin tabs) always."""
+        obd = protocol == profiles.OBD2
+        j1939_only = (self.codes, self.live, self.network, self.info, self.report)
+        for t in self.tab_list:
+            visible = (t is self.obd) == obd if (t is self.obd or t in j1939_only) else True
+            self.tabs.setTabVisible(self.tabs.indexOf(t), visible)
+            if t in self._view_actions:
+                self._view_actions[t].setEnabled(visible)
+        for a in self._j1939_actions:
+            a.setEnabled(not obd)
+        self.lamps.setVisible(not obd)
+        if protocol != self._protocol or not self.tabs.isTabVisible(self.tabs.currentIndex()):
+            self.tabs.setCurrentWidget(self.obd if obd else self.codes)     # the new protocol's main screen
+        self._protocol = protocol
+
+    def _use_protocol(self, protocol: str):
+        """Switch to a profile for this protocol if the current one is for the other (e.g. the
+        OBD-II simulator picked while on a J1939 profile)."""
+        if profiles.protocol() == protocol:
+            return
+        pid = "obd2" if protocol == profiles.OBD2 else "generic"
+        idx = self.profile.findData(pid)
+        if idx >= 0:
+            self.profile.setCurrentIndex(idx)
 
     def _open_profile_dir(self):
         d = config.ensure_dir(profiles.user_dir())
@@ -502,9 +536,11 @@ class MainWindow(QtWidgets.QMainWindow):
     def _source_changed(self, *_):
         kind = self.source.currentData()
         hw = kind == connection.SOCKETCAN
-        for w in (self.iface, self.rescan_btn, self.bitrate, self.bitrate_label, self.setup_btn):
+        for w in (self.iface, self.conn_panel.iface_label, self.rescan_btn, self.bitrate, self.bitrate_label,
+                  self.setup_btn, self.conn_panel.finder_box):
             w.setVisible(hw)
         self.listen_only.setVisible(kind != connection.REPLAY)
+        self._link_checked = 0.0            # re-check the adapter lamp on the next tick
 
     def _listen_only_toggled(self, on):
         if self.ctx.session is not None and not self.ctx.session.offline:
@@ -514,6 +550,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.network.claim_btn.setEnabled(not session.listen_only)
 
     def setup_interface(self):
+        self.conn_panel.stop_finder()       # it owns the interface while running
         name = self.iface.currentText().strip()
         if not interfaces.valid_name(name):
             QtWidgets.QMessageBox.critical(self, "Set up interface", f"Bad interface name {name!r}")
@@ -555,6 +592,22 @@ class MainWindow(QtWidgets.QMainWindow):
         if idx >= 0:
             self.bitrate.setCurrentIndex(idx)
         return found
+
+    def _show_conn_panel(self):
+        self.conn_panel.show()
+        self.conn_panel.raise_()
+
+    def _toggle_finder(self):
+        self._show_conn_panel()
+        self.conn_panel.toggle_finder()
+
+    def _finder_locked(self, bitrate):
+        """The signal finder heard steady traffic (it set the bitrate box and saved it already)."""
+        where = f"{bitrate // 1000}k" if bitrate else self.iface.currentText()
+        self.statusBar().showMessage(f"Signal found at {where}", 8000)
+        self._refresh_interfaces(preferred=self.iface.currentText(), sync_bitrate=False)
+        if self.conn_panel.connect_when_found.isChecked():
+            self.connect()
 
     def toggle_connect(self):
         if self.ctx.connection is not None or (self.ctx.session and self.ctx.session.offline):
@@ -601,6 +654,7 @@ class MainWindow(QtWidgets.QMainWindow):
         return True
 
     def connect(self, kind=None):
+        self.conn_panel.stop_finder()       # (from the menu / shortcut while it runs)
         kind = kind or self.source.currentData()
         channel = self.iface.currentText().strip() or "can0"
         if kind == connection.REPLAY:
@@ -611,6 +665,10 @@ class MainWindow(QtWidgets.QMainWindow):
                     return
                 self._replay_path = path
             channel = self._replay_path
+        if kind == connection.OBD_SIM:
+            self._use_protocol(profiles.OBD2)
+        elif kind in (connection.SIMULATOR, connection.PROFILE_SIM):
+            self._use_protocol(profiles.J1939)
         if kind == connection.SOCKETCAN:
             if channel not in [i.name for i in interfaces.list_interfaces()]:
                 self._refresh_interfaces()          # plugged in since the list was filled?
@@ -733,6 +791,14 @@ class MainWindow(QtWidgets.QMainWindow):
             self.ctx.units_changed.emit(units.CUSTOM)
         self.statusBar().showMessage(f"Units: {units.describe(units.CUSTOM)}", 6000)
 
+    def edit_sound(self):
+        s = self.settings
+        dlg = SoundDialog(s.value("sound/speaker", "true") in (True, "true"),
+                          str(s.value("sound/buzzer", "auto")), self)
+        if dlg.exec():
+            s.setValue("sound/speaker", dlg.speaker.isChecked())
+            s.setValue("sound/buzzer", dlg.buzzer())
+
     def edit_keys(self):
         if KeybindDialog(self.hotkeys, self).exec():
             self.log_panel._sync()
@@ -763,6 +829,7 @@ class MainWindow(QtWidgets.QMainWindow):
         live = self.ctx.live
         offline = session is not None and session.offline
         self.connect_btn.setText("Disconnect" if (live or offline) else "Connect")
+        self._bus_session, self._bus_level, self._bus_was_ok = session, link.OFF, False
         for w in (self.source, self.iface, self.rescan_btn, self.bitrate):
             w.setEnabled(not live)
         if live:
@@ -798,6 +865,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 fn()
             except Exception as e:
                 self.statusBar().showMessage(f"Plugin error: {e}", 5000)
+        self._update_link_lamps(s)
         cur = self.tabs.currentWidget()
         self.monitor.refresh()              # always: it consumes the frame stream
         for t in (self.codes, self.live, self.network):
@@ -836,6 +904,38 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rec_label.setText(f"● REC {c.elapsed():.0f} s, {c.recorded_frames:,} frames" if rec else "")
         self.rec_label.setStyleSheet("color: #e03131; font-weight: bold" if rec else "")
 
+    def _update_link_lamps(self, session):
+        """Adapter lamp (re-checked once a second) and bus lamp, in the status bar and the
+        Connection sidebar. While connected, a chime when traffic drops out or comes back, so
+        someone moving probes hears it without looking."""
+        now = time.time()
+        kind = self.source.currentData()
+        if self.ctx.connection is not None:
+            kind = self.ctx.connection.kind
+        if now - self._link_checked >= LINK_CHECK_SECS:
+            self._link_checked = now
+            self._adapter = link.adapter_status(kind, self.iface.currentText().strip())
+        adapter = self._adapter
+        if self.conn_panel.finding:
+            bus = link.Status(link.WAIT, "Bus: finding signal…", "The signal finder is listening; see Connection.")
+        else:
+            bus = link.bus_status(session, now)
+        self.adapter_lamp.set_status(adapter.level, adapter.text, adapter.detail)
+        self.bus_lamp.set_status(bus.level, bus.text, bus.detail)
+        self.conn_panel.show_status(adapter, bus)
+        if session is None or session is not self._bus_session or not self.ctx.live:
+            return
+        if bus.level != link.OK and now - session.started_at < link.QUIET_SECS:
+            return                  # just connected: the first frames haven't had time to arrive
+        was, self._bus_level = self._bus_level, bus.level
+        if was == link.OK and bus.level != link.OK:
+            self.conn_panel.cue("lost")
+        elif was in (link.WAIT, link.BAD) and bus.level == link.OK:
+            # Connected first, probes moved after: the first good traffic is "found", later ones "back".
+            self.conn_panel.cue("back" if self._bus_was_ok else "found")
+        if bus.level == link.OK:
+            self._bus_was_ok = True
+
     # ------------------------------------------------------------------
     def _toggle_fullscreen(self):
         self.showNormal() if self.isFullScreen() else self.showFullScreen()
@@ -868,6 +968,7 @@ class MainWindow(QtWidgets.QMainWindow):
             ev.ignore()
             return
         QtWidgets.QApplication.instance().removeEventFilter(self.hotkeys)
+        self.conn_panel.stop_finder()
         self._save_settings()
         self.timer.stop()
         if self.ctx.connection is not None:

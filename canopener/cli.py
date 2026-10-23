@@ -6,6 +6,7 @@
     canopener-cli sim --iface vcan0         # run the simulator on a real/virtual SocketCAN bus
     canopener-cli interfaces
     canopener-cli setup --iface can0 --bitrate auto   # configure + bring up (listen-only probe)
+    canopener-cli find --iface can0 --sound           # keep listening while probing; chime on lock
 """
 
 import argparse
@@ -213,6 +214,34 @@ def cmd_setup(a) -> int:
     return 0
 
 
+def cmd_find(a) -> int:
+    from .core import link, sound
+    order = link.bitrate_order(interfaces.BITRATES[0]) if a.bitrate == "auto" else [int(a.bitrate)]
+    if len(order) > 1 and not a.iface.startswith("vcan") and not interfaces.can_configure_quietly(a.iface):
+        print("Searching every bitrate needs passwordless CAN access (run 'canopener-cli allow-setup' "
+              "once), or pass --bitrate.", file=sys.stderr)
+        return 1
+    last = [None]
+
+    def show(ev):
+        if ev.text != last[0]:
+            print(f"{time.strftime('%H:%M:%S')}  {ev.text}", flush=True)
+            last[0] = ev.text
+
+    finder = link.SignalFinder(a.iface, order, show, listen_only=a.listen_only)
+    print(f"Listening on {a.iface} (listen-only) until steady traffic is heard. Ctrl+C to stop.", flush=True)
+    try:
+        finder.run()
+    except KeyboardInterrupt:
+        return 130
+    if finder.state != "locked":
+        return 1
+    if a.sound or a.buzzer:
+        sound.play("found", speaker=a.sound, buzzer=a.buzzer or "off")
+        time.sleep(1.0)             # let the cue finish before the process exits
+    return 0
+
+
 def cmd_capture(a) -> int:
     from .core.capture import Capture
     try:
@@ -275,6 +304,15 @@ def main(argv=None) -> int:
     u.add_argument("--bitrate", default="250000", help="bits/s, or 'auto' to detect (listen-only probe)")
     u.add_argument("--listen-only", action="store_true", help="leave the controller in listen-only mode")
     u.set_defaults(fn=cmd_setup)
+
+    f = sub.add_parser("find", help="keep listening (listen-only, cycling bitrates) until steady traffic is "
+                                    "heard, then leave the interface up at that bitrate. For placing probes")
+    f.add_argument("--iface", default="can0")
+    f.add_argument("--bitrate", default="auto", help="bits/s, or 'auto' to try each (default)")
+    f.add_argument("--listen-only", action="store_true", help="stay in listen-only once found")
+    f.add_argument("--sound", action="store_true", help="chime on the speaker when found")
+    f.add_argument("--buzzer", metavar="SPEC", help="also on a buzzer: auto, /dev/input/eventN or pwm:CHIP:CH")
+    f.set_defaults(fn=cmd_find)
     sub.add_parser("profiles", help="list machine profiles").set_defaults(fn=cmd_profiles)
 
     o = sub.add_parser("obd", help="read OBD-II (automotive J1979): DTCs, live PIDs and VIN")
