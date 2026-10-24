@@ -72,6 +72,7 @@ def mono_font(size: int | None = None) -> QtGui.QFont:
 
 
 FIT_MAX = 420           # px: a column auto-fits up to this (one long description can't take the table)
+FIT_PAD = 16            # px of breathing room added to each auto-fitted column
 
 
 def setup_table(table: QtWidgets.QTableWidget, headers: list[str]):
@@ -104,8 +105,8 @@ def setup_table(table: QtWidgets.QTableWidget, headers: list[str]):
 
 
 def fit_columns(table: QtWidgets.QTableWidget, cap: int = FIT_MAX):
-    """Size every column but the last (which stretches) to its contents, up to ``cap``. Does
-    nothing once the user has resized a column of this table."""
+    """Size every column but the last (which stretches) to its contents plus a little padding,
+    up to ``cap``. Does nothing once the user has resized a column of this table."""
     if table.property("user_sized"):
         return
     table.setProperty("fitting", True)
@@ -114,8 +115,7 @@ def fit_columns(table: QtWidgets.QTableWidget, cap: int = FIT_MAX):
             if table.isColumnHidden(c):
                 continue
             table.resizeColumnToContents(c)
-            if table.columnWidth(c) > cap:
-                table.setColumnWidth(c, cap)
+            table.setColumnWidth(c, min(table.columnWidth(c) + FIT_PAD, cap))
     finally:
         table.setProperty("fitting", False)
 

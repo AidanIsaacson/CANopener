@@ -991,7 +991,7 @@ def test_obd_quiet_gateway_port_is_not_a_dropout(app, monkeypatch):
 
 
 def test_table_columns_fit_contents_and_stay_where_dragged(app):
-    from canopener.gui.widgets import FIT_MAX, setup_table
+    from canopener.gui.widgets import FIT_MAX, FIT_PAD, setup_table
 
     t = qt.QtWidgets.QTableWidget()
     setup_table(t, ["Module", "Parameter", "Value"])
@@ -1005,7 +1005,7 @@ def test_table_columns_fit_contents_and_stay_where_dragged(app):
     pump(app, 0.1)
     fm = t.fontMetrics()
     assert t.columnWidth(1) < 300                                  # fits "Engine speed", not stretched
-    assert t.columnWidth(1) >= fm.horizontalAdvance("Engine speed")
+    assert t.columnWidth(1) >= fm.horizontalAdvance("Engine speed") + FIT_PAD      # with breathing room
     assert t.horizontalHeader().stretchLastSection()               # the last column takes the slack
     assert t.columnWidth(0) + t.columnWidth(1) + t.columnWidth(2) >= t.viewport().width() - 2
     # A long cell is capped, so it can't push everything else off.
