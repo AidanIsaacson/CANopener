@@ -96,19 +96,20 @@ def check(fetch: bool = True, root: str | None = None, runner=subprocess.run) ->
         dirty = [line[3:] for line in _git(["status", "--porcelain", "--untracked-files=no"], root,
                                            runner=runner).stdout.splitlines() if len(line) > 3]
         latest = _version_in(_git(["show", "@{u}:canopener/__init__.py"], root, runner=runner).stdout)
+        current = _version_in(_git(["show", "HEAD:canopener/__init__.py"], root, runner=runner).stdout) or __version__
     except (OSError, subprocess.SubprocessError) as e:
         return UpdateStatus(False, f"Couldn't run git: {e}")
-    s = UpdateStatus(True, "", latest=latest, behind=behind, ahead=ahead,
+    s = UpdateStatus(True, "", current=current, latest=latest, behind=behind, ahead=ahead,
                      commits=[c for c in log.splitlines() if c.strip()], dirty=dirty, branch=branch,
                      changed=changed if behind else [])
     if behind and ahead:
         s.message = (f"An update is available, but this copy has {ahead} change(s) of its own that aren't on "
                      "GitHub, so it can't update automatically.")
     elif behind:
-        new = f" (version {latest})" if latest and latest != __version__ else ""
+        new = f" (version {latest})" if latest and latest != current else ""
         s.message = f"An update is available{new}: {behind} change(s)."
     else:
-        s.message = f"CANopener {__version__} is up to date."
+        s.message = f"CANopener {current} is up to date."
     return s
 
 
