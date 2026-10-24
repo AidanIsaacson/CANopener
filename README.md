@@ -178,6 +178,12 @@ second), so multi-hour captures are fine on a laptop; split all-day ones. The Bu
 **File → Export frames as CSV** only keep the latest 250,000 frames (a few minutes on a busy
 bus); the capture's log has everything.
 
+**Trimming a long one:** drove around for an hour before the fault finally showed? Tag it, stop,
+and when you press **Save** the Log tool offers to keep just the stretch around your timestamps:
+a few minutes before the first and after the last (you pick how many, and it remembers). It shows
+how much it keeps before it cuts, can keep the full log alongside, and **Save everything** skips
+it. **Trim…** in the Log panel does the same any time, saved captures included.
+
 Captures survive a crash: the next start offers to recover anything unsaved.
 
 **Export Logs** (in the Log panel, or **Ctrl+E**): plug in a USB stick, press **Export**. It
@@ -203,6 +209,7 @@ canopener-cli scan --iface can0 --full --units imperial
 canopener-cli obd --iface can0 --all                # car: codes, readiness, freeze frame, live data
 canopener-cli obd --iface can0 --clear              # car: clear codes (asks first)
 canopener-cli decode capture.log --csv frames.csv   # decode a saved log
+canopener-cli capture FOLDER --trim 5 2            # trim a capture: 5 min before, 2 min after its timestamps
 canopener-cli update                                # check for and install updates
 canopener-cli --help                                # everything else
 ```

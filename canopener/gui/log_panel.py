@@ -3,7 +3,8 @@
 Idle:       name the job, note the concern, plan timestamps (or load a template).
 Recording:  Start/Stop and Timestamp keys (Enter / Space by default), number keys tag a
             specific timestamp, Backspace undoes the last tag.
-Stopped:    relabel / delete / reorder / add notes, then Save, Save As or Discard.
+Stopped:    relabel / delete / reorder / add notes, then Save, Save As or Discard. Saving a long
+            capture offers to trim it to the stretch around its timestamps (Trim… any time).
 
 All capture logic lives in ``canopener.core.capture``; this is only the screen for it.
 """
@@ -158,7 +159,10 @@ class LogPanel(QtWidgets.QDockWidget):
         self.save_as_btn.clicked.connect(self.save_as)
         self.discard_btn = QtWidgets.QPushButton("Discard")
         self.discard_btn.clicked.connect(self.discard)
-        for b in (self.save_btn, self.save_as_btn, self.discard_btn):
+        self.trim_btn = QtWidgets.QPushButton("Trim…")
+        self.trim_btn.setToolTip("Keep only the stretch around your timestamps")
+        self.trim_btn.clicked.connect(self.trim)
+        for b in (self.save_btn, self.save_as_btn, self.trim_btn, self.discard_btn):
             sl.addWidget(b)
         lay.addWidget(self.save_row)
 
@@ -172,7 +176,10 @@ class LogPanel(QtWidgets.QDockWidget):
         view_btn.clicked.connect(lambda: self.capture.log_path and self.open_capture_log.emit(self.capture.log_path))
         new_btn = QtWidgets.QPushButton("New capture")
         new_btn.clicked.connect(self.new_capture)
-        for b in (open_btn, view_btn, new_btn):
+        self.trim_saved_btn = QtWidgets.QPushButton("Trim…")
+        self.trim_saved_btn.setToolTip("Keep only the stretch around your timestamps, and re-save")
+        self.trim_saved_btn.clicked.connect(self.trim)
+        for b in (open_btn, view_btn, self.trim_saved_btn, new_btn):
             svl.addWidget(b)
         lay.addWidget(self.saved_row)
 
@@ -296,6 +303,9 @@ class LogPanel(QtWidgets.QDockWidget):
         c = self.capture
         if c.state not in (cap.STOPPED, cap.SAVED):
             return None
+        if not quiet and c.state == cap.STOPPED and self._worth_trimming():
+            if self._offer_trim(offer_save_all=True) is None:
+                return None                     # cancelled: nothing saved, nothing trimmed
         extra = {}
         res = self.ctx.result
         if res is not None and not res.offline and c.started and res.finished >= c.started:
@@ -322,6 +332,47 @@ class LogPanel(QtWidgets.QDockWidget):
         self._sync()
         self._message(f"Saved {os.path.basename(folder)}" + (" (start pressed)" if quiet else ""))
         return folder
+
+    # ------------------------------------------------------------------
+    # trimming
+    # ------------------------------------------------------------------
+    def _worth_trimming(self) -> bool:
+        """Offer the trim on Save when it would cut at least a minute (with the remembered margins)."""
+        c = self.capture
+        try:
+            before = float(self.settings.value("log/trim_before", cap.TRIM_BEFORE / 60)) * 60
+            after = float(self.settings.value("log/trim_after", cap.TRIM_AFTER / 60)) * 60
+        except (TypeError, ValueError):
+            before, after = cap.TRIM_BEFORE, cap.TRIM_AFTER
+        window = c.trim_window(before, after)
+        return window is not None and c.elapsed() - (window[1] - window[0]) >= 60
+
+    def _offer_trim(self, offer_save_all: bool) -> str | None:
+        """Show the trim dialog. Returns "trimmed", "all" (save untrimmed) or None (cancelled)."""
+        from .trim_dialog import SAVE_ALL, TRIM, TrimDialog
+        dlg = TrimDialog(self.capture, self.settings, offer_save_all, self)
+        r = dlg.exec()
+        if r == SAVE_ALL:
+            return "all"
+        if r != TRIM:
+            return None
+        before, after = dlg.margins
+        try:
+            kept, dropped = self.capture.trim(before, after, keep_full=dlg.keep_full.isChecked())
+        except (OSError, ValueError) as e:
+            QtWidgets.QMessageBox.critical(self, "Trim capture", str(e))
+            return None
+        self._sync()
+        self._message(f"Trimmed: kept {kept:,} frames, cut {dropped:,}")
+        return "trimmed"
+
+    def trim(self):
+        """The Trim… button: trim now (a saved capture is re-saved so its files match)."""
+        c = self.capture
+        if c.state not in (cap.STOPPED, cap.SAVED) or not c.tagged():
+            return
+        if self._offer_trim(offer_save_all=False) == "trimmed" and c.state == cap.SAVED:
+            self.save()
 
     def save_as(self):
         start = self.capture.root or config.logs_dir()
@@ -600,6 +651,8 @@ class LogPanel(QtWidgets.QDockWidget):
         self.undo_btn.setVisible(rec)
         self.save_row.setVisible(stopped)
         self.saved_row.setVisible(saved)
+        for b in (self.trim_btn, self.trim_saved_btn):
+            b.setEnabled(bool(c.tagged()))
 
         if table:
             self._rebuild_table()

@@ -176,6 +176,14 @@ def summary_text(a: _Analysis) -> str:
     for k in ("source", "interface", "bitrate", "profile", "listen_only", "app_version"):
         if k in c.meta:
             L.append(f"{k.replace('_', ' ').capitalize():<13}{c.meta[k]}")
+    tr = c.meta.get("trimmed")
+    if tr and tr.get("original_start") and tr.get("original_stop"):
+        full = f"; full log kept as {tr['full_log']}" if tr.get("full_log") else ""
+        L.append(f"Trimmed      to {tr['before_s'] / 60:g} min before the first timestamp and "
+                 f"{tr['after_s'] / 60:g} min after the last, from a "
+                 f"{fmt_elapsed(tr['original_stop'] - tr['original_start'])[1:]} recording "
+                 f"({_when(tr['original_start'])} -> {_when(tr['original_stop'])}, "
+                 f"{tr.get('dropped_frames', 0)} frames cut{full})")
     if c.notes.strip():
         L += ["", "Notes / customer concern:"] + [f"  {line}" for line in c.notes.strip().splitlines()]
 

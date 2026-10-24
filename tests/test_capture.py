@@ -152,3 +152,62 @@ def test_discard(bus_and_session, tmp_path):
     folder = c.folder
     c.discard()
     assert not os.path.exists(folder) and c.state == cap.IDLE
+
+
+def _hour_long_capture(folder, t0=1_700_000_000.0):
+    """A stopped, unsaved capture: an hour of one frame a second, fault tagged near the end."""
+    os.makedirs(folder)
+    with open(os.path.join(folder, cap.CAPTURE_LOG), "w") as f:
+        f.write("# CANopener capture\n")
+        for s in range(3601):
+            f.write(f"({t0 + s:.6f}) can0 18FEF100#00112233445566{s % 256:02X}\n")
+    c = Capture("Unit 14", plan=["shuts down", "key on", "restarts"])
+    c.folder, c.root = folder, os.path.dirname(folder)
+    c.started, c.stopped, c.state = t0, t0 + 3600, cap.STOPPED
+    for i, s in enumerate((3000, 3010, 3030)):
+        c.tag(i, t0 + s)
+    return c, t0
+
+
+def test_trim_keeps_the_stretch_around_the_timestamps(tmp_path):
+    c, t0 = _hour_long_capture(str(tmp_path / ".recording_x"))
+    assert c.trim_window(300, 120) == (t0 + 2700, t0 + 3150)
+    kept, dropped = c.trim(300, 120)
+    assert (kept, dropped) == (451, 3150)
+    lines = open(c.log_path).read().splitlines()
+    assert lines[0] == "# CANopener capture"                         # comments stay
+    assert lines[1].startswith(f"({t0 + 2700:.6f})") and lines[-1].startswith(f"({t0 + 3150:.6f})")
+    assert (c.started, c.stopped, c.frames) == (t0 + 2700, t0 + 3150, 451)
+    assert [m.t for m in c.markers] == [t0 + 3000, t0 + 3010, t0 + 3030]  # timestamps unchanged
+    assert c.meta["trimmed"]["original_start"] == t0 and c.meta["trimmed"]["dropped_frames"] == 3150
+    assert json.load(open(os.path.join(c.folder, cap.META_JSON)))["started"] == t0 + 2700   # on disk too
+    folder = c.save(str(tmp_path / "saved"))
+    summary = open(os.path.join(folder, cap.SUMMARY_TXT)).read()
+    assert "Trimmed      to 5 min before the first timestamp and 2 min after the last, from a 1:00:00.0" \
+        in summary and "3150 frames cut" in summary
+    assert "+05:00.0" in summary                                     # first tag: 5 min into the trimmed log
+    assert len(open(os.path.join(folder, cap.LIVE_CSV)).readlines()) < 1000     # ~450 s at 2 rows/s
+
+
+def test_trim_window_stays_inside_the_recording_and_can_keep_the_full_log(tmp_path):
+    c, t0 = _hour_long_capture(str(tmp_path / ".recording_x"))
+    assert c.trim_window(3600, 3600) == (t0, t0 + 3600)              # can't reach past either end
+    c.trim(60, 10, keep_full=True)
+    full = os.path.join(c.folder, cap.FULL_LOG)
+    assert os.path.exists(full) and sum(1 for _ in open(full)) == 3602
+    assert c.meta["trimmed"]["full_log"] == cap.FULL_LOG
+    c.trim(30, 5)                                                     # again: still measured from the original
+    assert c.meta["trimmed"]["original_start"] == t0 and c.meta["trimmed"]["full_log"] == cap.FULL_LOG
+    assert (c.started, c.stopped) == (t0 + 2970, t0 + 3035)
+
+
+def test_trim_needs_a_tagged_timestamp_and_a_stopped_capture(tmp_path):
+    c, _ = _hour_long_capture(str(tmp_path / ".recording_x"))
+    for m in c.markers:
+        m.t = None
+    assert c.trim_window() is None
+    with pytest.raises(ValueError):
+        c.trim()
+    c.state = cap.RECORDING
+    with pytest.raises(RuntimeError):
+        c.trim()

@@ -1020,3 +1020,68 @@ def test_table_columns_fit_contents_and_stay_where_dragged(app):
     pump(app, 0.1)
     assert t.columnWidth(1) == 333
     t.close()
+
+
+def test_trim_long_capture_on_save(app, tmp_path, monkeypatch):
+    import os
+
+    from canopener.core import capture as cap
+    from canopener.gui import trim_dialog
+    from canopener.gui.main_window import MainWindow
+
+    def long_capture(name):
+        folder = tmp_path / name / ".recording_x"
+        folder.mkdir(parents=True)
+        t0 = 1_700_000_000.0
+        with open(folder / cap.CAPTURE_LOG, "w") as f:
+            for s in range(3601):
+                f.write(f"({t0 + s:.6f}) can0 18FEF100#00112233445566{s % 256:02X}\n")
+        c = cap.Capture("Unit 14", plan=["shuts down", "restarts"])
+        c.folder, c.root = str(folder), str(tmp_path / name)
+        c.started, c.stopped, c.state = t0, t0 + 3600, cap.STOPPED
+        c.tag(0, t0 + 3000)
+        c.tag(1, t0 + 3030)
+        return c, t0
+
+    w = MainWindow()
+    log = w.log_panel
+
+    # The dialog: remembered margins, a preview of what's kept, settings saved on the way out.
+    c, t0 = long_capture("a")
+    log._set_capture(c)
+    dlg = trim_dialog.TrimDialog(c, w.settings)
+    assert dlg.margins == (300, 120) and "Keeps 07:30.0 of 1:00:00.0" in dlg.preview.text()
+    dlg.before.setValue(1)
+    assert "Keeps 03:30.0" in dlg.preview.text()            # 1 min + 30 s between tags + 2 min
+    dlg._finish(trim_dialog.TRIM)
+    assert float(w.settings.value("log/trim_before")) == 1.0
+
+    # Save on a long capture offers the trim: Trim and save.
+    results = [trim_dialog.TRIM]
+    monkeypatch.setattr(trim_dialog.TrimDialog, "exec", lambda self: results[0])
+    folder = log.save()
+    assert folder and c.state == cap.SAVED and (c.started, c.stopped) == (t0 + 2940, t0 + 3150)
+    assert "Trimmed" in open(os.path.join(folder, cap.SUMMARY_TXT)).read()
+
+    # Save everything: untrimmed. Cancel: nothing saved.
+    c, t0 = long_capture("b")
+    log._set_capture(c)
+    results[0] = trim_dialog.SAVE_ALL
+    assert log.save() and (c.started, c.stopped) == (t0, t0 + 3600)
+    c, t0 = long_capture("c")
+    log._set_capture(c)
+    results[0] = 0
+    assert log.save() is None and c.state == cap.STOPPED and c.started == t0
+
+    # Pressing Start again saves the last capture quietly: no dialog mid-job.
+    monkeypatch.setattr(trim_dialog.TrimDialog, "exec", lambda self: pytest.fail("no prompt on a quiet save"))
+    assert log.save(quiet=True) and c.started == t0
+
+    # Trim… on a saved capture trims it and re-saves, so its files match.
+    results[0] = trim_dialog.TRIM
+    monkeypatch.setattr(trim_dialog.TrimDialog, "exec", lambda self: results[0])
+    assert log.trim_saved_btn.isEnabled()
+    log.trim()
+    assert c.state == cap.SAVED and c.started == t0 + 2940
+    assert "Trimmed" in open(os.path.join(c.folder, cap.SUMMARY_TXT)).read()
+    w.close()

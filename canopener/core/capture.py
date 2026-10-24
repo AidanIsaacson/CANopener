@@ -10,6 +10,8 @@ The workflow (shared by the desktop GUI and, later, the handheld's hardware keys
 4. ``stop()``, then edit labels / delete markers, then ``save()`` (or ``discard()``).
    Saving moves the folder to its final name and writes markers, a live-data spreadsheet
    and a summary (see ``capture_report``).
+5. Optionally ``trim(before, after)`` first: keep only the stretch around the tagged
+   timestamps (an hour of driving around until the fault shows, cut down to the fault).
 
 Markers and metadata are written to disk on every change, so a crash mid-recording leaves a
 pending folder that ``pending_captures()`` finds and ``Capture.load()`` can recover.
@@ -31,10 +33,12 @@ CAPTURE_LOG = "capture.log"
 MARKERS_CSV = "markers.csv"
 META_JSON = "capture.json"
 LIVE_CSV = "live_data.csv"
+FULL_LOG = "capture_full.log"       # the untrimmed log, when trimming keeps it
 SUMMARY_TXT = "summary.txt"
 PENDING_PREFIX = ".recording_"
 
 IDLE, RECORDING, STOPPED, SAVED = "idle", "recording", "stopped", "saved"
+TRIM_BEFORE, TRIM_AFTER = 300.0, 120.0      # default seconds kept before the first / after the last tag
 
 
 @dataclass
@@ -183,6 +187,55 @@ class Capture:
         end = self.stopped if self.stopped is not None else (time.time() if now is None else now)
         return end - self.started
 
+    # ------------------------------------------------------------------
+    # trimming
+    # ------------------------------------------------------------------
+    def trim_window(self, before: float = TRIM_BEFORE, after: float = TRIM_AFTER) -> tuple[float, float] | None:
+        """The span ``trim`` keeps: ``before`` seconds ahead of the first tagged timestamp to
+        ``after`` past the last, within the recording. None without a tagged timestamp."""
+        tagged = self.tagged()
+        if not tagged or self.started is None:
+            return None
+        end = self.stopped if self.stopped is not None else time.time()
+        return max(self.started, tagged[0][1].t - before), min(end, tagged[-1][1].t + after)
+
+    def trim(self, before: float = TRIM_BEFORE, after: float = TRIM_AFTER, keep_full: bool = False
+             ) -> tuple[int, int]:
+        """Cut the log down to ``trim_window``; the capture then starts and stops there (timestamps
+        keep their times, untagged ones stay untagged). Streams the file, so an hours-long log
+        never sits in memory. ``keep_full`` keeps the original as capture_full.log. Returns
+        (frames kept, frames dropped). Save (again) afterwards to rewrite the summary."""
+        if self.state not in (STOPPED, SAVED):
+            raise RuntimeError(f"can't trim a capture that is {self.state}")
+        window = self.trim_window(before, after)
+        if window is None:
+            raise ValueError("tag at least one timestamp first: the trim keeps the time around them")
+        lo, hi = window
+        src, tmp = self.log_path, self.log_path + ".trim"
+        kept = dropped = 0
+        with open(src, errors="replace") as fin, open(tmp, "w") as fout:
+            for line in fin:
+                t = _line_time(line)
+                if t is None or lo <= t <= hi:      # comments / unparsable lines stay
+                    fout.write(line)
+                    kept += t is not None
+                else:
+                    dropped += 1
+        if keep_full:
+            os.replace(src, os.path.join(self.folder, FULL_LOG))
+        os.replace(tmp, src)
+        prev = self.meta.get("trimmed", {})
+        self.meta["trimmed"] = {
+            "original_start": prev.get("original_start", self.started),
+            "original_stop": prev.get("original_stop", self.stopped),
+            "before_s": before, "after_s": after,
+            "dropped_frames": prev.get("dropped_frames", 0) + dropped,
+            "full_log": FULL_LOG if keep_full else prev.get("full_log"),
+        }
+        self.started, self.stopped, self.frames = lo, hi, kept
+        self._write_state()
+        return kept, dropped
+
     def plan_labels(self) -> list[str]:
         return [m.label for m in self.markers if m.planned]
 
@@ -321,6 +374,16 @@ class Capture:
     @property
     def pending(self) -> bool:
         return bool(self.folder) and os.path.basename(self.folder).startswith(PENDING_PREFIX)
+
+
+def _line_time(line: str) -> float | None:
+    """The timestamp of a candump log line "(1700000000.123456) can0 ...", else None."""
+    if not line.startswith("("):
+        return None
+    try:
+        return float(line[1:line.index(")")])
+    except ValueError:
+        return None
 
 
 def _last_frame_time(path: str) -> float | None:

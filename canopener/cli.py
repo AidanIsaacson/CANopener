@@ -329,6 +329,13 @@ def cmd_capture(a) -> int:
         return 2
     if c.state != "saved":
         print("Capture was never saved (recording interrupted); recovering it.", file=sys.stderr)
+    if a.trim:
+        try:
+            kept, dropped = c.trim(a.trim[0] * 60, a.trim[1] * 60, keep_full=a.keep_full)
+        except ValueError as e:
+            print(f"Can't trim: {e}", file=sys.stderr)
+            return 1
+        print(f"Trimmed: kept {kept} frames, cut {dropped}.", file=sys.stderr)
     c.save(system=a.units)
     with open(os.path.join(c.folder, "summary.txt")) as f:
         print(f.read())
@@ -423,8 +430,11 @@ def main(argv=None) -> int:
     up.add_argument("--yes", action="store_true", help="install without asking")
     up.set_defaults(fn=cmd_update)
 
-    c = sub.add_parser("capture", help="re-generate and print a capture folder's summary")
+    c = sub.add_parser("capture", help="re-generate and print a capture folder's summary (optionally trim it)")
     c.add_argument("folder")
+    c.add_argument("--trim", nargs=2, type=float, metavar=("BEFORE", "AFTER"),
+                   help="first keep only BEFORE minutes before the first timestamp to AFTER minutes after the last")
+    c.add_argument("--keep-full", action="store_true", help="with --trim: keep the full log as capture_full.log")
     c.set_defaults(fn=cmd_capture)
 
     from . import plugins

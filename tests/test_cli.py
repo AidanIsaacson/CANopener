@@ -52,3 +52,24 @@ def test_update_command(capsys, monkeypatch):
     assert "Faster live data" in capsys.readouterr().out
     assert cli.main(["update", "--yes"]) == 0
     assert "Updated." in capsys.readouterr().out
+
+
+def test_capture_trim_command(tmp_path, capsys):
+    import os
+
+    from canopener.core import capture as cap
+    folder = tmp_path / "cap"
+    folder.mkdir()
+    t0 = 1_700_000_000.0
+    with open(folder / cap.CAPTURE_LOG, "w") as f:
+        for s in range(1201):
+            f.write(f"({t0 + s:.6f}) can0 18FEF100#0011223344556677\n")
+    c = cap.Capture("bench", plan=["fault"])
+    c.folder, c.started, c.stopped, c.state = str(folder), t0, t0 + 1200, cap.STOPPED
+    c.tag(0, t0 + 900)
+    c._write_state()
+    assert cli.main(["capture", str(folder), "--trim", "2", "1", "--keep-full"]) == 0
+    out = capsys.readouterr()
+    assert "Trimmed: kept 181 frames" in out.err and "Trimmed      to 2 min before" in out.out
+    saved = [d for d in tmp_path.iterdir() if d.name.endswith("_bench")]    # saving moved it to its final name
+    assert len(saved) == 1 and os.path.exists(saved[0] / cap.FULL_LOG)
