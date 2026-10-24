@@ -11,6 +11,7 @@ clears or writes. ``send_frame()`` exists for separately installed plugins (see
 package calls it.
 """
 
+import itertools
 import threading
 import time
 from collections import deque
@@ -339,7 +340,11 @@ class Session:
             n = min(total - seq, len(self.raw))
             if n <= 0:
                 return total, []
-            return total, list(self.raw)[-n:] if n < len(self.raw) else list(self.raw)
+            if n >= len(self.raw):
+                return total, list(self.raw)
+            new = list(itertools.islice(reversed(self.raw), n))     # only the new ones, not the whole buffer
+            new.reverse()
+            return total, new
 
     def acks_since(self, t0: float) -> list[Ack]:
         with self.lock:

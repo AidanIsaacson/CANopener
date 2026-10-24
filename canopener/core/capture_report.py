@@ -7,12 +7,17 @@ afterwards just regenerates the outputs.
   lamp changes, and ECUs going silent / coming back, each with the marker phase it fell in.
 * ``live_data.csv``: every decoded live parameter sampled twice a second, with ``event`` (a
   marker tagged in that half-second) and ``phase`` (the latest marker) columns.
+
+OBD-II traffic in the log (the app polling a car while recording) is decoded too, by the same
+``obd.ObdSniffer`` the live view uses: its PIDs become columns, and codes read, cleared and tests
+run join the timeline.
 """
 
 import csv
 import datetime
 import os
 
+from .. import obd
 from ..can.logfile import read_log
 from ..j1939.addresses import sa_name
 from ..j1939.constants import DM1
@@ -48,6 +53,7 @@ class _Analysis:
         self.col_titles: list[str] = []
         self.next_sample = None
         self.frames = 0
+        self.obd = obd.ObdSniffer()
 
     # --- per frame ---
     def feed(self, fr):
@@ -59,8 +65,10 @@ class _Analysis:
             self._sample(self.next_sample)
             self.next_sample += SAMPLE_PERIOD
         self.session.feed(fr)
-        if not fr.extended or fr.error:
-            return
+        if not fr.error:
+            self.obd.feed(fr.can_id, fr.extended, bytes(fr.data), t)
+        if not fr.extended or fr.error or (fr.can_id & 0x1FFF0000) in (0x18DA0000, 0x18DB0000):
+            return                      # (29-bit OBD-II traffic isn't J1939 ECUs)
         sa = parse_id(fr.can_id).sa
         self._check_silence(t)
         if sa in self.silent:
@@ -114,6 +122,16 @@ class _Analysis:
                     who = "" if sa == 0x00 else f" ({sa_name(sa, with_hex=False)})"
                     self.col_titles.append(f"{sig.name}{who} [{unit}]" if unit else f"{sig.name}{who}")
                 values[self.columns[key]] = units.convert(v, sig.unit, self.system)[0]
+        for (ecu, pid, name), r in self.obd.values.items():
+            if not isinstance(r.value, (int, float)):
+                continue
+            key = ("obd", ecu, pid, name)
+            if key not in self.columns:
+                self.columns[key] = len(self.col_titles)
+                unit = units.display_unit(r.unit, self.system)
+                self.col_titles.append(f"{name} ({self.obd.label(ecu)}) [{unit}]" if unit
+                                       else f"{name} ({self.obd.label(ecu)})")
+            values[self.columns[key]] = units.convert(r.value, r.unit, self.system)[0]
         self.rows.append([t, values])
 
     def finish(self, t_end: float):
@@ -169,7 +187,7 @@ def summary_text(a: _Analysis) -> str:
         note = f"   ({m.note})" if m.note else ""
         L.append(f"  {c.title(i):<34} {when}{note}")
 
-    timeline = [(m.t, f"[{c.title(i)}]") for i, m in c.tagged()] + list(a.events)
+    timeline = [(m.t, f"[{c.title(i)}]") for i, m in c.tagged()] + list(a.events) + list(a.obd.events)
     timeline.sort(key=lambda x: (x[0], not x[1].startswith("[")))
     L += ["", "-- Timeline (markers in [brackets]; other lines show the phase they happened in) --"]
     if not timeline:
@@ -189,6 +207,12 @@ def summary_text(a: _Analysis) -> str:
                  f" {spn_name(h.spn)} - {fmi_text(h.fmi)}")
         L.append(f"  {'':<12} first {fmt_elapsed(h.first - a.t0)} ({c.phase_at(h.first) or 'before first marker'}),"
                  f" last {fmt_elapsed(h.last - a.t0)}, seen {h.seen}x")
+
+    if a.obd.dtcs:
+        L += ["", "-- OBD-II codes read in this capture (last answer from each module) --"]
+        for ecu, kinds in sorted(a.obd.dtcs.items()):
+            for kind, codes in kinds.items():
+                L += [f"  {kind:<10} {a.obd.label(ecu):<18} {code}  {obd.describe_dtc(code)}" for code in codes]
 
     L += ["", "-- ECUs --"]
     for e in a.session.ecu_list():

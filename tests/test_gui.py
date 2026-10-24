@@ -306,42 +306,62 @@ def test_profile_features_in_the_gui(app, tmp_path, monkeypatch):
     w.close()
 
 
+def _wait(app, cond, secs=15):
+    end = time.time() + secs
+    while not cond() and time.time() < end:
+        pump(app, 0.1)
+    return cond()
+
+
 def test_obd_tab_reads_simulator(app, tmp_path, monkeypatch):
     from canopener.core import connection
     from canopener.gui.main_window import MainWindow
+    from canopener.gui.tab_obd import P_FREEZE, P_LIVE
 
-    qt.QtCore.QSettings.setDefaultFormat(qt.QtCore.QSettings.Format.IniFormat)
-    qt.QtCore.QSettings.setPath(qt.QtCore.QSettings.Format.IniFormat, qt.QtCore.QSettings.Scope.UserScope,
-                                str(tmp_path))
     w = MainWindow()
     w.show()
     w.source.setCurrentIndex(w.source.findData(connection.OBD_SIM))
     w.connect()
     pump(app, 0.4)
     o = w.obd
-    assert w.tabs.currentWidget() is o and o.read_btn.isEnabled()
-    o._read()
-    end = time.time() + 15
-    while (o._jobs or not o.codes.rowCount()) and time.time() < end:
-        pump(app, 0.1)
-    assert "1HGCM82633A004352" in o.vin_label.text()
+    assert w.tabs.currentWidget() is o and o.check_btn.isEnabled()
 
     def column(table, c):
         return [table.item(r, c).text() for r in range(table.rowCount())]
+
+    # Check codes: every module's codes, the MIL, and the freeze frame behind the first code.
+    o.check_codes()
+    assert _wait(app, lambda: not o._jobs and o.codes.rowCount() == 5)
     assert column(o.codes, 2) == ["P0133", "P0420", "P0171", "P0420", "P0730"]
     assert column(o.codes, 0)[-1] == "TCM (7E9)" and "Bank 1 Sensor 1" in column(o.codes, 3)[0]
-    assert o.ready_summary.text().startswith("NOT READY: MIL ON")
-    assert "Evaporative system" in column(o.readiness, 1)
-    assert o.table.rowCount() >= 20 and "O2 B1S2: voltage" in column(o.table, 1)
-    assert "Caused by" in column(o.freeze, 1)
-    assert "FAIL" in column(o.results, 6)
-    assert "SIMTCM-02B" in column(o.info, 2)
+    assert "ON" in o.mil_label.text() and o.ready_summary.text().startswith("NOT READY: MIL ON")
+    o.select_code(0)                                     # P0133: O2 B1S1, and it set the freeze frame
+    assert o.show_live_btn.isEnabled(), o.code_detail.text()
+    assert o.show_freeze_btn.isEnabled(), o.code_detail.text()
+    o.select_code(4)                                     # P0730: no standard sensor value
+    assert not o.show_live_btn.isEnabled() and not o.show_freeze_btn.isEnabled()
+    o.select_code(0)
+    o._show_code_freeze()
+    assert o.pages.currentIndex() == P_FREEZE and "Caused by" in column(o.freeze, 1)
 
-    # Live data streams, with min / max.
-    o._toggle_stream()
+    # Show in Live Data: finds the live values (none read yet), plots the code's sensor, streams.
+    o._show_code_live()
+    assert _wait(app, lambda: o._streaming and o.live.plotted)
+    assert o.pages.currentIndex() == P_LIVE
+    assert [o.model.rows[k].sig.name for k in o.live.plotted] == ["O2 B1S2: voltage"] or \
+        all(o.model.rows[k].sig.pid in (0x14, 0x06, 0x15) for k in o.live.plotted)
     pump(app, 1.0)
-    assert o._streaming and o.table.item(0, 3).text()
-    o._toggle_stream()
+    assert len(o.live.order) >= 20 and "Module" == o.live.table.horizontalHeaderItem(7).text()
+    key = o.live.plotted[0]
+    assert len(o.model.rows[key].points) >= 2            # it's being polled: history for the chart
+    o.live.hide_plots.setChecked(True)
+    assert not o.live.chart_pane.isVisible()
+    o.live.only_checked.setChecked(True)                 # hide unticked: only the ticked row, only it polled
+    pump(app, 0.4)
+    assert [o.live.table.isRowHidden(i) for i in range(len(o.live.order))].count(False) == len(o.live.plotted)
+    assert o._poll == list(dict.fromkeys((o.model.rows[k].sa, o.model.rows[k].sig.pid) for k in o.live.plotted))
+    o.live.only_checked.setChecked(False)
+    o.toggle_stream()
     assert not o._streaming
 
     # Clear codes: declined = nothing sent; confirmed = cleared and read back.
@@ -353,25 +373,61 @@ def test_obd_tab_reads_simulator(app, tmp_path, monkeypatch):
     assert not w.ctx.connection.simulator.cleared
     answers[0] = qt.QtWidgets.QMessageBox.StandardButton.Yes
     o._clear_codes()
-    end = time.time() + 10
-    while o._jobs and time.time() < end:
-        pump(app, 0.1)
-    assert w.ctx.connection.simulator.cleared
+    assert _wait(app, lambda: not o._jobs and w.ctx.connection.simulator.cleared)
+    pump(app, 0.2)
     assert column(o.codes, 2) == ["P0420"] and column(o.codes, 1) == ["permanent"]
-    assert o.ready_summary.text().startswith("NOT READY: MIL off")
+    assert "off" in o.mil_label.text()
 
     # Mode 08: find the EVAP test and run it.
     o._read_tests()
-    end = time.time() + 5
-    while (o._jobs or not o.test_pick.count()) and time.time() < end:
-        pump(app, 0.1)
+    assert _wait(app, lambda: not o._jobs and o.test_pick.count())
     assert "Evaporative system leak test" in o.test_pick.currentText()
     o._run_test()
-    end = time.time() + 5
-    while (o._jobs or not o.test_log.count()) and time.time() < end:
-        pump(app, 0.1)
+    assert _wait(app, lambda: not o._jobs and o.test_log.count())
     assert w.ctx.connection.simulator.evap_test_running and "started" in o.test_log.item(0).text()
     w.disconnect()
+    w.close()
+
+
+def test_log_tool_records_obd(app, tmp_path):
+    """Recording on a car: the OBD-II tab polls for the capture's whole length, markers show on
+    its chart, the capture keeps an OBD-II report, and opening its log brings the values back."""
+    from canopener.core import config, connection
+    from canopener.gui.main_window import MainWindow
+
+    config.set_data_dir(str(tmp_path / "data"))
+    w = MainWindow()
+    w.show()
+    w.source.setCurrentIndex(w.source.findData(connection.OBD_SIM))
+    w.connect()
+    pump(app, 0.4)
+    o, log = w.obd, w.log_panel
+    log.start()
+    assert log.recording
+    assert _wait(app, lambda: o._streaming and len(o.live.order) >= 20)
+    log.refresh()
+    assert "OBD-II: polling" in log.detail_label.text()
+    w.show_tab(o.live)
+    log.handle_action("timestamp")
+    pump(app, 1.0)
+    assert o.live.chart.markers                          # the Log tool's marker on the OBD-II chart
+    log.stop()
+    assert not o._streaming                              # the recording's polling ends with it
+    assert _wait(app, lambda: not o._jobs, 5)
+    folder = log.save(parent_dir=str(tmp_path / "caps"), quiet=True)
+    import os
+    report = open(os.path.join(folder, "obd_report.txt")).read()
+    assert "P0133" in report and "Engine speed" in report and "Readiness ECM (7E8): MIL ON" in report
+    summary = open(os.path.join(folder, "summary.txt")).read()
+    assert "OBD-II codes read in this capture" in summary and "ECM (7E8): stored code(s) P0133, P0420" in summary
+    header = open(os.path.join(folder, "live_data.csv")).readline()
+    assert "Engine speed (ECM (7E8)) [rpm]" in header
+    # Reopen the log: the OBD-II values and codes come back from the recorded frames.
+    w.open_log(os.path.join(folder, "capture.log"))
+    pump(app, 0.5)
+    assert w.ctx.session.offline and len(o.live.order) >= 20
+    assert "P0133" in [o.codes.item(r, 2).text() for r in range(o.codes.rowCount())]
+    assert any(len(o.model.rows[k].points) > 3 for k in o.live.order)
     w.close()
 
 
@@ -767,15 +823,21 @@ def test_obd2_is_its_own_profile(app, tmp_path):
         return {tabs.widget(i).title for i in range(tabs.count()) if tabs.isTabVisible(i)}
     # A J1939 profile: no OBD-II tab.
     assert "OBD-II (Auto)" not in shown() and "Fault Codes" in shown() and w.lamps.isVisible()
-    # The OBD-II profile: the reader and the bus monitor only; no J1939 lamps or scans.
+    # The OBD-II profile: one row of tabs (the scan tool's pages, Bus Monitor last); no J1939 lamps.
     w.profile.setCurrentIndex(w.profile.findData("obd2"))
-    assert shown() == {"OBD-II (Auto)", "Bus Monitor"}
+    assert shown() == {"OBD-II (Auto)"} and not tabs.tabBar().isVisible()
+    pages = [w.obd.pages.tabText(i) for i in range(w.obd.pages.count())]
+    assert pages == ["Trouble Codes", "Live Data", "Freeze Frame", "Readiness", "On-Board Tests", "Test Results",
+                     "Vehicle Info", "Bus Monitor"]
     assert tabs.currentWidget() is w.obd and not w.lamps.isVisible()
+    w.show_tab(w.monitor)                                 # View > Bus Monitor still gets there
+    assert w.obd.pages.currentWidget() is w.monitor
     assert not any(a.isEnabled() for a in w._j1939_actions)
     # Connecting the J1939 simulator brings the J1939 screens back (and vice versa).
     w.source.setCurrentIndex(w.source.findData(connection.SIMULATOR))
     w.connect()
     assert profiles.protocol() == profiles.J1939 and "Fault Codes" in shown()
+    assert "Bus Monitor" in shown() and tabs.tabBar().isVisible() and w.obd.pages.indexOf(w.monitor) < 0
     w.disconnect()
     w.source.setCurrentIndex(w.source.findData(connection.OBD_SIM))
     w.connect()

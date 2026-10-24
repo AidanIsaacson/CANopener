@@ -30,6 +30,7 @@ class LogPanel(QtWidgets.QDockWidget):
     open_capture_log = Signal(str)       # ask the main window to decode a capture's log offline
     export_requested = Signal()
     keys_requested = Signal()
+    recording_changed = Signal(bool)     # a capture started / stopped (OBD-II starts polling)
 
     def __init__(self, ctx, hotkeys, settings: QtCore.QSettings, meta_fn, parent=None):
         super().__init__("Log", parent)
@@ -38,6 +39,8 @@ class LogPanel(QtWidgets.QDockWidget):
         self.hotkeys = hotkeys
         self.settings = settings
         self.meta_fn = meta_fn              # () -> dict describing the connection, for capture.json
+        self.status_extra = None            # () -> a line for the status while recording (e.g. OBD-II polling)
+        self.extra_reports = None           # () -> {file name: text} saved with the capture
         self._flash: tuple[int, float] | None = None
         self._rebuilding = False
         plan = settings.value("log/plan")
@@ -278,11 +281,13 @@ class LogPanel(QtWidgets.QDockWidget):
         self.start_btn.setFocus()               # out of any text box, so the keys work
         self._sync()
         self._message("Recording")
+        self.recording_changed.emit(True)
 
     def stop(self):
         if not self.recording:
             return
         self.capture.stop()
+        self.recording_changed.emit(False)
         self._sync()
         self._message("Stopped - edit the timestamps if needed, then Save")
 
@@ -294,6 +299,8 @@ class LogPanel(QtWidgets.QDockWidget):
         res = self.ctx.result
         if res is not None and not res.offline and c.started and res.finished >= c.started:
             extra["report.txt"] = report.build_report(res, self.ctx.session, full=True, system=self.ctx.units)
+        if self.extra_reports is not None:
+            extra.update(self.extra_reports())
         dlg = QtWidgets.QProgressDialog("Writing summary and live-data spreadsheet…", None, 0, 100, self)
         dlg.setWindowModality(Qt.WindowModality.WindowModal)
         dlg.setMinimumDuration(400)
@@ -655,7 +662,9 @@ class LogPanel(QtWidgets.QDockWidget):
         if c.state == cap.RECORDING:
             self.state_label.setText(f"● REC  {fmt_elapsed(c.elapsed())[1:]}")
             self.state_label.setStyleSheet("font-size: 14pt; font-weight: bold; color: #e03131;")
-            self.detail_label.setText(f"{c.recorded_frames:,} frames · {len(c.tagged())}/{len(c.markers)} tagged")
+            extra = self.status_extra() if self.status_extra is not None else ""
+            self.detail_label.setText(f"{c.recorded_frames:,} frames · {len(c.tagged())}/{len(c.markers)} tagged"
+                                      + (f"\n{extra}" if extra else ""))
         elif c.state == cap.STOPPED:
             self.state_label.setText(f"Stopped ({fmt_elapsed(c.elapsed())[1:]}) - not saved yet")
             self.state_label.setStyleSheet("font-size: 12pt; font-weight: bold; color: #e8590c;")

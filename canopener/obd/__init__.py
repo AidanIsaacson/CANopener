@@ -22,6 +22,7 @@ from .decode import (
     decode,
 )
 from .dtc import GENERIC_DTC, decode_dtc, decode_dtc_list, describe_dtc, dtc_subsystem, encode_dtc, is_generic
+from .dtc_pids import pids_for_dtc
 from .isotp import (
     ELEVEN_BIT,
     FUNCTIONAL_REQUEST_ID,
@@ -37,10 +38,12 @@ from .isotp import (
     segment,
 )
 from .monitors import MIDS, TestResult, decode_results
-from .pids import PIDS, SUPPORT_PIDS, Pid, pid_name, supported_pids
+from .pids import PIDS, SUPPORT_PIDS, Pid, pid_group, pid_name, supported_pids
 from .readiness import Monitor, MonitorStatus, decode_monitor_status
+from .sniffer import ObdSniffer, Reading
 
 __all__ = [
+    "ObdSniffer", "Reading", "pids_for_dtc", "pid_group",
     "IsoTpReassembler", "request_frame", "flow_control_frame", "parse_flow_control", "segment", "is_response_id",
     "Addressing", "ELEVEN_BIT", "TWENTY_NINE_BIT",
     "FUNCTIONAL_REQUEST_ID", "RESPONSE_IDS", "RESPONSE_OFFSET", "decode", "ObdResponse", "PIDS", "Pid",

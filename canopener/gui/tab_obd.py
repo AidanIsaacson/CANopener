@@ -1,11 +1,17 @@
 """OBD-II (SAE J1979) tab: a generic scan tool for cars and light trucks.
 
-Pages: trouble codes from every module (with Clear codes), readiness monitors, streaming live data,
-freeze frame, Mode 06 on-board test results, vehicle info, and Mode 08 on-board tests. Shown for
-the OBD-II vehicle profile. Everything talks through ``core.obd.ObdClient`` on worker threads; the
-two commands that change the vehicle (clear codes, start an on-board test) ask first.
+Pages: Trouble Codes (check / clear, jump to a code's live values or freeze frame), Live Data
+(the same screen as J1939's: plot, chart, hide plots, hide unticked, Log markers, over
+``core.live.ObdLiveData``), Freeze Frame, Readiness, On-Board Tests (Mode 08), Test Results
+(Mode 06), Vehicle Info; the main window adds Bus Monitor at the end. Shown for the OBD-II vehicle
+profile.
 
-OBD-II needs to send requests, so nothing here works in listen-only.
+Live values are decoded passively from the frames on the bus (``obd.ObdSniffer``): polling just
+puts requests out, and the same decode serves a recorded log. Everything else talks through
+``core.obd.ObdClient`` on worker threads. The commands that change the vehicle (clear codes, start
+an on-board test) ask first. While the Log tool records, the tab keeps the bus busy: it reads the
+codes once, then streams the ticked PIDs, so the capture has OBD-II data the way a J1939 bus has
+its broadcasts. Nothing transmits in listen-only.
 """
 
 import threading
@@ -13,19 +19,23 @@ import time
 
 from .. import obd
 from ..core import units
+from ..core.live import ObdLiveData
 from ..core.obd import CLEAR_WARNING, ObdClient
 from .qt import Qt, QtCore, QtGui, QtWidgets, Signal
+from .tab_live import LiveTab
 from .widgets import item, setup_table
 
 BAD = QtGui.QColor("#ffc9c9")
 WARN = QtGui.QColor("#ffec99")
-GOOD = QtGui.QColor("#d3f9d8")
+CAUSE = QtGui.QColor("#d0ebff")
+P_CODES, P_LIVE, P_FREEZE, P_READY, P_TESTS, P_RESULTS, P_INFO = range(7)
+POLL_GAP = 0.01         # between live-data requests: ~100/s at most, polite to a busy gateway
 
 
 def _fmt(value, unit: str, system: str) -> str:
     if not isinstance(value, (int, float)):
         return str(value)
-    decimals = 0 if unit in ("rpm", "km", "s", "min", "") and float(value).is_integer() else \
+    decimals = 0 if unit in ("rpm", "km", "s", "min") and float(value).is_integer() else \
         3 if unit in ("V", "") else 1
     return units.fmt(value, unit, decimals, system=system) if unit else f"{value:.{decimals}f}"
 
@@ -33,7 +43,6 @@ def _fmt(value, unit: str, system: str) -> str:
 class ObdTab(QtWidgets.QWidget):
     title = "OBD-II (Auto)"
     _done = Signal(object)          # (callback, result) from a worker thread -> run on the GUI thread
-    _live_value = Signal(object)    # (ecu, ObdResponse) from the live-data thread
 
     def __init__(self, ctx, parent=None):
         super().__init__(parent)
@@ -41,54 +50,36 @@ class ObdTab(QtWidgets.QWidget):
         self.client: ObdClient | None = None
         self._jobs = 0
         self._streaming = False
-        self._live_rows: dict[tuple[int, int, str], int] = {}     # (ecu, pid, value name) -> row
-        self._live_minmax: dict[tuple[int, int, str], tuple[float, float]] = {}
-        self._last: dict = {}
+        self._auto_stream = False       # started by the Log tool's recording
+        self._poll: list[tuple[int, int]] = []
+        self._rate = 0.0
+        self._freeze_by_ecu: dict = {}
+        self._codes: list[tuple[int, str, str]] = []     # (ecu, kind, code) per table row
         lay = QtWidgets.QVBoxLayout(self)
-
-        bar = QtWidgets.QHBoxLayout()
-        self.read_btn = QtWidgets.QPushButton("Read Vehicle (OBD-II)")
-        self.read_btn.setMinimumHeight(44)
-        self.read_btn.setToolTip("Read everything: codes, readiness, live data, freeze frame, test results, info")
-        self.read_btn.clicked.connect(self._read)
-        bar.addWidget(self.read_btn)
-        self.status = QtWidgets.QLabel("")
-        self.status.setStyleSheet("color: gray")
-        bar.addWidget(self.status, 1)
-        self.vin_label = QtWidgets.QLabel("")
-        self.vin_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        bar.addWidget(self.vin_label)
-        lay.addLayout(bar)
-
-        self.mil_label = QtWidgets.QLabel("")
-        self.mil_label.setWordWrap(True)
-        lay.addWidget(self.mil_label)
+        lay.setContentsMargins(0, 0, 0, 0)
 
         self.pages = QtWidgets.QTabWidget()
-        self.pages.addTab(self._codes_page(), "Trouble codes")
+        self.pages.addTab(self._codes_page(), "Trouble Codes")
+        self.live = LiveTab(ctx, self, model=ObdLiveData(), settings_prefix="obd_live",
+                            empty_text="No OBD-II values yet: press Read live data (or Stream).",
+                            filter_hint="Filter values (name, PID, module)...")
+        self._add_live_controls()
+        self.pages.addTab(self.live, "Live Data")
+        self.pages.addTab(self._freeze_page(), "Freeze Frame")
         self.pages.addTab(self._readiness_page(), "Readiness")
-        self.pages.addTab(self._live_page(), "Live data")
-        self.pages.addTab(self._freeze_page(), "Freeze frame")
-        self.pages.addTab(self._results_page(), "Test results (Mode 06)")
-        self.pages.addTab(self._info_page(), "Vehicle info")
-        self.pages.addTab(self._tests_page(), "On-board tests")
+        self.pages.addTab(self._tests_page(), "On-Board Tests")
+        self.pages.addTab(self._results_page(), "Test Results")
+        self.pages.addTab(self._info_page(), "Vehicle Info")
         lay.addWidget(self.pages, 1)
 
-        self.note = QtWidgets.QLabel("Pick the OBD-II simulator (or a 500k SocketCAN car bus) and connect, "
-                                     "then Read. Needs to send requests, so not available in listen-only.")
-        self.note.setStyleSheet("color: gray")
-        self.note.setWordWrap(True)
-        lay.addWidget(self.note)
-
         self._done.connect(lambda cb_res: cb_res[0](cb_res[1]))
-        self._live_value.connect(self._show_live_value)
-        self._rate_timer = QtCore.QTimer(self)
-        self._rate_timer.timeout.connect(self.refresh_rate)
-        self._rate_timer.start(1000)
         ctx.session_changed.connect(self._session_changed)
-        ctx.busy_changed.connect(lambda _: self._update_enabled())
-        ctx.units_changed.connect(lambda _: self._reapply_units())
+        ctx.units_changed.connect(lambda _: self._units_changed())
         self._update_enabled()
+
+    @property
+    def model(self) -> ObdLiveData:
+        return self.live.model
 
     # ------------------------------------------------------------------
     # pages
@@ -96,24 +87,68 @@ class ObdTab(QtWidgets.QWidget):
     def _codes_page(self):
         w = QtWidgets.QWidget()
         lay = QtWidgets.QVBoxLayout(w)
-        self.codes = QtWidgets.QTableWidget()
-        setup_table(self.codes, ["Module", "Type", "Code", "Description"], stretch=(3,))
-        lay.addWidget(self.codes, 1)
         row = QtWidgets.QHBoxLayout()
-        self.codes_btn = QtWidgets.QPushButton("Read codes")
-        self.codes_btn.clicked.connect(self._read_codes)
-        row.addWidget(self.codes_btn)
-        row.addStretch(1)
+        self.check_btn = QtWidgets.QPushButton("Check codes")
+        self.check_btn.setMinimumHeight(36)
+        self.check_btn.setToolTip("Read codes from every module, with the MIL, readiness and freeze frame")
+        self.check_btn.clicked.connect(self.check_codes)
+        row.addWidget(self.check_btn)
         self.clear_btn = QtWidgets.QPushButton("Clear codes (Mode 04)…")
+        self.clear_btn.setMinimumHeight(36)
         self.clear_btn.setStyleSheet("color: #c92a2a; font-weight: bold;")
         self.clear_btn.setToolTip("Erase codes, freeze frame and test results on every module; turns the MIL off")
         self.clear_btn.clicked.connect(self._clear_codes)
         row.addWidget(self.clear_btn)
+        row.addStretch(1)
+        self.mil_label = QtWidgets.QLabel("")
+        self.mil_label.setStyleSheet("font-weight: bold;")
+        row.addWidget(self.mil_label)
         lay.addLayout(row)
-        # Kept for anything that wants a one-line summary of the codes.
-        self.dtc_label = QtWidgets.QLabel("")
-        self.dtc_label.setWordWrap(True)
-        lay.addWidget(self.dtc_label)
+        self.codes = QtWidgets.QTableWidget()
+        setup_table(self.codes, ["Module", "Type", "Code", "Description"], stretch=(3,))
+        self.codes.itemSelectionChanged.connect(self._code_selected)
+        lay.addWidget(self.codes, 1)
+        row = QtWidgets.QHBoxLayout()
+        self.code_detail = QtWidgets.QLabel("")
+        self.code_detail.setWordWrap(True)
+        row.addWidget(self.code_detail, 1)
+        self.show_live_btn = QtWidgets.QPushButton("Show in Live Data")
+        self.show_live_btn.setToolTip("Plot the sensor values this code is about")
+        self.show_live_btn.clicked.connect(self._show_code_live)
+        row.addWidget(self.show_live_btn)
+        self.show_freeze_btn = QtWidgets.QPushButton("Show freeze frame")
+        self.show_freeze_btn.setToolTip("The values the module stored when this code was set")
+        self.show_freeze_btn.clicked.connect(self._show_code_freeze)
+        row.addWidget(self.show_freeze_btn)
+        lay.addLayout(row)
+        return w
+
+    def _add_live_controls(self):
+        self.live_btn = QtWidgets.QPushButton("Read live data")
+        self.live_btn.setToolTip("Find every value the vehicle supports and read each once")
+        self.live_btn.clicked.connect(self.read_live)
+        self.stream_btn = QtWidgets.QPushButton("▶ Stream")
+        self.stream_btn.setToolTip("Keep polling: the ticked values when 'Hide unticked' is on, else all")
+        self.stream_btn.clicked.connect(self.toggle_stream)
+        self.rate = QtWidgets.QLabel("")
+        self.rate.setStyleSheet("color: gray")
+        for i, w in enumerate((self.live_btn, self.stream_btn)):
+            self.live.controls.insertWidget(i, w)
+        self.live.controls.addWidget(self.rate)
+
+    def _freeze_page(self):
+        w = QtWidgets.QWidget()
+        lay = QtWidgets.QVBoxLayout(w)
+        row = QtWidgets.QHBoxLayout()
+        self.freeze_btn = QtWidgets.QPushButton("Read freeze frame")
+        self.freeze_btn.clicked.connect(self._read_freeze)
+        row.addWidget(self.freeze_btn)
+        row.addWidget(QtWidgets.QLabel("Values stored when the code that caused it was set."))
+        row.addStretch(1)
+        lay.addLayout(row)
+        self.freeze = QtWidgets.QTableWidget()
+        setup_table(self.freeze, ["Module", "Parameter", "Value"], stretch=(1,))
+        lay.addWidget(self.freeze, 1)
         return w
 
     def _readiness_page(self):
@@ -133,73 +168,6 @@ class ObdTab(QtWidgets.QWidget):
         self.readiness = QtWidgets.QTableWidget()
         setup_table(self.readiness, ["Module", "Monitor", "Status"], stretch=(1,))
         lay.addWidget(self.readiness, 1)
-        return w
-
-    def _live_page(self):
-        w = QtWidgets.QWidget()
-        lay = QtWidgets.QVBoxLayout(w)
-        row = QtWidgets.QHBoxLayout()
-        self.live_btn = QtWidgets.QPushButton("Read live data")
-        self.live_btn.setToolTip("Find every supported PID and read each once")
-        self.live_btn.clicked.connect(self._read_live)
-        row.addWidget(self.live_btn)
-        self.stream_btn = QtWidgets.QPushButton("▶ Stream")
-        self.stream_btn.setToolTip("Keep polling the ticked parameters")
-        self.stream_btn.clicked.connect(self._toggle_stream)
-        row.addWidget(self.stream_btn)
-        self.reset_minmax = QtWidgets.QPushButton("Reset min/max")
-        self.reset_minmax.clicked.connect(self._reset_minmax)
-        row.addWidget(self.reset_minmax)
-        row.addStretch(1)
-        self.rate = QtWidgets.QLabel("")
-        self.rate.setStyleSheet("color: gray")
-        row.addWidget(self.rate)
-        lay.addLayout(row)
-        self.table = QtWidgets.QTableWidget()
-        setup_table(self.table, ["Watch", "Parameter", "Value", "Min", "Max", "Module"], stretch=(1,))
-        lay.addWidget(self.table, 1)
-        return w
-
-    def _freeze_page(self):
-        w = QtWidgets.QWidget()
-        lay = QtWidgets.QVBoxLayout(w)
-        row = QtWidgets.QHBoxLayout()
-        self.freeze_btn = QtWidgets.QPushButton("Read freeze frame")
-        self.freeze_btn.clicked.connect(self._read_freeze)
-        row.addWidget(self.freeze_btn)
-        row.addWidget(QtWidgets.QLabel("Values stored when the code that caused it was set."))
-        row.addStretch(1)
-        lay.addLayout(row)
-        self.freeze = QtWidgets.QTableWidget()
-        setup_table(self.freeze, ["Module", "Parameter", "Value"], stretch=(1,))
-        lay.addWidget(self.freeze, 1)
-        return w
-
-    def _results_page(self):
-        w = QtWidgets.QWidget()
-        lay = QtWidgets.QVBoxLayout(w)
-        row = QtWidgets.QHBoxLayout()
-        self.results_btn = QtWidgets.QPushButton("Read test results")
-        self.results_btn.clicked.connect(self._read_results)
-        row.addWidget(self.results_btn)
-        row.addWidget(QtWidgets.QLabel("Each monitor's last test value and its limits: spot a part that "
-                                       "passes, but only just."))
-        row.addStretch(1)
-        lay.addLayout(row)
-        self.results = QtWidgets.QTableWidget()
-        setup_table(self.results, ["Module", "Monitor", "Test", "Value", "Min", "Max", "Result"], stretch=(1, 2))
-        lay.addWidget(self.results, 1)
-        return w
-
-    def _info_page(self):
-        w = QtWidgets.QWidget()
-        lay = QtWidgets.QVBoxLayout(w)
-        self.info_btn = QtWidgets.QPushButton("Read vehicle info")
-        self.info_btn.clicked.connect(self._read_info)
-        lay.addWidget(self.info_btn, 0, Qt.AlignmentFlag.AlignLeft)
-        self.info = QtWidgets.QTableWidget()
-        setup_table(self.info, ["Module", "Item", "Value"], stretch=(2,))
-        lay.addWidget(self.info, 1)
         return w
 
     def _tests_page(self):
@@ -228,14 +196,55 @@ class ObdTab(QtWidgets.QWidget):
         lay.addWidget(self.test_log, 1)
         return w
 
+    def _results_page(self):
+        w = QtWidgets.QWidget()
+        lay = QtWidgets.QVBoxLayout(w)
+        row = QtWidgets.QHBoxLayout()
+        self.results_btn = QtWidgets.QPushButton("Read test results")
+        self.results_btn.clicked.connect(self._read_results)
+        row.addWidget(self.results_btn)
+        row.addWidget(QtWidgets.QLabel("Mode 06: each monitor's last test value and its limits. Spots a part "
+                                       "that passes, but only just."))
+        row.addStretch(1)
+        lay.addLayout(row)
+        self.results = QtWidgets.QTableWidget()
+        setup_table(self.results, ["Module", "Monitor", "Test", "Value", "Min", "Max", "Result"], stretch=(1, 2))
+        lay.addWidget(self.results, 1)
+        return w
+
+    def _info_page(self):
+        w = QtWidgets.QWidget()
+        lay = QtWidgets.QVBoxLayout(w)
+        row = QtWidgets.QHBoxLayout()
+        self.info_btn = QtWidgets.QPushButton("Read vehicle info")
+        self.info_btn.clicked.connect(self._read_info)
+        row.addWidget(self.info_btn)
+        row.addStretch(1)
+        self.vin_label = QtWidgets.QLabel("")
+        self.vin_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.vin_label.setStyleSheet("font-weight: bold;")
+        row.addWidget(self.vin_label)
+        lay.addLayout(row)
+        self.info = QtWidgets.QTableWidget()
+        setup_table(self.info, ["Module", "Item", "Value"], stretch=(2,))
+        lay.addWidget(self.info, 1)
+        return w
+
     # ------------------------------------------------------------------
     # plumbing
     # ------------------------------------------------------------------
     def _session_changed(self, session):
-        self._stop_stream()
+        self.stop_stream()
         if self.client is not None:
             self.client.close()
         self.client = ObdClient(session) if session is not None and not session.offline else None
+        for t in (self.codes, self.freeze, self.readiness, self.results, self.info):
+            t.setRowCount(0)
+        self.mil_label.setText("")
+        self.ready_summary.setText("")
+        self._freeze_by_ecu = {}
+        if session is not None and session.offline:
+            self._show_log()         # the Live Data page has decoded the log by now
         self._update_enabled()
 
     @property
@@ -244,11 +253,12 @@ class ObdTab(QtWidgets.QWidget):
 
     def _update_enabled(self):
         ok = self.can_talk and not self._jobs
-        for b in (self.read_btn, self.codes_btn, self.clear_btn, self.ready_btn, self.live_btn, self.freeze_btn,
-                  self.results_btn, self.info_btn, self.tests_btn, self.run_test_btn):
+        for b in (self.check_btn, self.clear_btn, self.live_btn, self.freeze_btn, self.ready_btn,
+                  self.results_btn, self.info_btn, self.tests_btn):
             b.setEnabled(ok)
-        self.stream_btn.setEnabled(self.can_talk and (self._streaming or self.table.rowCount() > 0))
+        self.stream_btn.setEnabled(self.can_talk)
         self.run_test_btn.setEnabled(ok and self.test_pick.count() > 0)
+        self._code_selected()
 
     def _job(self, what: str, fn, done):
         """Run ``fn(client)`` on a worker thread, then ``done(result)`` on the GUI thread."""
@@ -256,7 +266,9 @@ class ObdTab(QtWidgets.QWidget):
             return
         client = self.client
         self._jobs += 1
-        self.status.setText(f"{what}…")
+        if self._jobs == 1:
+            self.ctx.busy_changed.emit(True)
+        self.ctx.status_message.emit(f"OBD-II: {what}…")
         self._update_enabled()
 
         def work():
@@ -270,15 +282,20 @@ class ObdTab(QtWidgets.QWidget):
 
     def _finish(self, result, done):
         self._jobs -= 1
-        self.status.setText("")
+        if not self._jobs:
+            self.ctx.busy_changed.emit(False)
         self._update_enabled()
         if isinstance(result, Exception):
+            self.ctx.status_message.emit(f"OBD-II: failed: {result}")
             QtWidgets.QMessageBox.warning(self, "OBD-II", f"Read failed: {result}")
             return
+        self.ctx.status_message.emit("")
         done(result)
 
     def _label(self, ecu: int) -> str:
-        return self.client.ecu_label(ecu) if self.client is not None else f"{ecu:X}"
+        if self.client is not None and self.client.ecu_names.get(ecu):
+            return self.client.ecu_label(ecu)
+        return self.model.sniffer.label(ecu)
 
     @staticmethod
     def _fill(table: QtWidgets.QTableWidget, rows: list[list], colors: dict[int, QtGui.QColor] | None = None):
@@ -290,77 +307,83 @@ class ObdTab(QtWidgets.QWidget):
                     it.setBackground(colors[r])
                 table.setItem(r, c, it)
 
+    def tick(self):
+        """Every UI tick (main window), while the OBD-II profile is active: decode new frames."""
+        if self.ctx.session is not None:
+            self.live.sample()
+            self.live.refresh()
+        if self._streaming:
+            self._poll = self._poll_list()          # picked up by the polling thread
+            self.rate.setText(f"{self._rate:.0f} readings/s")
+
     # ------------------------------------------------------------------
     # reads
     # ------------------------------------------------------------------
-    def _read(self):
-        """Everything, in the order a technician wants it."""
-        def everything(c: ObdClient):
-            out = {"info": c.read_info_by_ecu()}        # first: it names the modules
-            out["dtcs"] = c.read_dtcs_by_ecu()
-            out["ready"] = c.read_readiness()
-            out["live"] = self._probe_live(c)
-            out["freeze"] = c.read_freeze_frame()
-            out["results"] = c.read_test_results()
-            return out
+    def check_codes(self):
+        def check(c: ObdClient):
+            if not c.ecu_names:
+                c.read_ecu_names()
+            return c.read_dtcs_by_ecu(), c.read_readiness(), c.read_freeze_frame()
 
         def show(r):
-            self._show_info(r["info"])
-            self._show_codes(r["dtcs"])
-            self._show_readiness(r["ready"])
-            self._show_live(r["live"])
-            self._show_freeze(r["freeze"])
-            self._show_results(r["results"])
-        self._job("Reading the vehicle", everything, show)
-
-    def _read_codes(self):
-        self._job("Reading codes", lambda c: c.read_dtcs_by_ecu(), self._show_codes)
+            dtcs, ready, freeze = r
+            self._show_codes(dtcs)
+            self._show_readiness(ready)
+            self._show_freeze(freeze)
+        self._job("checking codes", check, show)
 
     def _read_readiness(self):
         cycle = self.this_cycle.isChecked()
-        self._job("Reading readiness", lambda c: c.read_readiness(cycle), self._show_readiness)
+        self._job("reading readiness", lambda c: c.read_readiness(cycle), self._show_readiness)
 
-    def _read_live(self):
-        self._job("Finding live data", self._probe_live, self._show_live)
+    def read_live(self, then=None):
+        """Find the supported PIDs and read each once: the rows appear in Live Data."""
+        def probe(c: ObdClient):
+            for ecu, pid in c.live_pids():
+                c.read_pid(ecu, pid)
+
+        def done(_):
+            self.tick()
+            if then is not None:
+                then()
+        self._job("reading live data", probe, done)
 
     def _read_freeze(self):
-        self._job("Reading freeze frame", lambda c: c.read_freeze_frame(), self._show_freeze)
+        self._job("reading freeze frame", lambda c: c.read_freeze_frame(), self._show_freeze)
 
     def _read_results(self):
-        self._job("Reading test results", lambda c: c.read_test_results(), self._show_results)
+        self._job("reading test results", lambda c: c.read_test_results(), self._show_results)
 
     def _read_info(self):
-        self._job("Reading vehicle info", lambda c: c.read_info_by_ecu(), self._show_info)
+        self._job("reading vehicle info", lambda c: c.read_info_by_ecu(), self._show_info)
 
     def _read_tests(self):
-        self._job("Finding on-board tests", lambda c: c.control_tests(), self._show_tests)
-
-    @staticmethod
-    def _probe_live(c: ObdClient) -> list[tuple[int, obd.ObdResponse]]:
-        out = []
-        for ecu, pid in c.live_pids():
-            r = c.read_pid(ecu, pid)
-            if r is not None and r.values:
-                out.append((ecu, r))
-        return out
+        self._job("finding on-board tests", lambda c: c.control_tests(), self._show_tests)
 
     # ------------------------------------------------------------------
     # display
     # ------------------------------------------------------------------
     def _show_codes(self, by_ecu: dict):
-        self._last["dtcs"] = by_ecu
-        rows, colors, summary = [], {}, []
+        rows, colors, self._codes = [], {}, []
         for ecu, kinds in by_ecu.items():
             for kind in ("stored", "pending", "permanent"):
                 for code in kinds.get(kind, []):
                     if kind == "stored":
                         colors[len(rows)] = BAD
                     rows.append([self._label(ecu), kind, code, obd.describe_dtc(code)])
-                    summary.append(f"{code} ({kind})")
+                    self._codes.append((ecu, kind, code))
         if not rows:
             rows = [["", "", "", "No codes stored, pending or permanent."]]
         self._fill(self.codes, rows, colors)
-        self.dtc_label.setText("Codes: " + (", ".join(summary) if summary else "none"))
+        if self._codes:
+            self.select_code(0)
+        self._code_selected()
+
+    def select_code(self, row: int):
+        """Select a code row (through the selection model: unlike selectRow, never a toggle)."""
+        sm = self.codes.selectionModel()
+        sm.select(self.codes.model().index(row, 0), QtCore.QItemSelectionModel.SelectionFlag.ClearAndSelect
+                  | QtCore.QItemSelectionModel.SelectionFlag.Rows)
 
     def _show_readiness(self, by_ecu: dict):
         rows, colors, mil, incomplete = [], {}, False, 0
@@ -377,66 +400,28 @@ class ObdTab(QtWidgets.QWidget):
         codes = sum(s.dtc_count for s in by_ecu.values())
         if not by_ecu:
             self.ready_summary.setText("No module reported monitor status.")
-        else:
-            verdict = "READY" if not incomplete and not mil else "NOT READY"
-            self.ready_summary.setText(f"{verdict}: MIL {'ON' if mil else 'off'}, {codes} confirmed code(s), "
-                                       f"{incomplete} monitor(s) incomplete")
-            self.ready_summary.setStyleSheet("font-size: 13pt; font-weight: bold; color: "
-                                             + ("#2f9e44" if verdict == "READY" else "#c92a2a"))
-        self.mil_label.setText(f"<b>MIL (check engine): {'ON' if mil else 'off'}</b>, "
-                               f"{codes} confirmed code(s)" if by_ecu else "")
-
-    def _show_live(self, readings: list):
-        self._stop_stream()
-        self._live_rows.clear()
-        self._live_minmax.clear()
-        self.table.setRowCount(0)
-        for ecu, r in readings:
-            self._show_live_value((ecu, r))
-        self._update_enabled()
-
-    def _show_live_value(self, payload):
-        ecu, r = payload
-        for name, value, unit in r.values:
-            key = (ecu, r.pid, name)
-            row = self._live_rows.get(key)
-            if row is None:
-                row = self._live_rows[key] = self.table.rowCount()
-                self.table.insertRow(row)
-                watch = QtWidgets.QTableWidgetItem()
-                watch.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
-                watch.setCheckState(Qt.CheckState.Checked)
-                self.table.setItem(row, 0, watch)
-                self.table.setItem(row, 1, item(name, data=(ecu, r.pid, unit)))
-                self.table.setItem(row, 5, item(self._label(ecu)))
-            if isinstance(value, (int, float)):
-                lo, hi = self._live_minmax.get(key, (value, value))
-                self._live_minmax[key] = (min(lo, value), max(hi, value))
-            self._paint_live(row, key, value, unit)
-
-    def _paint_live(self, row: int, key, value, unit: str):
-        system = self.ctx.units
-        self.table.setItem(row, 2, item(_fmt(value, unit, system), align_right=True, data=value))
-        lo_hi = self._live_minmax.get(key)
-        for col, v in ((3, lo_hi[0] if lo_hi else ""), (4, lo_hi[1] if lo_hi else "")):
-            self.table.setItem(row, col, item(_fmt(v, unit, system) if v != "" else "", align_right=True))
-
-    def _reset_minmax(self):
-        self._live_minmax.clear()
-        for col in (3, 4):
-            for row in range(self.table.rowCount()):
-                self.table.setItem(row, col, item(""))
+            self.mil_label.setText("")
+            return
+        verdict = "READY" if not incomplete and not mil else "NOT READY"
+        self.ready_summary.setText(f"{verdict}: MIL {'ON' if mil else 'off'}, {codes} confirmed code(s), "
+                                   f"{incomplete} monitor(s) incomplete")
+        self.ready_summary.setStyleSheet("font-size: 13pt; font-weight: bold; color: "
+                                         + ("#2f9e44" if verdict == "READY" else "#c92a2a"))
+        self.mil_label.setText(f"Check engine light (MIL): {'ON' if mil else 'off'}")
+        self.mil_label.setStyleSheet("font-weight: bold; color: " + ("#c92a2a" if mil else "#2f9e44"))
 
     def _show_freeze(self, by_ecu: dict):
-        rows = []
+        self._freeze_by_ecu = by_ecu
+        rows, colors = [], {}
         for ecu, readings in by_ecu.items():
             for r in readings:
                 if r.pid == 0x02:
+                    colors[len(rows)] = CAUSE
                     rows.append([self._label(ecu), "Caused by", f"{r.text}  {obd.describe_dtc(r.text)}"])
                     continue
                 rows += [[self._label(ecu), name, _fmt(v, u, self.ctx.units)] for name, v, u in r.values]
-        self._last["freeze"] = by_ecu
-        self._fill(self.freeze, rows or [["", "No freeze frame stored.", ""]])
+        self._fill(self.freeze, rows or [["", "No freeze frame stored.", ""]], colors)
+        self._code_selected()
 
     def _show_results(self, results: list):
         rows, colors = [], {}
@@ -451,9 +436,7 @@ class ObdTab(QtWidgets.QWidget):
         rows = [[self._label(ecu), name, value] for ecu, items in by_ecu.items() for name, value in items]
         self._fill(self.info, rows or [["", "No vehicle info reported.", ""]])
         vin = next((v for items in by_ecu.values() for n, v in items if n == "VIN"), None)
-        self.vin_label.setText(f"VIN: {vin}" if vin else "VIN: (not reported)")
-        addr = self.client.addressing if self.client else None
-        self.status.setText(f"{len(by_ecu)} module(s), {addr.name} CAN" if addr and by_ecu else "")
+        self.vin_label.setText(f"VIN: {vin}" if vin else "")
 
     def _show_tests(self, by_ecu: dict):
         self.test_pick.clear()
@@ -465,77 +448,136 @@ class ObdTab(QtWidgets.QWidget):
             self.test_log.addItem("No module supports Mode 08 tests.")
         self._update_enabled()
 
-    def _reapply_units(self):
-        for key, row in self._live_rows.items():
-            value = self.table.item(row, 2).data(Qt.ItemDataRole.UserRole) if self.table.item(row, 2) else None
-            unit = self.table.item(row, 1).data(Qt.ItemDataRole.UserRole)[2]
-            if value is not None:
-                self._paint_live(row, key, value, unit)
-        if "freeze" in self._last:
-            self._show_freeze(self._last["freeze"])
+    def _show_log(self):
+        """A decoded log: show what the OBD-II traffic in it said."""
+        sn = self.model.sniffer
+        self._show_codes(sn.dtcs)
+        if sn.readiness:
+            self._show_readiness(sn.readiness)
+        self._show_freeze({ecu: sn.freeze_rows(ecu) for ecu in sn.freeze})
+        self._show_results([(k[0], r) for k, r in sn.results.items()])
+        self._show_info({ecu: list(items.items()) for ecu, items in sn.info.items()})
+
+    def _units_changed(self):
+        if self._freeze_by_ecu:
+            self._show_freeze(self._freeze_by_ecu)
 
     # ------------------------------------------------------------------
-    # live streaming
+    # code -> live data / freeze frame
     # ------------------------------------------------------------------
-    def _watched(self) -> list[tuple[int, int]]:
-        out = []
-        for row in range(self.table.rowCount()):
-            if self.table.item(row, 0).checkState() == Qt.CheckState.Checked:
-                ecu, pid, _ = self.table.item(row, 1).data(Qt.ItemDataRole.UserRole)
-                if (ecu, pid) not in out:
-                    out.append((ecu, pid))
-        return out
+    def _selected_code(self) -> tuple[int, str, str] | None:
+        rows = self.codes.selectionModel().selectedRows() if self.codes.selectionModel() else []
+        i = rows[0].row() if rows else -1
+        return self._codes[i] if 0 <= i < len(self._codes) else None
 
-    def _toggle_stream(self):
-        if self._streaming:
-            self._stop_stream()
+    def _code_selected(self):
+        sel = self._selected_code()
+        pids = obd.pids_for_dtc(sel[2]) if sel else []
+        cause = self._freeze_cause(sel[0]) if sel else None
+        self.show_live_btn.setEnabled(bool(pids) and (self.can_talk or bool(self.model.find_pids(pids))))
+        self.show_freeze_btn.setEnabled(sel is not None and cause == sel[2])
+        if sel is None:
+            self.code_detail.setText("")
+            return
+        ecu, kind, code = sel
+        linked = ", ".join(obd.pid_name(p) for p in pids) or "none (no standard sensor value for this code)"
+        snap = "Freeze frame: stored by this code." if cause == code else \
+            f"Freeze frame: from {cause}." if cause else "No freeze frame read for this module."
+        self.code_detail.setText(f"<b>{code}</b> ({kind}, {self._label(ecu)}): {obd.describe_dtc(code)}<br>"
+                                 f"Live values: {linked}. {snap}")
+
+    def _freeze_cause(self, ecu: int) -> str | None:
+        rows = self._freeze_by_ecu.get(ecu) or []
+        return next((r.text for r in rows if r.pid == 0x02 and r.text), None)
+
+    def _show_code_live(self):
+        sel = self._selected_code()
+        if sel is None:
+            return
+        pids = obd.pids_for_dtc(sel[2])
+
+        def focus():
+            self.tick()
+            keys = [k for k in self.model.find_pids(pids) if self.model.rows[k].sa == sel[0]] or \
+                self.model.find_pids(pids)
+            self.pages.setCurrentIndex(P_LIVE)
+            if self.live.focus_keys(keys):
+                if self.can_talk and not self._streaming:
+                    self.start_stream()
+            else:
+                self.ctx.status_message.emit(f"{sel[2]}: the vehicle doesn't report "
+                                             + ", ".join(obd.pid_name(p) for p in pids))
+        if self.model.find_pids(pids) or not self.can_talk:
+            focus()
         else:
-            self._start_stream()
+            self.read_live(then=focus)         # no live data read yet: find it first
 
-    def _start_stream(self):
+    def _show_code_freeze(self):
+        sel = self._selected_code()
+        if sel is None:
+            return
+        self.pages.setCurrentIndex(P_FREEZE)
+        label = self._label(sel[0])
+        for r in range(self.freeze.rowCount()):
+            if self.freeze.item(r, 0).text() == label:
+                self.freeze.selectRow(r)
+                self.freeze.scrollToItem(self.freeze.item(r, 0))
+                break
+
+    # ------------------------------------------------------------------
+    # live streaming (the answers are decoded passively by the Live Data model)
+    # ------------------------------------------------------------------
+    def _poll_list(self) -> list[tuple[int, int]]:
+        """What to poll: the ticked values when 'Hide unticked' is on (or the Log tool is
+        recording with something ticked), else every value listed."""
+        polled = self.model.polled()
+        picked = [(self.model.rows[k].sa, self.model.rows[k].sig.pid) for k in self.model.selected
+                  if k in self.model.rows]
+        if picked and (self.live.only_checked.isChecked() or self._auto_stream):
+            return list(dict.fromkeys(picked))
+        return polled
+
+    def toggle_stream(self):
+        if self._streaming:
+            self.stop_stream()
+        else:
+            self.start_stream()
+
+    def start_stream(self):
         if not self.can_talk or self._streaming:
             return
+        if not self.model.order:
+            self.read_live(then=self.start_stream)     # nothing to poll yet: find the PIDs first
+            return
         self._streaming = True
+        self._poll = self._poll_list()
         self.stream_btn.setText("■ Stop")
         client = self.client
 
         def loop():
             n, t0 = 0, time.time()
             while self._streaming:
-                watched = self._watched_snapshot
-                if not watched:
+                todo = list(self._poll)
+                if not todo:
                     time.sleep(0.2)
-                    continue
-                for ecu, pid in watched:
+                for ecu, pid in todo:
                     if not self._streaming:
                         break
-                    r = client.read_pid(ecu, pid)
-                    if r is not None:
-                        self._live_value.emit((ecu, r))
+                    if client.read_pid(ecu, pid) is not None:
                         n += 1
+                    time.sleep(POLL_GAP)
                 if time.time() - t0 >= 1.0:
-                    self._rate = n / (time.time() - t0)
-                    n, t0 = 0, time.time()
+                    self._rate, n, t0 = n / (time.time() - t0), 0, time.time()
 
-        self._watched_snapshot = self._watched()
-        self.table.itemChanged.connect(self._watch_changed)
-        self._rate = 0.0
         self._stream_thread = threading.Thread(target=loop, name="obd-live", daemon=True)
         self._stream_thread.start()
         self._update_enabled()
 
-    def _watch_changed(self, it):
-        if it.column() == 0:
-            self._watched_snapshot = self._watched()
-
-    def _stop_stream(self):
+    def stop_stream(self):
+        self._auto_stream = False
         if not self._streaming:
             return
         self._streaming = False
-        try:
-            self.table.itemChanged.disconnect(self._watch_changed)
-        except (RuntimeError, TypeError):
-            pass
         t = getattr(self, "_stream_thread", None)
         if t is not None:
             t.join(timeout=2.0)
@@ -543,9 +585,29 @@ class ObdTab(QtWidgets.QWidget):
         self.rate.setText("")
         self._update_enabled()
 
-    def refresh_rate(self):
+    # ------------------------------------------------------------------
+    # the Log tool
+    # ------------------------------------------------------------------
+    def recording_changed(self, on: bool):
+        """The Log tool started / stopped a capture. A car only talks when asked, so while
+        recording keep it talking: codes once, then the live values, streaming."""
+        if not on:
+            if self._auto_stream:
+                self.stop_stream()
+            return
+        if not self.can_talk:
+            return
+        self.check_codes()
+        if not self._streaming:
+            self._auto_stream = True
+            self.start_stream()
+            self._auto_stream = self._streaming or not self.model.order    # (may start after the read)
+
+    def log_status(self) -> str:
+        """A line for the Log tool while recording."""
         if self._streaming:
-            self.rate.setText(f"{getattr(self, '_rate', 0):.0f} readings/s")
+            return f"OBD-II: polling {len(self._poll)} value(s), {self._rate:.0f}/s"
+        return "OBD-II: not polling (press Stream in Live Data)" if self.can_talk else ""
 
     # ------------------------------------------------------------------
     # commands
@@ -564,17 +626,18 @@ class ObdTab(QtWidgets.QWidget):
         def clear(c: ObdClient):
             result = c.clear_dtcs()
             time.sleep(0.5)                 # let the modules settle before reading back
-            return result, c.read_dtcs_by_ecu(), c.read_readiness()
+            return result, c.read_dtcs_by_ecu(), c.read_readiness(), c.read_freeze_frame()
 
         def show(r):
-            result, dtcs, ready = r
+            result, dtcs, ready, freeze = r
             self._show_codes(dtcs)
             self._show_readiness(ready)
+            self._show_freeze(freeze)
             lines = [f"{self._label(ecu)}: {msg}" for ecu, (_, msg) in result.items()]
             text = "\n".join(lines) or "No module answered the clear request."
             self.ctx.status_message.emit("Clear codes (Mode 04): " + "; ".join(lines or ["no answer"]))
             QtWidgets.QMessageBox.information(self, "Clear trouble codes", text)
-        self._job("Clearing codes", clear, show)
+        self._job("clearing codes", clear, show)
 
     def _run_test(self):
         tid = self.test_pick.currentData()
@@ -592,4 +655,4 @@ class ObdTab(QtWidgets.QWidget):
                 self.test_log.insertItem(0, f"{stamp}  TID {tid:02X}: no answer")
             for ecu, (_, msg) in result.items():
                 self.test_log.insertItem(0, f"{stamp}  {self._label(ecu)}: TID {tid:02X} {name}: {msg}")
-        self._job("Starting test", lambda c: c.run_control_test(tid), show)
+        self._job("starting test", lambda c: c.run_control_test(tid), show)

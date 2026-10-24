@@ -71,9 +71,17 @@ shared by the GUI and CLI).
 ### OBD-II
 
 `obd/` is the protocol: ISO-TP (11- and 29-bit `Addressing`, segmenting and reassembly), every
-public Mode 01/02 PID (`pids.py`, with multi-value and text PIDs), readiness monitor decode
-(`readiness.py`), Mode 06 test results with the unit/scaling table (`monitors.py`), Mode 09 info,
-and DTC text (`dtc.py` + the generated `dtc_codes.py`). `core/obd.py`'s `ObdClient` sends
+public Mode 01/02 PID (`pids.py`, with multi-value and text PIDs, and Live Data groups), readiness
+monitor decode (`readiness.py`), Mode 06 test results with the unit/scaling table (`monitors.py`),
+Mode 09 info, DTC text (`dtc.py` + the generated `dtc_codes.py`) and code -> sensor PID links
+(`dtc_pids.py`, the OBD-II counterpart of a J1939 code's SPN).
+
+`obd/sniffer.py` decodes OBD-II *passively* from frames, the way `Session.feed` does J1939: it
+follows any tester's requests and the ECUs' answers and keeps the latest values, codes, readiness,
+freeze frame, info, test results and an event timeline. That one decode path serves the live view
+(`core.live.ObdLiveData`, rows shaped like J1939 signals so `gui/tab_live.py` shows either), a
+decoded log file, and the capture report. Polling only puts requests on the bus; whatever answers
+(to this app or another scan tool) is decoded the same way. `core/obd.py`'s `ObdClient` sends
 functional requests and keeps every ECU's answer (keyed by response ID), detects the addressing,
 and polls live data with physical requests. `sim/obd.py` is a two-module car (ECM + TCM) that
 answers all of it, on 11- or 29-bit IDs.

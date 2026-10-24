@@ -1,14 +1,14 @@
-"""Live Data tab: decoded broadcast parameters with min/max and a rolling chart.
+"""Live Data tab: decoded parameters with min/max and a rolling chart.
 
-The screen only: values, min/max, history and the picked signals live in ``core.live.LiveData``,
-which the on-device UI shares.
+The screen only: values, min/max, history and the picked signals live in ``core.live.LiveData``
+(J1939 broadcast signals) or ``core.live.ObdLiveData`` (OBD-II PIDs), which the on-device UI
+shares. The OBD-II tab embeds a second instance of this tab over the OBD-II model.
 """
 
 import time
 
 from ..core import units
 from ..core.live import LiveData
-from ..j1939.addresses import sa_name
 from .qt import Qt, QtCore, QtGui, QtWidgets
 from .widgets import StripChart, item, setup_table
 
@@ -21,17 +21,21 @@ STALE_AFTER = 3.0
 class LiveTab(QtWidgets.QWidget):
     title = "Live Data"
 
-    def __init__(self, ctx, parent=None):
+    def __init__(self, ctx, parent=None, model: LiveData | None = None, settings_prefix: str = "live",
+                 empty_text: str = "No standard live parameters seen yet. Key on / engine running?",
+                 filter_hint: str = "Filter signals (name, SPN, PGN)..."):
         super().__init__(parent)
         self.ctx = ctx
-        self.model = LiveData()
+        self.model = model if model is not None else LiveData()
+        self.prefix = settings_prefix
+        self.empty_text = empty_text
         # The model's own containers (cleared in place), under the names the tab always used.
         self.rows, self.order, self.plotted = self.model.rows, self.model.order, self.model.selected
         lay = QtWidgets.QVBoxLayout(self)
 
-        bar = QtWidgets.QHBoxLayout()
+        bar = self.controls = QtWidgets.QHBoxLayout()
         self.filter = QtWidgets.QLineEdit()
-        self.filter.setPlaceholderText("Filter signals (name, SPN, PGN)...")
+        self.filter.setPlaceholderText(filter_hint)
         self.filter.textChanged.connect(self._apply_filter)
         bar.addWidget(self.filter, 2)
         self.group = QtWidgets.QComboBox()
@@ -63,10 +67,13 @@ class LiveTab(QtWidgets.QWidget):
         # The signal name gets a fixed, readable width and Group takes up the slack: with the Log
         # panel open on a 1280-wide laptop the table has ~850 px, and a stretching name column
         # used to be squeezed to "En...".
-        setup_table(self.table, COLS, stretch=(C_GROUP,))
+        cols = list(COLS)
+        cols[C_SRC], (cols[C_PGN], cols[C_SPN]) = self.model.source_header, self.model.id_headers
+        setup_table(self.table, cols, stretch=(C_GROUP,))
         for c, w in ((C_PLOT, 44), (C_NAME, 210), (C_VALUE, 90), (C_UNIT, 55), (C_MIN, 70), (C_MAX, 70),
                      (C_SRC, 110), (C_PGN, 55), (C_SPN, 55), (C_AGE, 50)):
             self.table.setColumnWidth(c, w)
+        self.table.setColumnHidden(C_SPN, not cols[C_SPN])
         self.table.itemChanged.connect(self._item_changed)
         split.addWidget(self.table)
         # The chart and its own controls, in one pane that "Hide plots" hides.
@@ -97,24 +104,25 @@ class LiveTab(QtWidgets.QWidget):
         split.setStretchFactor(0, 3)
         split.setStretchFactor(1, 2)
         lay.addWidget(split)
-        self.empty = QtWidgets.QLabel("No standard live parameters seen yet. Key on / engine running?")
+        self.empty = QtWidgets.QLabel(empty_text)
         self.empty.setStyleSheet("color: gray")
         lay.addWidget(self.empty)
 
-        self.only_checked.setChecked(settings.value("live/only_checked", "false") in (True, "true"))
-        self.hide_plots.setChecked(settings.value("live/hide_plots", "false") in (True, "true"))
+        self.only_checked.setChecked(settings.value(f"{self.prefix}/only_checked", "false") in (True, "true"))
+        self.hide_plots.setChecked(settings.value(f"{self.prefix}/hide_plots", "false") in (True, "true"))
         self._only_checked_toggled(self.only_checked.isChecked(), save=False)
         self._hide_plots_toggled(self.hide_plots.isChecked(), save=False)
 
         ctx.session_changed.connect(self._session_changed)
         ctx.units_changed.connect(lambda _: self._units_changed())
-        ctx.profile_changed.connect(lambda: self._session_changed(ctx.session))
-        ctx.show_signal.connect(self.focus_spn)
+        if type(self.model) is LiveData:       # J1939: signals come from the profile; codes link by SPN
+            ctx.profile_changed.connect(lambda: self._session_changed(ctx.session))
+            ctx.show_signal.connect(self.focus_spn)
 
     def _only_checked_toggled(self, on: bool, save: bool = True):
         self.only_checked.setText("Show unticked" if on else "Hide unticked")
         if save:
-            QtCore.QSettings().setValue("live/only_checked", on)
+            QtCore.QSettings().setValue(f"{self.prefix}/only_checked", on)
         self._apply_filter()
         self.refresh(force=True)
 
@@ -122,7 +130,7 @@ class LiveTab(QtWidgets.QWidget):
         self.hide_plots.setText("Show plots" if on else "Hide plots")
         self.chart_pane.setVisible(not on)
         if save:
-            QtCore.QSettings().setValue("live/hide_plots", on)
+            QtCore.QSettings().setValue(f"{self.prefix}/hide_plots", on)
 
     def _session_changed(self, session):
         self.model.clear()
@@ -167,9 +175,10 @@ class LiveTab(QtWidgets.QWidget):
                                 f"{_num(r.sig.high, r.sig.decimals)} {r.sig.unit}")
             t.setItem(i, C_NAME, name)
             t.setItem(i, C_GROUP, item(r.sig.group))
-            t.setItem(i, C_SRC, item(sa_name(r.sa)))
-            t.setItem(i, C_PGN, item(f"{r.sig.pgn:04X}", True))
-            t.setItem(i, C_SPN, item(r.sig.spn if r.sig.spn is not None else "", True))
+            t.setItem(i, C_SRC, item(self.model.source_label(r.sa)))
+            ref, spn = self.model.ids(r)
+            t.setItem(i, C_PGN, item(ref, True))
+            t.setItem(i, C_SPN, item(spn, True))
             for c in (C_VALUE, C_UNIT, C_MIN, C_MAX, C_AGE):
                 t.setItem(i, c, item("", c != C_UNIT))
         t.blockSignals(False)
@@ -181,7 +190,7 @@ class LiveTab(QtWidgets.QWidget):
         if not force and not self.isVisible():
             return
         if not self.order:
-            self.empty.setText("No standard live parameters seen yet. Key on / engine running?")
+            self.empty.setText(self.empty_text)
         elif self.only_checked.isChecked() and not self.plotted:
             self.empty.setText("Nothing is ticked. Tick signals in the Plot column, or press Show unticked.")
         self.empty.setVisible(not self.order or (self.only_checked.isChecked() and not self.plotted))
@@ -277,6 +286,22 @@ class LiveTab(QtWidgets.QWidget):
         self.plotted.clear()
         self._rebuild_table()
         self._sync_chart()
+
+    def focus_keys(self, keys: list) -> bool:
+        """Tick (plot) these rows and select the first: a fault code's sensor values."""
+        keys = [k for k in keys if k in self.rows]
+        if not keys:
+            return False
+        self.filter.clear()
+        self.group.setCurrentIndex(0)
+        for k in keys:
+            self.model.select(k)
+        self._rebuild_table()
+        self._sync_chart()
+        i = self.order.index(keys[0])
+        self.table.selectRow(i)
+        self.table.scrollToItem(self.table.item(i, C_NAME))
+        return True
 
     def focus_spn(self, spn: int):
         """Select and plot the row for an SPN (from the Fault Codes tab)."""

@@ -138,3 +138,38 @@ def build_report(result: ScanResult, session: Session | None = None, *, full: bo
             L.append("")
 
     return "\n".join(L).rstrip() + "\n"
+
+
+def build_obd_report(sniffer, system: str = units.METRIC) -> str:
+    """What the OBD-II traffic said (an ``obd.ObdSniffer``): modules, codes, MIL and readiness,
+    freeze frame, test results and the latest live values."""
+    from .. import obd
+    sn = sniffer
+    L = [f"=== OBD-II - {_when(max([r.t for r in sn.values.values()] + [t for t, _ in sn.events] or [0]))} ==="]
+    for ecu, items in sorted(sn.info.items()):
+        L.append(f"{sn.label(ecu)}")
+        L += [f"  {name}: {value}" for name, value in items.items()]
+    L += ["", "TROUBLE CODES", "-" * 100]
+    codes = [(ecu, kind, c) for ecu, kinds in sorted(sn.dtcs.items()) for kind, cs in kinds.items() for c in cs]
+    L += [f"{kind:<10} {sn.label(ecu):<18} {c}  {obd.describe_dtc(c)}" for ecu, kind, c in codes] or ["(none)"]
+    for ecu, st in sorted(sn.readiness.items()):
+        L += ["", f"-- Readiness {sn.label(ecu)}: MIL {'ON' if st.mil else 'off'}, {st.dtc_count} confirmed code(s)"]
+        L += [f"  {m.name:<28} {m.state}" for m in st.monitors if m.supported]
+    for ecu in sorted(sn.freeze):
+        L += ["", f"-- Freeze frame {sn.label(ecu)}"]
+        for r in sn.freeze_rows(ecu):
+            for name, v, u in (r.values or [(r.name, r.text, "")]):
+                L.append(f"  {name:<40} {units.fmt(v, u, 1, system) if isinstance(v, float) and u else v}")
+    if sn.results:
+        L += ["", "-- On-board test results (Mode 06)"]
+        for (ecu, _, _), t in sorted(sn.results.items()):
+            L.append(f"  {sn.label(ecu):<18} {t.monitor:<24} {t.test:<34} {t.value:g} {t.unit} "
+                     f"[{t.minimum:g}..{t.maximum:g}] {'PASS' if t.passed else 'FAIL'}")
+    if sn.values:
+        L += ["", "-- Live values (latest)"]
+        for (ecu, _pid, name), r in sorted(sn.values.items(), key=lambda kv: (kv[0][0], kv[0][1])):
+            v = units.fmt(r.value, r.unit, 2, system) if isinstance(r.value, float) and r.unit else r.value
+            L.append(f"  {sn.label(ecu):<18} {name:<44} {v}")
+    if sn.events:
+        L += ["", "-- Events"] + [f"  {_when(t)}  {text}" for t, text in sn.events]
+    return "\n".join(L) + "\n"

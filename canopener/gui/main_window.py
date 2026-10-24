@@ -5,7 +5,7 @@ import os
 import time
 
 from .. import __version__
-from ..core import config, connection, interfaces, link, profiles, scan, storage, transmit, units
+from ..core import config, connection, interfaces, link, profiles, report, scan, storage, transmit, units
 from ..core.connection import load_log_session, open_connection
 from .connection_panel import AUTO_BITRATE, ConnectionPanel
 from .context import AppContext
@@ -125,6 +125,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.log_panel.export_requested.connect(self.export_logs)
         self.log_panel.keys_requested.connect(self.edit_keys)
         self.log_panel.open_capture_log.connect(self.open_log)
+        # A car only talks when asked: while recording on the OBD-II profile, the OBD-II tab polls.
+        self.log_panel.recording_changed.connect(
+            lambda on: self.obd.recording_changed(on) if self._protocol == profiles.OBD2 else None)
+        self.log_panel.status_extra = lambda: self.obd.log_status() if self._protocol == profiles.OBD2 else ""
+        self.log_panel.extra_reports = self._obd_reports
         self.log_toggle.setDefaultAction(self.log_panel.toggleViewAction())
         self.log_panel.toggleViewAction().setText("📝 Log")
         self.log_panel.toggleViewAction().setToolTip("Show / hide the Log tool (its keys only work while it's open)")
@@ -268,7 +273,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._action(d, "Transmit a frame...", self._open_transmit)
         v = m.addMenu("&View")
         self._action(v, "&Full screen", self._toggle_fullscreen, "F11")
-        self._view_actions = {t: self._action(v, t.title, lambda _=False, w=t: self.tabs.setCurrentWidget(w),
+        self._view_actions = {t: self._action(v, t.title, lambda _=False, w=t: self.show_tab(w),
                                               f"Ctrl+{i + 1}") for i, t in enumerate(self.tab_list)}
         st = m.addMenu("&Settings")
         self._action(st, "&Units...", self.edit_units)
@@ -472,10 +477,12 @@ class MainWindow(QtWidgets.QMainWindow):
         """Only the screens for the profile's protocol: the OBD-II reader for a car, the J1939
         tabs, lamp strip and scans for everything else. Bus Monitor (and plugin tabs) always."""
         obd = protocol == profiles.OBD2
+        self._place_monitor(inside_obd=obd)
         j1939_only = (self.codes, self.live, self.network, self.info, self.report)
         for t in self.tab_list:
             visible = (t is self.obd) == obd if (t is self.obd or t in j1939_only) else True
-            self.tabs.setTabVisible(self.tabs.indexOf(t), visible)
+            if self.tabs.indexOf(t) >= 0:
+                self.tabs.setTabVisible(self.tabs.indexOf(t), visible)
             if t in self._view_actions:
                 self._view_actions[t].setEnabled(visible)
         for a in self._j1939_actions:
@@ -483,7 +490,26 @@ class MainWindow(QtWidgets.QMainWindow):
         self.lamps.setVisible(not obd)
         if protocol != self._protocol or not self.tabs.isTabVisible(self.tabs.currentIndex()):
             self.tabs.setCurrentWidget(self.obd if obd else self.codes)     # the new protocol's main screen
+        # One visible tab (the OBD-II scan tool, with its own page row): no top row of tabs at all.
+        self.tabs.tabBar().setVisible(sum(self.tabs.isTabVisible(i) for i in range(self.tabs.count())) > 1)
+        if protocol != self._protocol and not obd:
+            self.obd.stop_stream()
         self._protocol = protocol
+
+    def _place_monitor(self, inside_obd: bool):
+        """Bus Monitor is a top-level tab for J1939, and the last OBD-II page for a car."""
+        if inside_obd and self.obd.pages.indexOf(self.monitor) < 0:
+            self.obd.pages.addTab(self.monitor, self.monitor.title)
+        elif not inside_obd and self.tabs.indexOf(self.monitor) < 0:
+            self.tabs.insertTab(self.tab_list.index(self.monitor), self.monitor, self.monitor.title)
+
+    def show_tab(self, w):
+        """Bring a screen forward, wherever it lives (Bus Monitor may be an OBD-II page)."""
+        if self.obd.pages.indexOf(w) >= 0:
+            self.tabs.setCurrentWidget(self.obd)
+            self.obd.pages.setCurrentWidget(w)
+        else:
+            self.tabs.setCurrentWidget(w)
 
     def _use_protocol(self, protocol: str):
         """Switch to a profile for this protocol if the current one is for the other (e.g. the
@@ -803,6 +829,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if KeybindDialog(self.hotkeys, self).exec():
             self.log_panel._sync()
 
+    def _obd_reports(self) -> dict:
+        sn = self.obd.model.sniffer
+        if self._protocol != profiles.OBD2 or not (sn.dtcs or sn.values or sn.info):
+            return {}
+        return {"obd_report.txt": report.build_obd_report(sn, system=self.ctx.units)}
+
     def _capture_meta(self) -> dict:
         s = self.ctx.session
         meta = {"source": self.ctx.connection.describe() if self.ctx.connection else "offline",
@@ -858,7 +890,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _tick(self):
         s = self.ctx.session
-        self.live.sample()
+        if self._protocol == profiles.OBD2:
+            self.obd.tick()
+        else:
+            self.live.sample()
         self.log_panel.refresh()
         for fn in self._plugin_refresh:
             try:
@@ -887,8 +922,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._bus_load = ((dn * 67 + db * 8) * 1.1) / (now - t0) / self.ctx.bitrate * 100
                 self._fps = dn / (now - t0)
                 self._last_counts = (now, s.rx_count, s.bytes_count)
-            self.traffic_label.setText(f"{getattr(self, '_fps', 0):.0f} frames/s  ~{self._bus_load:.0f}% load  "
-                                       f"{len(s.ecus)} ECU(s)")
+            who = f"{len(self.obd.model.sniffer.modules())} module(s)" if self._protocol == profiles.OBD2 \
+                else f"{len(s.ecus)} ECU(s)"
+            self.traffic_label.setText(f"{getattr(self, '_fps', 0):.0f} frames/s  ~{self._bus_load:.0f}% load  {who}")
             backend = s.backend
             if getattr(backend, "finished", False):
                 self.traffic_label.setText("Replay finished")
