@@ -1,23 +1,23 @@
 # CANopener
 
-Open-source tool for diagnosing equipment and vehicles. Developed on Linux, for deployment on a
-Raspberry Pi with matching hardware.
+Open-source diagnostic tool for equipment and vehicles. Currently developing on Linux, for deployment on a
+Raspberry Pi-based handheld. (and maybe an Android app...)
 
 * **[docs/DESIGN.md](docs/DESIGN.md)**: the CAN Opener field-diagnostic cyberdeck: concept,
   hardware, enclosure, and the on-device software plan.
 * **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**: how this software is structured and how it
   becomes one tool on that device.
 
-This repository currently holds the **J1939 diagnostics tool**: a reusable protocol and diagnostics
-engine, a desktop GUI, a command-line tool, and a built-in machine simulator for working without
+This repository currently holds the **J1939/J1979 (OBD-II) diagnostic tool**: a reusable protocol and diagnostics
+engine, a desktop GUI, a command-line tool, and a built-in machine simulator to get a feel without
 hardware.
 
 ## Install
 
 | | |
 |---|---|
-| 💻 **[Linux laptop (Mint / Ubuntu / Debian)](docs/install/linux-laptop.md)** | ~10 min. Ends with CANopener in your app menu and on the desktop. Try it with the built-in simulator, no CAN adapter needed. |
-| 🍓 **[Raspberry Pi](docs/install/raspberry-pi.md)** | From a blank SD card to CANopener starting full-screen at power-on, with a USB adapter or a CAN HAT. |
+| 💻 **[Linux laptop (Mint / Ubuntu / Debian)](docs/install/linux-laptop.md)** | ~10 min. Ends with CANopener in your app menu and on the desktop, with drivers for most listed CAN adapters. |
+| 🍓 **[Raspberry Pi](docs/install/raspberry-pi.md)** | [Untested] From a blank SD card to CANopener starting full-screen at power-on, with a USB adapter or a CAN HAT. |
 
 Short version (Mint / Ubuntu / Debian): installs the app, the USB CAN adapter drivers, and a
 menu entry and desktop icon:
