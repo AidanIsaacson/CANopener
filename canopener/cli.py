@@ -64,47 +64,104 @@ def cmd_decode(a) -> int:
     return 0
 
 
+def _confirm(question: str, yes: bool) -> bool:
+    if yes:
+        return True
+    if not sys.stdin.isatty():
+        print(f"{question} -- not confirmed (pass --yes to run without asking).", file=sys.stderr)
+        return False
+    return input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
+
+
 def cmd_obd(a) -> int:
-    from .core.obd import ObdClient
+    from . import obd as obdlib
+    from .core.obd import CLEAR_WARNING, ObdClient
     kind = connection.OBD_SIM if a.sim else connection.SOCKETCAN
     try:
         conn = connection.open_connection(kind, a.iface)
     except OSError as e:
         print(f"Could not open {a.iface}: {e}", file=sys.stderr)
         return 2
-    client = ObdClient(conn.session)
+    c = ObdClient(conn.session)
     try:
-        if not client.available:
+        if not c.available:
             print("OBD-II needs to send requests, so it can't run in listen-only mode.", file=sys.stderr)
             return 2
         time.sleep(0.3)
-        from . import obd as obdlib
-        info = client.read_info()
-        if info:
-            for name, value in info:
-                print(f"{name}: {value}")
-        else:
-            print("VIN: (not reported)")
-        dtcs = client.read_dtcs()
-        for label in ("stored", "pending", "permanent"):
-            codes = dtcs.get(label) or []
-            if codes:
-                print(f"{label.capitalize()} DTCs:")
-                for c in codes:
-                    print(f"  {c}  {obdlib.describe_dtc(c)}")
-            else:
-                print(f"{label.capitalize()} DTCs: none")
+        if c.detect_addressing() is None:
+            print("No OBD-II module answered (key on? 500k bus?).", file=sys.stderr)
+            return 1
+        if a.clear:
+            if not _confirm(CLEAR_WARNING, a.yes):
+                return 1
+            for ecu, (_, msg) in c.clear_dtcs().items():
+                print(f"{c.ecu_label(ecu)}: {msg}")
+            return 0
+        if a.evap_test:
+            if not _confirm("Start the EVAP leak test (Mode 08, TID 01)?", a.yes):
+                return 1
+            result = c.run_control_test(0x01)
+            for ecu, (_, msg) in result.items():
+                print(f"{c.ecu_label(ecu)}: {msg}")
+            return 0 if any(ok for ok, _ in result.values()) else 1
+
+        info = c.read_info_by_ecu()
+        print(f"{len(info) or 'No'} module(s) answered, {c.addressing.name} CAN")
+        for ecu, rows in info.items():
+            print(f"\n{c.ecu_label(ecu)}")
+            for name, value in rows:
+                print(f"  {name}: {value}")
+        print("\nTrouble codes:")
+        any_code = False
+        for ecu, kinds in c.read_dtcs_by_ecu().items():
+            for label, codes in kinds.items():
+                for code in codes:
+                    any_code = True
+                    print(f"  {c.ecu_label(ecu):18} {label:9} {code}  {obdlib.describe_dtc(code)}")
+        if not any_code:
+            print("  none")
+        print("\nReadiness:")
+        for ecu, st in c.read_readiness().items():
+            print(f"  {c.ecu_label(ecu)}: MIL {'ON' if st.mil else 'off'}, {st.dtc_count} confirmed code(s)")
+            for m in st.monitors:
+                if m.supported:
+                    print(f"    {m.name:28} {m.state}")
+        if a.freeze or a.all:
+            print("\nFreeze frame:")
+            for ecu, rows in c.read_freeze_frame().items():
+                for r in rows:
+                    for name, v, u in (r.values or [(r.name, r.text, "")]):
+                        print(f"  {c.ecu_label(ecu):18} {name}: {_obd_value(v, u, a.units)}")
+        if a.tests or a.all:
+            print("\nOn-board test results (Mode 06):")
+            for ecu, t in c.read_test_results():
+                print(f"  {c.ecu_label(ecu):18} {t.monitor:24} {t.test:34} {t.value:g} {t.unit} "
+                      f"[{t.minimum:g}..{t.maximum:g}] {'PASS' if t.passed else 'FAIL'}")
         print("\nLive data:")
-        live = client.read_live()
-        if not live:
+        pids = c.live_pids()
+        if not pids:
             print("  (no live PIDs answered)")
-        for r in live:
-            value = units.fmt(r.value, r.unit, system=a.units) if r.unit else str(r.value)
-            print(f"  {r.name}: {value}")
+        end = time.time() + (a.watch or 0)
+        while True:
+            for ecu, pid in pids:
+                r = c.read_pid(ecu, pid)
+                for name, v, u in (r.values if r else []):
+                    print(f"  {name}: {_obd_value(v, u, a.units)}")
+            if time.time() >= end:
+                break
+            print(f"-- {time.strftime('%H:%M:%S')}", flush=True)
+    except KeyboardInterrupt:
+        return 130
     finally:
-        client.close()
+        c.close()
         conn.close()
     return 0
+
+
+def _obd_value(v, unit: str, system: str) -> str:
+    if isinstance(v, (int, float)) and unit:
+        return units.fmt(v, unit, 3 if unit == "V" else 1, system=system)
+    return f"{v:g}" if isinstance(v, float) else str(v)
 
 
 def cmd_uds(a) -> int:
@@ -315,9 +372,18 @@ def main(argv=None) -> int:
     f.set_defaults(fn=cmd_find)
     sub.add_parser("profiles", help="list machine profiles").set_defaults(fn=cmd_profiles)
 
-    o = sub.add_parser("obd", help="read OBD-II (automotive J1979): DTCs, live PIDs and VIN")
+    o = sub.add_parser("obd", help="OBD-II (J1979) scan tool: codes from every module, readiness, live data, "
+                                   "vehicle info; --clear / --evap-test send commands")
     o.add_argument("--iface", default="can0")
-    o.add_argument("--sim", action="store_true", help="read the built-in OBD-II simulator instead")
+    o.add_argument("--sim", action="store_true", help="use the built-in OBD-II simulator instead")
+    o.add_argument("--freeze", action="store_true", help="also read the freeze frame")
+    o.add_argument("--tests", action="store_true", help="also read on-board test results (Mode 06)")
+    o.add_argument("--all", action="store_true", help="freeze frame and test results too")
+    o.add_argument("--watch", type=float, metavar="SECONDS", help="keep printing live data this long")
+    g = o.add_mutually_exclusive_group()
+    g.add_argument("--clear", action="store_true", help="clear codes on every module (Mode 04; asks first)")
+    g.add_argument("--evap-test", action="store_true", help="start the EVAP leak test (Mode 08; asks first)")
+    o.add_argument("--yes", action="store_true", help="don't ask before --clear / --evap-test")
     o.set_defaults(fn=cmd_obd)
 
     ud = sub.add_parser("uds", help="read a module via UDS (ISO 14229): DTCs with status, a data identifier")

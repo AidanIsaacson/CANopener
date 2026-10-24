@@ -9,6 +9,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 def isolated_config(tmp_path, monkeypatch):
     """Keep tests away from the user's real ~/.config/canopener and reset profile overrides."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    try:
+        # The GUI's QSettings("CANopener", "CANopener") is NativeFormat, which only follows
+        # setPath for NativeFormat (XDG_CONFIG_HOME is read once per process). Point it here too.
+        from canopener.gui.qt import QtCore
+        QtCore.QSettings.setPath(QtCore.QSettings.Format.NativeFormat, QtCore.QSettings.Scope.UserScope,
+                                 str(tmp_path / "qsettings"))
+    except ImportError:             # no Qt: GUI tests are skipped anyway
+        pass
     from canopener.core import profiles
     profiles.apply(None)
     yield

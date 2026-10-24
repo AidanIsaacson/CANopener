@@ -944,8 +944,10 @@ class MainWindow(QtWidgets.QMainWindow):
         QtWidgets.QMessageBox.about(
             self, "About CANopener",
             f"<h3>CANopener {__version__}</h3><p>J1939 diagnostics for equipment and vehicles.</p>"
-            "<p><b>Read-only:</b> the app only sends J1939 Requests (PGN 59904) and transport-protocol "
-            "flow control. It never clears codes or writes to an ECU. Tick Listen-only to send nothing.</p>"
+            "<p><b>Reads are free; commands ask first.</b> Reading sends standard requests (J1939, OBD-II, "
+            "UDS) and transport-protocol flow control. Clearing codes, on-board tests and module resets "
+            "each ask before sending. Tick Listen-only to send nothing.</p>"
+            "<p>GPL-2.0-or-later. Generic OBD-II code descriptions from python-OBD.</p>"
             f"<p>Qt binding: {QT_API}</p>" + self._plugins_html())
 
     def _plugins_html(self) -> str:

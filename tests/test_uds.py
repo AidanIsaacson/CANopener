@@ -64,3 +64,21 @@ def test_uds_layering_is_pure():
     src = "\n".join(p.read_text() for p in root.glob("*.py"))
     for banned in ("import canopener.core", "from ..core", "from ..gui", "from ..sim"):
         assert banned not in src, f"uds/ should not reference app layers: {banned}"
+
+
+def test_clear_reset_and_multi_frame_write():
+    assert uds.clear_diagnostic_information() == bytes([0x14, 0xFF, 0xFF, 0xFF])
+    assert uds.ecu_reset(uds.RESET_SOFT) == bytes([0x11, 0x03])
+    conn = connection.open_connection(connection.OBD_SIM)
+    try:
+        c = UdsClient(conn.session)
+        c.clear_dtcs()
+        assert c.read_dtcs() == [] and conn.simulator.uds_dtcs == []
+        c.ecu_reset()
+        assert conn.simulator.resets == 1
+        # 3 + 17 bytes: goes out as First Frame + Consecutive Frames, paced by the module's flow control.
+        c.request(uds.build_request(0x2E, bytes([0xF1, 0x90]) + b"2T1BURHE0JC123456"))
+        assert c.read_data_by_identifier(0xF190) == b"2T1BURHE0JC123456"
+        c.close()
+    finally:
+        conn.close()

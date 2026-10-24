@@ -79,6 +79,20 @@ def read_dtc_by_status_mask(mask: int = 0xFF) -> bytes:
     return bytes([0x19, RDTC_BY_STATUS_MASK, mask & 0xFF])
 
 
+ALL_DTC_GROUPS = 0xFFFFFF
+RESET_HARD, RESET_KEY_OFF_ON, RESET_SOFT = 0x01, 0x02, 0x03
+RESETS = {RESET_HARD: "Hard reset", RESET_KEY_OFF_ON: "Key off/on reset", RESET_SOFT: "Soft reset"}
+
+
+def clear_diagnostic_information(group: int = ALL_DTC_GROUPS) -> bytes:
+    """ClearDiagnosticInformation (0x14) for a DTC group (0xFFFFFF = all)."""
+    return bytes([0x14]) + (group & 0xFFFFFF).to_bytes(3, "big")
+
+
+def ecu_reset(kind: int = RESET_HARD) -> bytes:
+    return bytes([0x11, kind & 0xFF])
+
+
 def tester_present() -> bytes:
     return bytes([0x3E, 0x00])
 

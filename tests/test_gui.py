@@ -306,7 +306,7 @@ def test_profile_features_in_the_gui(app, tmp_path, monkeypatch):
     w.close()
 
 
-def test_obd_tab_reads_simulator(app, tmp_path):
+def test_obd_tab_reads_simulator(app, tmp_path, monkeypatch):
     from canopener.core import connection
     from canopener.gui.main_window import MainWindow
 
@@ -318,13 +318,59 @@ def test_obd_tab_reads_simulator(app, tmp_path):
     w.source.setCurrentIndex(w.source.findData(connection.OBD_SIM))
     w.connect()
     pump(app, 0.4)
-    w.tabs.setCurrentWidget(w.obd)
-    assert w.obd.read_btn.isEnabled()
-    w.obd._read()
-    pump(app, 2.5)
-    assert "1HGCM82633A004352" in w.obd.vin_label.text()
-    assert "P0133" in w.obd.dtc_label.text()
-    assert w.obd.table.rowCount() >= 4
+    o = w.obd
+    assert w.tabs.currentWidget() is o and o.read_btn.isEnabled()
+    o._read()
+    end = time.time() + 15
+    while (o._jobs or not o.codes.rowCount()) and time.time() < end:
+        pump(app, 0.1)
+    assert "1HGCM82633A004352" in o.vin_label.text()
+
+    def column(table, c):
+        return [table.item(r, c).text() for r in range(table.rowCount())]
+    assert column(o.codes, 2) == ["P0133", "P0420", "P0171", "P0420", "P0730"]
+    assert column(o.codes, 0)[-1] == "TCM (7E9)" and "Bank 1 Sensor 1" in column(o.codes, 3)[0]
+    assert o.ready_summary.text().startswith("NOT READY: MIL ON")
+    assert "Evaporative system" in column(o.readiness, 1)
+    assert o.table.rowCount() >= 20 and "O2 B1S2: voltage" in column(o.table, 1)
+    assert "Caused by" in column(o.freeze, 1)
+    assert "FAIL" in column(o.results, 6)
+    assert "SIMTCM-02B" in column(o.info, 2)
+
+    # Live data streams, with min / max.
+    o._toggle_stream()
+    pump(app, 1.0)
+    assert o._streaming and o.table.item(0, 3).text()
+    o._toggle_stream()
+    assert not o._streaming
+
+    # Clear codes: declined = nothing sent; confirmed = cleared and read back.
+    answers = [qt.QtWidgets.QMessageBox.StandardButton.No]
+    monkeypatch.setattr(qt.QtWidgets.QMessageBox, "warning", lambda *a, **k: answers[0])
+    monkeypatch.setattr(qt.QtWidgets.QMessageBox, "information", lambda *a, **k: None)
+    o._clear_codes()
+    pump(app, 0.3)
+    assert not w.ctx.connection.simulator.cleared
+    answers[0] = qt.QtWidgets.QMessageBox.StandardButton.Yes
+    o._clear_codes()
+    end = time.time() + 10
+    while o._jobs and time.time() < end:
+        pump(app, 0.1)
+    assert w.ctx.connection.simulator.cleared
+    assert column(o.codes, 2) == ["P0420"] and column(o.codes, 1) == ["permanent"]
+    assert o.ready_summary.text().startswith("NOT READY: MIL off")
+
+    # Mode 08: find the EVAP test and run it.
+    o._read_tests()
+    end = time.time() + 5
+    while (o._jobs or not o.test_pick.count()) and time.time() < end:
+        pump(app, 0.1)
+    assert "Evaporative system leak test" in o.test_pick.currentText()
+    o._run_test()
+    end = time.time() + 5
+    while (o._jobs or not o.test_log.count()) and time.time() < end:
+        pump(app, 0.1)
+    assert w.ctx.connection.simulator.evap_test_running and "started" in o.test_log.item(0).text()
     w.disconnect()
     w.close()
 
@@ -349,6 +395,19 @@ def test_uds_dialog_reads_module(app, tmp_path):
     text = dlg.out.toPlainText()
     assert "C0561-00" in text and "P0730-00" in text
     assert "1HGCM82633A004352" in text          # the F190 data identifier (VIN)
+
+    # Clear and reset ask first, then report.
+    import pytest as _pytest
+    mp = _pytest.MonkeyPatch()
+    mp.setattr(qt.QtWidgets.QMessageBox, "warning", lambda *a, **k: qt.QtWidgets.QMessageBox.StandardButton.Yes)
+    dlg._clear()
+    pump(app, 1.0)
+    assert "Clear codes: done" in dlg.out.toPlainText()
+    assert w.ctx.connection.simulator.uds_dtcs == []
+    dlg._reset()
+    pump(app, 1.0)
+    assert w.ctx.connection.simulator.resets == 1
+    mp.undo()
     w.disconnect()
     w.close()
 

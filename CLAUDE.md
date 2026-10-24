@@ -17,15 +17,16 @@ Headless or minimal Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-
 
 ## Rules
 
-* **Diagnostics are read-first; transmitting is a separate, confirm-first path.** The receive/scan
-  code only ever transmits standard J1939 Requests (PGN 0xEA00) and TP flow control. Active sending
-  lives apart in `core/transmit.py` + `gui/transmit_dialog.py`: off by default, never in listen-only,
-  and every frame is confirmed (exact CAN ID + bytes + destination) and logged. Only **generic,
-  publicly documented** frames belong here (a J1939 Request, a raw frame the user composes). Do
-  **not** add OEM/proprietary commands, or fault-clearing/reset commands (DM3/DM11, OBD Mode 04),
-  to this repo — a separately installed plugin registers those as `TransmitAction`s via
-  `register_action` / `PluginApi.register_transmit_action`, and they confirm with the user before
-  changing a machine.
+* **Reads are free; anything that changes a vehicle asks first.** The J1939 receive/scan code only
+  transmits standard J1939 Requests (PGN 0xEA00) and TP flow control. Standard, **publicly
+  documented** commands are welcome in this repo: OBD-II Mode 04 (clear codes) and Mode 08
+  (on-board tests) in `core/obd.py`, UDS ClearDiagnosticInformation / ECUReset in `core/uds.py`,
+  and the composable frames in `core/transmit.py`. Every front-end confirms with the user before
+  sending one (state what it changes, default No), and nothing transmits in listen-only. The
+  Transmit window (`gui/transmit_dialog.py`) stays off by default and confirms each frame.
+  **OEM/proprietary** commands (routines, I/O controls, DIDs from dealer tools) still belong in the
+  separately installed plugin, which registers them via `register_action` /
+  `PluginApi.register_transmit_action`.
 * **This repo is public: no OEM dealer-tool data** (extracted fault tables, PID dictionaries,
   node maps, OEM text). It lives in the private plugin repo or `~/.config/canopener/profiles/`.
   `tests/test_repo_hygiene.py` enforces file names and markers; keep its lists current.
@@ -35,7 +36,11 @@ Headless or minimal Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-
 * GUI code must work with both PySide6 and PyQt6: import from `canopener.gui.qt` and use fully
   scoped enums (`Qt.AlignmentFlag.AlignLeft`).
 * Don't invent OEM data. SPN/SA/PGN names in the built-in tables are SAE-standard only. OEM labels
-  belong in profiles, and the sim profile is explicitly marked as simulated.
+  belong in profiles, and the sim profile is explicitly marked as simulated. Generic OBD-II code
+  text is `obd/dtc_codes.py`, generated from python-OBD: regenerate it, don't hand-edit it, and
+  never describe manufacturer-specific codes (P1xxx, B/C/U1xxx ...).
+* **License: GPL-2.0-or-later.** Anything copied in must be GPL-2.0-compatible; keep attribution
+  (README "License" and the copied file's header).
 * The simulator's fault codes are asserted by tests. Change both together.
 * `legacy/` is frozen reference code. Don't import it, and don't copy J1939 tables from
   `legacy/can_opener_v0.1`: they're wrong (see legacy/README.md).

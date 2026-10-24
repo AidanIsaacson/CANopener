@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Open-source J1939 / CAN diagnostics for equipment and vehicles"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "TBD" }
+license = { text = "GPL-2.0-or-later" }
 dependencies = []          # the core and CLI are standard-library only
 
 [project.optional-dependencies]
@@ -40,3 +40,6 @@ extend-exclude = ["legacy"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
 ignore = ["E741", "B905"]  # zip(strict=) is noise here
+
+[tool.ruff.lint.per-file-ignores]
+"canopener/obd/dtc_codes.py" = ["E501"]   # generated data table

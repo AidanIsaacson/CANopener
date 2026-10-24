@@ -12,8 +12,9 @@ baked in:
 The *confirmation* step (showing the exact CAN ID, bytes and destination before sending) is the UI's
 job — see ``gui/transmit_dialog.py``. The actual byte-level writing is still ``Session.send_frame``.
 
-Only generic, publicly documented building blocks live here. OEM or proprietary commands, and any
-fault-clearing/reset commands, are intentionally NOT defined in this repository; a separately
+Only generic, publicly documented building blocks live here. The standard OBD-II / UDS commands
+(clear codes, on-board tests, module reset) have their own confirm-first paths in ``core/obd.py`` /
+``core/uds.py``. OEM or proprietary commands are NOT defined in this repository; a separately
 installed plugin registers those as ``TransmitAction``s through ``register_action`` and they then
 appear in the same confirm-first UI.
 """

@@ -37,22 +37,21 @@ git clone https://github.com/AidanIsaacson/CANopener.git ~/CANopener
 | **Bus monitor** | Raw frames, scrolling or one row per ID (like `cansniffer`) with changed bytes highlighted, for reverse-engineering proprietary frames. |
 | **Network** | Every ECU on the bus, its address-claim NAME, and each PGN it sends with rate and latest data. |
 | **Machine info** | Component / software / ECU IDs, VIN, engine hours, fuel used. |
-| **OBD-II (cars)** | Automotive J1979 over CAN: ~40 standard live PIDs, stored/pending/permanent trouble codes with generic (SAE) descriptions, and Mode 09 vehicle info (VIN, calibration ID, CVN, ECU name). A built-in OBD-II simulator to try it with no car. Pick the **OBD-II vehicle** profile to get the OBD-II reader in place of the J1939 tabs. |
-| **UDS modules** | Read ABS, transmission, body and cluster modules over UDS (ISO 14229) — DTCs with their standard status flags, and data identifiers — which generic OBD-II can't reach (Diagnostics → Read a module). |
+| **OBD-II (cars)** | A generic scan tool (SAE J1979 over CAN, 11- or 29-bit, picked automatically). Codes from every module (stored, pending, permanent) with ~2,000 generic SAE descriptions; **Clear codes** (Mode 04); I/M readiness monitors and MIL; every public Mode 01 PID streaming live with min/max (multi-value O2, wide-band, EGT ...); freeze frame; Mode 06 on-board test results with pass/fail; vehicle info (VIN, calibration IDs, CVNs, module names, in-use counters); Mode 08 on-board tests (EVAP leak test). Pick the **OBD-II vehicle** profile. A built-in two-module simulator to try it with no car. |
+| **UDS modules** | ABS, transmission, body and cluster modules over UDS (ISO 14229): DTCs with their standard status flags, data identifiers, **clear codes** and **module reset** — which generic OBD-II can't reach (Diagnostics → Read a module). |
 | **Log tool** | Plan timestamps for a job ("key on, start, drive, shutdown ..."), record, and tag them with single keys while you work the machine. After stopping, relabel and save. Each capture gets a raw log, a live-data spreadsheet with a marker column, and a summary of codes and ECU dropouts against your timestamps. |
 | **Reports and logs** | Text reports, `candump`-format recording, CSV export, copy everything to a USB stick, offline decode of a log, and real-time replay of a log. |
 | **Machine profiles** | Per make/model JSON files that name OEM source addresses, SPNs and proprietary PGNs, and add custom signals: bit fields, signed values, enum text, groups and normal ranges. The app recognises a machine from the modules on its bus and offers the matching profile. A profile can also be run as a simulator. |
 | **Units** | Metric, imperial, or your own mix per quantity (Settings → Units…, e.g. psi with °C). |
 | **Plugins** | Separately installed packages can add tabs, menus, CLI commands and profiles (see below). |
 
-**Read-first, with a separate confirm-first transmit path.** Diagnostics only transmit standard
-requests (J1939 Requests / OBD-II / UDS reads) and transport-protocol flow control. Actually
-*sending* onto the bus is deliberately walled off in **Diagnostics → Transmit a frame**: it's off
-by default, disabled in listen-only, shows the exact CAN ID, bytes and destination before every
-send, and logs what it sent. Only generic, publicly documented frames ship in the app (a J1939
-Request, a raw frame, a UDS request you compose); OEM/active commands come from plugins behind the
-same confirmation. Tick **Listen-only** to transmit nothing at all (DM1 and live data still work,
-they're broadcast).
+**Reads are free; commands ask first.** Reading sends standard requests (J1939 Requests, OBD-II
+and UDS reads) and transport-protocol flow control. The standard commands that change a vehicle,
+OBD-II **clear codes** / **on-board tests** and UDS **clear codes** / **module reset**, each say what
+they change and wait for a Yes. Raw sending is in **Diagnostics → Transmit a frame**: off by
+default, shows the exact CAN ID, bytes and destination before every send, and logs what it sent.
+OEM/proprietary commands come from plugins behind the same confirmation. Tick **Listen-only** to
+transmit nothing at all (DM1 and live data still work, they're broadcast).
 
 ## Developing (no hardware needed)
 
@@ -118,6 +117,9 @@ canopener-cli setup --iface can0 --bitrate auto     # or --bitrate 250000
 canopener-cli find --iface can0 --sound             # signal finder: wait for traffic, chime, leave it up
 canopener-cli scan --iface can0 --full --units imperial
 canopener-cli decode ~/canopener/logs/capture_20260101_120000.log --csv frames.csv
+canopener-cli obd --iface can0 --all                # OBD-II scan: codes, readiness, freeze frame, Mode 06, live
+canopener-cli obd --iface can0 --watch 30           # stream live data for 30 s
+canopener-cli obd --iface can0 --clear              # clear codes on every module (asks first)
 ```
 
 ### Testing against a virtual bus
@@ -247,4 +249,9 @@ docs/        DESIGN.md (hardware + concept), ARCHITECTURE.md (software), install
 
 ## License
 
-To be decided by the project owner before the first release.
+GPL-2.0-or-later (see [LICENSE](LICENSE)): you may use, modify and redistribute CANopener, and
+anything you distribute that includes it must be offered under the same license, with source.
+
+The generic OBD-II trouble-code descriptions in `canopener/obd/dtc_codes.py` and the Mode 06
+unit/scaling table come from [python-OBD](https://github.com/brendan-w/python-OBD) (GPL-2.0-or-later,
+© Donour Sizemore, Secons Ltd., Peter J. Creath, Brendan Whitfield).

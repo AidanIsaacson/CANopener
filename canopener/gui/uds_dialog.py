@@ -1,9 +1,10 @@
-"""Read a module over UDS (ISO 14229): its DTCs with status, and a data identifier.
+"""Read a module over UDS (ISO 14229): its DTCs with status, and a data identifier; and the two
+standard commands, clear its codes (0x14) and reset it (0x11).
 
-This is the read side of UDS — how ABS, transmission, body and cluster modules report faults on
-modern vehicles, which generic OBD-II doesn't reach. Reading sends requests, so it needs a
-connection that isn't listen-only (same as a J1939 scan); it changes nothing on the module.
-State-changing UDS services go through the confirm-first Transmit window instead.
+UDS is how ABS, transmission, body and cluster modules report faults on modern vehicles, which
+generic OBD-II doesn't reach. It sends requests, so it needs a connection that isn't listen-only.
+The commands ask first. Other services (routines, I/O control, writes) can be composed in the
+Transmit window or sent with ``UdsClient.request``.
 """
 
 import threading
@@ -35,9 +36,23 @@ class UdsDialog(QtWidgets.QDialog):
         row.addStretch(1)
         lay.addLayout(row)
 
+        btns = QtWidgets.QHBoxLayout()
         self.read_btn = QtWidgets.QPushButton("Read module")
         self.read_btn.clicked.connect(self._read)
-        lay.addWidget(self.read_btn)
+        btns.addWidget(self.read_btn)
+        btns.addStretch(1)
+        self.clear_btn = QtWidgets.QPushButton("Clear codes (0x14)…")
+        self.clear_btn.setToolTip("ClearDiagnosticInformation, all groups")
+        self.clear_btn.clicked.connect(self._clear)
+        btns.addWidget(self.clear_btn)
+        self.reset_box = QtWidgets.QComboBox()
+        for kind, name in uds.RESETS.items():
+            self.reset_box.addItem(name, kind)
+        btns.addWidget(self.reset_box)
+        self.reset_btn = QtWidgets.QPushButton("Reset module (0x11)…")
+        self.reset_btn.clicked.connect(self._reset)
+        btns.addWidget(self.reset_btn)
+        lay.addLayout(btns)
 
         self.out = QtWidgets.QTextBrowser()
         lay.addWidget(self.out, 1)
@@ -52,7 +67,8 @@ class UdsDialog(QtWidgets.QDialog):
 
     def _update_enabled(self):
         ok = self.ctx.live and not self.ctx.session.listen_only and not self._reading
-        self.read_btn.setEnabled(ok)
+        for b in (self.read_btn, self.clear_btn, self.reset_btn):
+            b.setEnabled(ok)
         if not self.ctx.live:
             self.note.setText("Connect to a bus first.")
         elif self.ctx.session.listen_only:
@@ -60,11 +76,58 @@ class UdsDialog(QtWidgets.QDialog):
         else:
             self.note.setText("")
 
-    def _read(self):
+    def _module_id(self) -> int | None:
         try:
-            req_id = int(self.module.text().strip(), 16)
+            return int(self.module.text().strip(), 16)
         except ValueError:
             self.note.setText("Module ID must be hex, e.g. 7E0.")
+            return None
+
+    def _confirm(self, text: str) -> bool:
+        r = QtWidgets.QMessageBox.warning(self, "UDS command", text,
+                                          QtWidgets.QMessageBox.StandardButton.Yes
+                                          | QtWidgets.QMessageBox.StandardButton.No,
+                                          QtWidgets.QMessageBox.StandardButton.No)
+        return r == QtWidgets.QMessageBox.StandardButton.Yes
+
+    def _command(self, label: str, fn):
+        """Run ``fn(client)`` for a state-changing service and report the outcome."""
+        req_id = self._module_id()
+        if req_id is None:
+            return
+        session = self.ctx.session
+        self._reading = True
+        self._update_enabled()
+
+        def work():
+            client = UdsClient(session, request_id=req_id)
+            try:
+                fn(client)
+                line = f"<b>{label}:</b> done (module 0x{req_id:X})"
+            except uds.UdsError as e:
+                line = f"<b>{label}:</b> {e}"
+            finally:
+                client.close()
+            self._result.emit([line])
+
+        threading.Thread(target=work, name="uds-command", daemon=True).start()
+
+    def _clear(self):
+        if self._confirm(f"Clear all trouble codes in module 0x{self.module.text().strip().upper()} "
+                         "(UDS ClearDiagnosticInformation)?\n\nThis also erases its freeze-frame / "
+                         "snapshot data. Engine off, key on."):
+            self._command("Clear codes", lambda c: c.clear_dtcs())
+
+    def _reset(self):
+        kind, name = self.reset_box.currentData(), self.reset_box.currentText()
+        if self._confirm(f"{name} module 0x{self.module.text().strip().upper()} (UDS ECUReset)?\n\n"
+                         "The module restarts: whatever it controls stops for a moment. Never while "
+                         "driving."):
+            self._command(name, lambda c: c.ecu_reset(kind))
+
+    def _read(self):
+        req_id = self._module_id()
+        if req_id is None:
             return
         did_text = self.did.text().strip()
         try:

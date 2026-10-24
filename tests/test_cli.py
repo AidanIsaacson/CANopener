@@ -21,3 +21,22 @@ def test_scan_simulator_imperial(capsys):
 def test_profiles_command(capsys):
     assert cli.main(["profiles"]) == 0
     assert "sim-telehandler" in capsys.readouterr().out
+
+
+def test_obd_scan_simulator(capsys):
+    assert cli.main(["--units", "imperial", "obd", "--sim", "--all"]) == 0
+    out = capsys.readouterr().out
+    assert "2 module(s) answered, 11-bit CAN" in out and "TCM (7E9)" in out
+    assert "P0730  Incorrect Gear Ratio" in out and "Evaporative system           INCOMPLETE" in out
+    assert "Catalyst B1" in out and "FAIL" in out
+    assert "Engine coolant temp:" in out and "°F" in out
+
+
+def test_obd_clear_needs_confirmation(capsys, monkeypatch):
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    assert cli.main(["obd", "--sim", "--clear"]) == 1                     # not confirmed: nothing sent
+    assert "not confirmed" in capsys.readouterr().err
+    assert cli.main(["obd", "--sim", "--clear", "--yes"]) == 0
+    assert "ECM (7E8): cleared" in capsys.readouterr().out
+    assert cli.main(["obd", "--sim", "--evap-test", "--yes"]) == 0
+    assert "ECM (7E8): started" in capsys.readouterr().out

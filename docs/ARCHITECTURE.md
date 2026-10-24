@@ -53,14 +53,30 @@ live in separate, private packages while this repository stays generic.
 
 ### Transmitting (confirm-first)
 
-`core/transmit.py` is the one place that *sends* on purpose. A `Transmitter` wraps a `Session`
-with a gate (off by default, never sends in listen-only) and a log of every attempt; the UI
-(`gui/transmit_dialog.py`) shows the exact CAN ID, bytes and destination and asks before each
-send. Sendable actions are `TransmitAction`s in a registry: the repo ships only generic, publicly
-documented ones (a J1939 Request, a raw frame). A plugin adds its own — including OEM or active
-commands that change a machine — with `register_action` (or `PluginApi.register_transmit_action`
-from `register_gui`); they then appear in the same confirm-first window. Fault-clearing/reset and
-proprietary commands are intentionally **not** in this repository.
+`core/transmit.py` is the place to send arbitrary frames on purpose. A `Transmitter` wraps a
+`Session` with a gate (off by default, never sends in listen-only) and a log of every attempt; the
+UI (`gui/transmit_dialog.py`) shows the exact CAN ID, bytes and destination and asks before each
+send. Sendable actions are `TransmitAction`s in a registry: the repo ships generic, publicly
+documented ones (a J1939 Request, a raw frame, a UDS request). A plugin adds its own — including
+OEM commands that change a machine — with `register_action` (or
+`PluginApi.register_transmit_action` from `register_gui`); they then appear in the same
+confirm-first window.
+
+The standard commands have their own paths: OBD-II Mode 04 (clear codes) and Mode 08 (on-board
+tests) are `ObdClient.clear_dtcs` / `run_control_test` in `core/obd.py`; UDS
+ClearDiagnosticInformation / ECUReset are `UdsClient.clear_dtcs` / `ecu_reset` in `core/uds.py`.
+Front-ends confirm before calling them (the clear-codes warning text is `core.obd.CLEAR_WARNING`,
+shared by the GUI and CLI).
+
+### OBD-II
+
+`obd/` is the protocol: ISO-TP (11- and 29-bit `Addressing`, segmenting and reassembly), every
+public Mode 01/02 PID (`pids.py`, with multi-value and text PIDs), readiness monitor decode
+(`readiness.py`), Mode 06 test results with the unit/scaling table (`monitors.py`), Mode 09 info,
+and DTC text (`dtc.py` + the generated `dtc_codes.py`). `core/obd.py`'s `ObdClient` sends
+functional requests and keeps every ECU's answer (keyed by response ID), detects the addressing,
+and polls live data with physical requests. `sim/obd.py` is a two-module car (ECM + TCM) that
+answers all of it, on 11- or 29-bit IDs.
 
 ## Threading model
 

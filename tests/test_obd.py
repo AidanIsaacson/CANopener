@@ -79,11 +79,15 @@ def test_obd_layering_is_pure():
 
 
 def test_generic_dtc_descriptions():
-    assert obd.describe_dtc("P0133") == "O2 sensor circuit slow response (bank 1 sensor 1)"
-    assert obd.describe_dtc("P0300") == "Random/multiple cylinder misfire detected"
-    assert obd.describe_dtc("U0101") == "Lost communication with TCM"
+    assert obd.describe_dtc("P0133") == "O2 Sensor Circuit Slow Response (Bank 1 Sensor 1)"
+    assert obd.describe_dtc("P0300") == "Random/Multiple Cylinder Misfire Detected"
+    assert obd.describe_dtc("U0101") == "Lost Communication with TCM"
+    assert obd.describe_dtc("P0430").endswith("(Bank 2)") and obd.describe_dtc("P0420").endswith("(Bank 1)")
+    assert obd.describe_dtc("P0162").endswith("(Bank 2 Sensor 3)")
+    assert len(obd.GENERIC_DTC) > 2000 and not any("OBDResponse" in v for v in obd.GENERIC_DTC.values())
+    assert obd.is_generic("P3400") and not obd.is_generic("P3000")
     # Unknown generic code falls back to the standardized subsystem from its structure.
-    assert obd.describe_dtc("P0333").startswith("Powertrain: Ignition")
+    assert obd.describe_dtc("P0A80") == "Powertrain: Hybrid propulsion"
     # Manufacturer-specific code is flagged, not invented.
     assert obd.is_generic("P0133") and not obd.is_generic("P1234")
     assert "manufacturer-specific" in obd.describe_dtc("P1234")
