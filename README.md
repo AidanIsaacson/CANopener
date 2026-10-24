@@ -59,6 +59,8 @@ For a **Raspberry Pi** that starts CANopener full screen at power-on: [Raspberry
 
 ### It tells you when your probes land
 
+<img src="docs/images/signal-finder.png" width="300" align="right" alt="The Connection panel: the signal finder locked on at 250k, with its attempts listed">
+
 Back-probing connectors is iffy at best, and CAN needs a solid connection. That would usually mean jiggling a probe, walking back to the
 laptop, squinting at the screen, realizing it wasn't at the right angle, and walking back again. Here you press **Find signal** in the
 **🔌 Connection** panel (or **F4**) and go do the probing. It listens the whole time, without sending a
@@ -68,6 +70,8 @@ traffic dropped out (a probe slipped) and a rising one that it's back, so you ca
 in the machine. Both chimes can be switched off in the Connection panel. Turn the laptop volume
 up, or wire a buzzer to a Pi (**Settings → Sound cues**).
 
+<br clear="right">
+
 ### From a code straight to its sensor
 
 **My favorite!** When you pull codes and a code points at a specific sensor, ***there's a button that
@@ -75,6 +79,12 @@ pulls that sensor up in Live Data***, already ticked and charting. No hunting th
 fifty values for the right one. On J1939 it's **Show this parameter in Live Data**; on a car
 it's **Show in Live Data**, and if the car stored a freeze frame for that code, **Show freeze
 frame** takes you to the snapshot from the moment it was set.
+
+![Trouble Codes on a car: codes from the engine and transmission, the check-engine light, and the Show in Live Data button for the selected code](docs/images/obd-trouble-codes.png)
+*Pick a code (here P0171, system too lean)...*
+
+![Live Data after Show in Live Data: the fuel trims and air flow for that code, ticked and charting](docs/images/code-to-live-data.png)
+*...press **Show in Live Data**, and its sensors are already ticked and charting.*
 
 ### Data logs built for the fault that only happens sometimes
 
@@ -98,6 +108,9 @@ pressure, voltage or engine speed were doing at the moment it quit. The saved ca
 plain-text timeline of codes coming and going against those same timestamps, ready to send to
 someone.
 
+![Recording a job: three tagged timestamps drawn as lines on the live chart, with the Log panel listing them](docs/images/log-timestamps.png)
+*Three timestamps tagged with the spacebar, drawn on the chart of the readings you ticked.*
+
 Did you *actually* have to drive the machine around for an hour? Logs record indefinitely for ~500MB of storage per hour.
 After the log is stopped, you have the option to trim it to just the area you timestamped!
 
@@ -109,6 +122,8 @@ Unlike *some other* diagnostic programs. On my laptop it's open in about a secon
 quicker to check something than to talk yourself out of checking it.
 
 ## Equipment and trucks (J1939)
+
+![Fault Codes after a full scan: warning lamps per module, active and stored codes, and the details of the selected code](docs/images/j1939-fault-codes.png)
 
 | Tab | What you get |
 |---|---|
@@ -185,11 +200,15 @@ second), so multi-hour captures are fine on a laptop; split all-day ones. The Bu
 **File → Export frames as CSV** only keep the latest 250,000 frames (a few minutes on a busy
 bus); the capture's log has everything.
 
+<img src="docs/images/trim-dialog.png" width="330" align="right" alt="The trim offer on Save: minutes to keep before and after the timestamps, and how much is kept">
+
 **Trimming a long one:** drove around for an hour before the fault finally showed? Tag it, stop,
 and when you press **Save** the Log tool offers to keep just the stretch around your timestamps:
 a few minutes before the first and after the last (you pick how many, and it remembers). It shows
 how much it keeps before it cuts, can keep the full log alongside, and **Save everything** skips
 it. **Trim…** in the Log panel does the same any time, saved captures included.
+
+<br clear="right">
 
 Captures survive a crash: the next start offers to recover anything unsaved.
 

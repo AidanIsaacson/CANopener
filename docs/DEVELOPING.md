@@ -36,6 +36,11 @@ canopener --iface vcan0              # terminal 2: the GUI, over real SocketCAN
 candump vcan0                        # terminal 3: watch the traffic (can-utils)
 ```
 
+### README screenshots
+
+`python scripts/readme_screenshots.py` retakes `docs/images/*.png` from the app running offscreen
+against the simulators (about a minute). Or replace any of them with your own.
+
 ## Machine profiles
 
 Profiles label what the standard tables can't: OEM controllers, manufacturer-specific SPNs
