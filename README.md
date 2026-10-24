@@ -49,16 +49,51 @@ For a **Raspberry Pi** that starts CANopener full screen at power-on: [Raspberry
    * **Bus:** is it hearing the machine? Green = traffic, amber = connected but silent (key on?
      probes on CAN-H / CAN-L?), red = errors only (wrong bitrate, or the wires swapped).
 
-### Finding the CAN wires (back-probing)
+## Features I'm really proud of
 
-No diagnostic port, or not sure which wires are CAN-H and CAN-L? Press **Find signal** in the
-Connection panel (or **F4**), then go move your probes. It keeps listening (without sending
-anything) and **chimes** as soon as it hears steady traffic, usually within 5 seconds of a good
-probe position. Then it locks the bitrate in and connects. While connected, a falling tone means
-the traffic dropped out (a probe slipped) and a rising one that it's back. Both chimes have their
-own checkbox in the Connection panel.
+### It tells you when your probes land
 
-Turn the laptop volume up, or use a buzzer on a Pi: **Settings → Sound cues**.
+Back-probing a harness for CAN-H and CAN-L usually means moving a probe, walking back to the
+laptop, squinting at the screen, and walking back again. Here you press **Find signal** in the
+Connection panel (or **F4**) and go do the probing. It listens the whole time, without sending a
+thing, and **chimes** as soon as it hears steady traffic, usually within 5 seconds of a good probe
+position. Then it locks the bitrate in and connects. Once connected, a falling tone tells you the
+traffic dropped out (a probe slipped) and a rising one that it's back, so you can keep your head
+in the machine. Both chimes can be switched off in the Connection panel. Turn the laptop volume
+up, or wire a buzzer to a Pi (**Settings → Sound cues**).
+
+### From a code straight to its sensor
+
+My favourite. When you pull codes and a code points at a specific sensor, **there's a button that
+pulls that sensor up in Live Data**, already ticked and charting. No hunting through a list of
+fifty values for the right one. On J1939 it's **Show this parameter in Live Data**; on a car
+it's **Show in Live Data**, and if the car stored a freeze frame for that code, **Show freeze
+frame** takes you to the snapshot from the moment it was set.
+
+### Data logs built for the fault that only happens sometimes
+
+You know the call: *"It runs about ten minutes, shuts down, then you have to wait 30 seconds and
+cycle the key twice before it'll start again."* A data log lets you reproduce that and pick it
+apart afterwards, and the Log tool is built around exactly that job. Before you start, list the
+moments you expect:
+
+1. Key on, start: **slap the spacebar** (timestamp 1)
+2. Drive it around
+3. It shuts down: **spacebar** (timestamp 2)
+4. Wait 30 seconds, key on: **spacebar** (timestamp 3), and so on
+
+Each press tags the next moment on your list, and you can name them, so when more than one thing
+happens you can tell them apart. Unplanned moments get a press too. The log records **everything
+on the bus for the whole run**. Afterwards, tick just the readings you care about and they're
+charted with **your timestamps drawn as lines on the graph**, so you can see exactly what oil
+pressure, voltage or engine speed were doing at the moment it quit. The saved capture also has a
+plain-text timeline of codes coming and going against those same timestamps, ready to send to
+someone. (All the details: [Recording a job](#recording-a-job-the-log-tool).)
+
+### It opens in about a second
+
+Unlike *some other* diagnostic programs. On my laptop it's open in about a second, so it's
+quicker to check something than to talk yourself out of checking it.
 
 ## Equipment and trucks (J1939)
 
