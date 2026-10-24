@@ -849,3 +849,37 @@ def test_obd2_is_its_own_profile(app, tmp_path):
     assert w2.profile.currentData() == "obd2" and "Fault Codes" not in {
         w2.tabs.widget(i).title for i in range(w2.tabs.count()) if w2.tabs.isTabVisible(i)}
     w2.close()
+
+
+def test_manage_profiles_dialog(app, monkeypatch):
+    from canopener.core import profiles
+    from canopener.gui.main_window import MainWindow
+    from canopener.gui.profiles_dialog import ProfilesDialog
+
+    w = MainWindow()
+
+    def picker():
+        return [w.profile.itemData(i) for i in range(1, w.profile.count())]
+    assert picker()[0] == "generic" and "sim-telehandler" in picker()
+    w.profile.setCurrentIndex(w.profile.findData("sim-telehandler"))
+    dlg = ProfilesDialog(w._all_profiles, "sim-telehandler", w)
+    ids = dlg.order()
+    i = ids.index("obd2")
+    dlg.list.setCurrentRow(i)
+    for _ in range(i):
+        dlg._move(-1)                                   # OBD-II to the top
+    row = dlg.order().index("sim-telehandler")
+    dlg.list.item(row).setCheckState(qt.Qt.CheckState.Unchecked)
+    assert "unticked" in dlg.current_note.text()        # it's the one in use: warned
+    dlg.accept()
+    w._load_profiles()
+    assert picker()[0] == "obd2" and "sim-telehandler" not in picker()
+    assert w.profile.currentData() == ""                # the hidden profile was in use: back to (none)
+    assert profiles.list_prefs()[1] == {"sim-telehandler"}
+    dlg = ProfilesDialog(w._all_profiles, "", w)        # still listed there, unticked, to turn back on
+    dlg._reset()
+    dlg._check_all(True)
+    dlg.accept()
+    w._load_profiles()
+    assert picker()[0] == "generic" and "sim-telehandler" in picker()
+    w.close()

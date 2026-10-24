@@ -288,6 +288,7 @@ class MainWindow(QtWidgets.QMainWindow):
             lambda on: self.settings.setValue("connect_on_startup", on))
         st.addAction(self.autoconnect_action)
         p = m.addMenu("&Profiles")
+        self._action(p, "&Manage profiles…", self._manage_profiles)
         self._action(p, "Reload profiles", self._load_profiles)
         self._action(p, "Open user profile folder", self._open_profile_dir)
         h = m.addMenu("&Help")
@@ -452,11 +453,12 @@ class MainWindow(QtWidgets.QMainWindow):
     def _load_profiles(self, preferred=None):
         current = preferred if isinstance(preferred, str) else self.profile.currentData()
         found, errors = profiles.available_profiles()
-        self._profiles = found
+        self._all_profiles = found
+        self._profiles = profiles.arrange(found)        # enabled ones, in the user's order (Manage profiles)
         self.profile.blockSignals(True)
         self.profile.clear()
         self.profile.addItem("(none)", "")
-        for p in found:
+        for p in self._profiles:
             self.profile.addItem(p.name + ("" if p.builtin else "  ★"), p.id)
             self.profile.setItemData(self.profile.count() - 1, p.description, Qt.ItemDataRole.ToolTipRole)
         idx = self.profile.findData(current)
@@ -466,6 +468,11 @@ class MainWindow(QtWidgets.QMainWindow):
         if errors:
             QtWidgets.QMessageBox.warning(self, "Profiles",
                                           "Some profiles could not be loaded:\n\n" + "\n".join(errors))
+
+    def _manage_profiles(self):
+        from .profiles_dialog import ProfilesDialog
+        if ProfilesDialog(self._all_profiles, self.profile.currentData() or "", self).exec():
+            self._load_profiles()
 
     def _profile_changed(self, *_):
         pid = self.profile.currentData()

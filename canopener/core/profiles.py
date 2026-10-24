@@ -270,3 +270,47 @@ def find(pid: str) -> Profile | None:
         if p.id == pid:
             return p
     return None
+
+
+# --- which profiles the picker offers, in what order (Profiles > Manage profiles) ------------
+# Kept in ~/.config/canopener/profile_list.json so every front-end shares it. Disabled profiles
+# stay installed (a plugin's, say) but aren't offered or auto-detected.
+
+def _list_path() -> str:
+    return os.path.join(config.config_dir(), "profile_list.json")
+
+
+def list_prefs() -> tuple[list[str], set[str]]:
+    """(order, disabled) as saved: profile ids, missing file = defaults."""
+    try:
+        with open(_list_path(), encoding="utf-8") as f:
+            doc = json.load(f)
+        return [str(x) for x in doc.get("order", [])], {str(x) for x in doc.get("disabled", [])}
+    except (OSError, ValueError, AttributeError):
+        return [], set()
+
+
+def save_list_prefs(order: list[str], disabled) -> None:
+    config.ensure_dir(config.config_dir())
+    with open(_list_path(), "w", encoding="utf-8") as f:
+        json.dump({"order": list(order), "disabled": sorted(disabled)}, f, indent=2)
+
+
+def arrange(found: list[Profile], include_disabled: bool = False) -> list[Profile]:
+    """Profiles in the user's order (ones not ordered yet keep their default place, after), without
+    the disabled ones unless asked."""
+    order, disabled = list_prefs()
+    rank = {pid: i for i, pid in enumerate(order)}
+    out = sorted(found, key=lambda p: (rank.get(p.id, len(rank)), found.index(p)))
+    return out if include_disabled else [p for p in out if p.id not in disabled]
+
+
+def origin(p: Profile) -> str:
+    """'built-in', 'plugin' or 'user', from where the file lives."""
+    if p.builtin:
+        return "built-in"
+    from .. import plugins
+    folder = os.path.dirname(os.path.abspath(p.path))
+    if any(folder == os.path.abspath(d) for d in plugins.extra_profile_dirs()):
+        return "plugin"
+    return "user"

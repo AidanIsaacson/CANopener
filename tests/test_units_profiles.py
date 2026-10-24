@@ -70,3 +70,24 @@ def test_profile_protocol():
     finally:
         profiles.apply(None)
     assert profiles.protocol() == profiles.J1939
+
+
+def test_profile_list_order_and_disabled(tmp_path, monkeypatch):
+    from canopener import plugins
+    plug = tmp_path / "plugin_profiles"
+    plug.mkdir()
+    (plug / "private-a.json").write_text(json.dumps({"name": "Private A"}))
+    monkeypatch.setattr(plugins, "extra_profile_dirs", lambda: [str(plug)])
+    found, _ = profiles.available_profiles()
+    ids = [p.id for p in found]
+    assert ids[0] == "generic" and "private-a" in ids
+    assert profiles.origin(found[ids.index("private-a")]) == "plugin"
+    assert profiles.origin(found[0]) == "built-in"
+    assert [p.id for p in profiles.arrange(found)] == ids          # nothing saved: default order, all on
+
+    profiles.save_list_prefs(["obd2", "private-a"], {"private-a"})
+    arranged = [p.id for p in profiles.arrange(found)]
+    assert arranged[0] == "obd2" and "private-a" not in arranged and arranged[1:] == [
+        i for i in ids if i not in ("obd2", "private-a")]          # unordered ones keep their place after
+    assert "private-a" in [p.id for p in profiles.arrange(found, include_disabled=True)]
+    assert profiles.list_prefs() == (["obd2", "private-a"], {"private-a"})
