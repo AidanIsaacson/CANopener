@@ -883,3 +883,58 @@ def test_manage_profiles_dialog(app, monkeypatch):
     w._load_profiles()
     assert picker()[0] == "generic" and "sim-telehandler" in picker()
     w.close()
+
+
+def test_update_dialog_and_restart(app, monkeypatch):
+    from canopener.core import updates
+    from canopener.gui.main_window import MainWindow
+    from canopener.gui.update_dialog import UpdateDialog
+
+    status = updates.UpdateStatus(True, "An update is available (version 0.1.5): 2 change(s).", latest="0.1.5",
+                                  behind=2, commits=["OBD-II freeze frame fixes", "Faster live data"],
+                                  changed=["canopener/obd/pids.py", "deploy/linux/70-canopener.rules"])
+    monkeypatch.setattr(updates, "check", lambda *a, **k: status)
+    applied = []
+    monkeypatch.setattr(updates, "apply", lambda *a, **k: applied.append(1) or (True, "Updated. Restart CANopener."))
+    w = MainWindow()
+    restarts = []
+    dlg = UpdateDialog(lambda: restarts.append(1), w)
+    pump(app, 0.5)
+    assert "0.1.5" in dlg.headline.text() and "Faster live data" in dlg.details.toPlainText()
+    assert "run the installer once" in dlg.details.toPlainText()            # deploy/ changed
+    assert dlg.install_btn.isEnabled() and dlg.restart_btn.isHidden()
+    dlg.install()
+    pump(app, 0.5)
+    assert applied and dlg.headline.text() == "Update installed." and not dlg.restart_btn.isHidden()
+    assert dlg.install_btn.isHidden()
+    dlg._restart()
+    assert restarts == [1]
+
+    # Up to date: nothing to install.
+    monkeypatch.setattr(updates, "check", lambda *a, **k: updates.UpdateStatus(True, "CANopener 0.1.4 is up to date."))
+    dlg = UpdateDialog(lambda: None, w)
+    pump(app, 0.5)
+    assert not dlg.install_btn.isEnabled() and "up to date" in dlg.headline.text()
+
+    # The startup check is opt-in (off by default), and only speaks up when there's an update.
+    assert not w.update_on_start.isChecked()
+    w.update_on_start.setChecked(True)
+    assert w.settings.value("update/check_on_start") in (True, "true")
+    monkeypatch.setattr(updates, "check", lambda *a, **k: status)
+    w._startup_update_check()
+    pump(app, 0.5)
+    assert "0.1.5" in w.update_action.text() and w._update_status is status
+
+    # Restart: a desktop app starts a fresh copy; under the Pi's systemd service it exits with
+    # the code the service restarts on.
+    started, exits = [], []
+    monkeypatch.setattr(qt.QtCore.QProcess, "startDetached", lambda *a: started.append(a) or True)
+    monkeypatch.setattr(qt.QtWidgets.QApplication, "quit", lambda *a: exits.append(0))
+    monkeypatch.setattr(qt.QtWidgets.QApplication, "exit", lambda *a: exits.append(a[-1]))
+    monkeypatch.setattr(updates, "under_systemd", lambda: False)
+    w.show()
+    assert w.restart_app() and started and started[0][1][:2] == ["-m", "canopener"] and exits == [0]
+    w2 = MainWindow()
+    w2.show()
+    monkeypatch.setattr(updates, "under_systemd", lambda: True)
+    assert w2.restart_app() and exits[-1] == updates.RESTART_EXIT_CODE

@@ -121,6 +121,12 @@ Hardware buttons for the Log tool's Start/Stop and Timestamp keys: see
 
 ## Updating
 
+On the Pi's screen: **Help → Check for updates…**, then **Install update** and **Restart now**
+(the service starts the new version). Over SSH: `canopener-cli update`. If the update changes the
+system setup, either one tells you to run the installer below once.
+
+The full update from a terminal:
+
 ```bash
 cd ~/CANopener && git pull
 ./deploy/raspberry-pi/install.sh --sudoers --autostart

@@ -299,6 +299,27 @@ def cmd_find(a) -> int:
     return 0
 
 
+def cmd_update(a) -> int:
+    from .core import updates
+    s = updates.check()
+    print(s.message)
+    if not s.ok:
+        return 1
+    for c in s.commits:
+        print(f"  * {c}")
+    if not s.available or a.check:
+        return 0
+    if s.ahead:
+        return 1
+    if not _confirm(f"Install the update{' to ' + s.latest if s.latest else ''}?", a.yes):
+        return 1
+    ok, msg = updates.apply(progress=print)
+    print(msg)
+    if ok:
+        print("(Running as the Pi's service? systemctl --user restart canopener)")
+    return 0 if ok else 1
+
+
 def cmd_capture(a) -> int:
     from .core.capture import Capture
     try:
@@ -396,6 +417,11 @@ def main(argv=None) -> int:
     sub.add_parser("allow-setup", help="install a sudoers rule so bringing up a CAN interface "
                    "needs no password (only 'ip link set canN ...', no stored password)"
                    ).set_defaults(fn=cmd_allow_setup)
+
+    up = sub.add_parser("update", help="check GitHub for a newer CANopener and install it (git pull)")
+    up.add_argument("--check", action="store_true", help="only check, don't install")
+    up.add_argument("--yes", action="store_true", help="install without asking")
+    up.set_defaults(fn=cmd_update)
 
     c = sub.add_parser("capture", help="re-generate and print a capture folder's summary")
     c.add_argument("folder")

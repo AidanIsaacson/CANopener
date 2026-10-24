@@ -25,7 +25,7 @@ menu entry and desktop icon:
 ```bash
 sudo apt update && sudo apt install -y git
 git clone https://github.com/AidanIsaacson/CANopener.git ~/CANopener
-~/CANopener/deploy/linux/install.sh            # update later with: install.sh --update
+~/CANopener/deploy/linux/install.sh            # update later: Help > Check for updates (or install.sh --update)
 ```
 
 ## What it does

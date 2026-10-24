@@ -12,7 +12,7 @@ from .context import AppContext
 from .export_dialog import ExportDialog
 from .hotkeys import Hotkeys, KeybindDialog
 from .log_panel import LogPanel
-from .qt import QT_API, Qt, QtCore, QtGui, QtWidgets
+from .qt import QT_API, Qt, QtCore, QtGui, QtWidgets, Signal
 from .request_dialog import RequestDialog
 from .settings_dialog import SoundDialog, UnitsDialog
 from .tab_codes import CodesTab
@@ -76,6 +76,8 @@ class PluginApi:
 
 
 class MainWindow(QtWidgets.QMainWindow):
+    _update_found = Signal(object)          # an UpdateStatus from the startup check's thread
+
     def __init__(self, ctx: AppContext | None = None):
         super().__init__()
         self.ctx = ctx or AppContext(self)
@@ -139,6 +141,8 @@ class MainWindow(QtWidgets.QMainWindow):
         QtWidgets.QApplication.instance().installEventFilter(self.hotkeys)
         self._build_menu()
         self._plugin_refresh: list = []
+        self._update_status = None
+        self._update_found.connect(self._show_update_found)
         self._load_plugins()
         self._build_status()
 
@@ -292,6 +296,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._action(p, "Reload profiles", self._load_profiles)
         self._action(p, "Open user profile folder", self._open_profile_dir)
         h = m.addMenu("&Help")
+        self.update_action = self._action(h, "Check for &updates…", self.check_updates)
+        self.update_on_start = QtGui.QAction("Check for updates at &startup", self, checkable=True)
+        self.update_on_start.setToolTip("When the app opens, quietly check GitHub; says something only if "
+                                        "there's an update. Off by default.")
+        self.update_on_start.setChecked(self.settings.value("update/check_on_start", "false") in (True, "true"))
+        self.update_on_start.toggled.connect(lambda on: self.settings.setValue("update/check_on_start", on))
+        h.addAction(self.update_on_start)
+        h.addSeparator()
         self._action(h, "&About", self._about)
 
     def _action(self, menu, text, fn, shortcut=None):
@@ -1007,6 +1019,50 @@ class MainWindow(QtWidgets.QMainWindow):
         if not getattr(self, "_checked_pending", False):
             self._checked_pending = True
             QtCore.QTimer.singleShot(300, self.log_panel.check_pending)
+            if self.update_on_start.isChecked():
+                QtCore.QTimer.singleShot(3000, self._startup_update_check)
+
+    # ------------------------------------------------------------------
+    # updates
+    # ------------------------------------------------------------------
+    def check_updates(self):
+        """Help > Check for updates (also where the startup check's result goes)."""
+        from .update_dialog import UpdateDialog
+        UpdateDialog(self.restart_app, self, status=self._update_status).exec()
+        self._update_status = None
+        self.update_action.setText("Check for &updates…")
+
+    def _startup_update_check(self):
+        """Opt-in (Help > Check for updates at startup), in the background. Only speaks up when
+        there is an update: offline in the field is normal, so a failed check says nothing."""
+        import threading
+
+        from ..core import updates
+
+        def work():
+            s = updates.check()
+            if s.available:
+                self._update_found.emit(s)
+        threading.Thread(target=work, name="update-check", daemon=True).start()
+
+    def _show_update_found(self, status):
+        self._update_status = status
+        self.update_action.setText(f"Update available ({status.latest or 'new'}): install…")
+        self.statusBar().showMessage(f"{status.message} Help > Update available to install it.", 30000)
+
+    def restart_app(self) -> bool:
+        """Close (asking about an unsaved capture as usual), then start the new version: under the
+        Pi's systemd service by exiting with the code it restarts on, else a fresh process."""
+        from ..core import updates
+        if not self.close():
+            return False
+        if updates.under_systemd():
+            QtWidgets.QApplication.instance().exit(updates.RESTART_EXIT_CODE)
+        else:
+            cmd = updates.restart_command()
+            QtCore.QProcess.startDetached(cmd[0], cmd[1:])
+            QtWidgets.QApplication.instance().quit()
+        return True
 
     def closeEvent(self, ev):
         if not self.log_panel.confirm_unsaved():

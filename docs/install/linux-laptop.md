@@ -116,6 +116,13 @@ get automatic recovery from bus-off.
 
 ## Updating
 
+In the app: **Help → Check for updates…** shows what's new, **Install update** downloads it, and
+**Restart now** opens the new version. It checks only when you ask, unless you tick **Help → Check
+for updates at startup** (off by default; it stays quiet unless there is an update). If an update also changes
+the system setup (drivers, rules), the window says so and shows the installer command to run once.
+
+From a terminal, the full update (code, drivers, rules and dependencies in one go):
+
 ```bash
 ~/CANopener/deploy/linux/install.sh --update
 ```

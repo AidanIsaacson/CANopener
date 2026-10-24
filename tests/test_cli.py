@@ -40,3 +40,15 @@ def test_obd_clear_needs_confirmation(capsys, monkeypatch):
     assert "ECM (7E8): cleared" in capsys.readouterr().out
     assert cli.main(["obd", "--sim", "--evap-test", "--yes"]) == 0
     assert "ECM (7E8): started" in capsys.readouterr().out
+
+
+def test_update_command(capsys, monkeypatch):
+    from canopener.core import updates
+    s = updates.UpdateStatus(True, "An update is available (version 0.1.5): 1 change(s).", latest="0.1.5",
+                             behind=1, commits=["Faster live data"])
+    monkeypatch.setattr(updates, "check", lambda *a, **k: s)
+    monkeypatch.setattr(updates, "apply", lambda *a, **k: (True, "Updated. Restart CANopener to use the new version."))
+    assert cli.main(["update", "--check"]) == 0
+    assert "Faster live data" in capsys.readouterr().out
+    assert cli.main(["update", "--yes"]) == 0
+    assert "Updated." in capsys.readouterr().out
