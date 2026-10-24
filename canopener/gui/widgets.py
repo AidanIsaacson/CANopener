@@ -71,7 +71,13 @@ def mono_font(size: int | None = None) -> QtGui.QFont:
     return f
 
 
-def setup_table(table: QtWidgets.QTableWidget, headers: list[str], stretch: tuple[int, ...] = ()):
+FIT_MAX = 420           # px: a column auto-fits up to this (one long description can't take the table)
+
+
+def setup_table(table: QtWidgets.QTableWidget, headers: list[str]):
+    """The app's table look and column rule: columns fit their contents, packed to the left, and
+    the last column takes the slack. Every column can be dragged wider / narrower; once someone
+    does, that table stops auto-fitting so it doesn't undo them."""
     table.setColumnCount(len(headers))
     table.setHorizontalHeaderLabels(headers)
     table.verticalHeader().setVisible(False)
@@ -80,8 +86,38 @@ def setup_table(table: QtWidgets.QTableWidget, headers: list[str], stretch: tupl
     table.setAlternatingRowColors(True)
     hh = table.horizontalHeader()
     hh.setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Interactive)
-    for c in stretch:
-        hh.setSectionResizeMode(c, QtWidgets.QHeaderView.ResizeMode.Stretch)
+    hh.setStretchLastSection(True)
+    # Fit once the rows are in: a 0 ms timer runs after the code filling the table has finished.
+    timer = QtCore.QTimer(table)
+    timer.setSingleShot(True)
+    timer.setInterval(0)
+    timer.timeout.connect(lambda: fit_columns(table))
+    table.model().rowsInserted.connect(lambda *_: timer.start())
+    table.model().modelReset.connect(lambda *_: timer.start())
+
+    def resized(index, _old, _new):
+        # A drag with the mouse (not our own fitting, nor the stretching last column) is the user's call.
+        if index < table.columnCount() - 1 and not table.property("fitting") and \
+                QtWidgets.QApplication.mouseButtons() & Qt.MouseButton.LeftButton:
+            table.setProperty("user_sized", True)
+    hh.sectionResized.connect(resized)
+
+
+def fit_columns(table: QtWidgets.QTableWidget, cap: int = FIT_MAX):
+    """Size every column but the last (which stretches) to its contents, up to ``cap``. Does
+    nothing once the user has resized a column of this table."""
+    if table.property("user_sized"):
+        return
+    table.setProperty("fitting", True)
+    try:
+        for c in range(table.columnCount() - 1):
+            if table.isColumnHidden(c):
+                continue
+            table.resizeColumnToContents(c)
+            if table.columnWidth(c) > cap:
+                table.setColumnWidth(c, cap)
+    finally:
+        table.setProperty("fitting", False)
 
 
 def item(text, align_right: bool = False, data=None) -> QtWidgets.QTableWidgetItem:

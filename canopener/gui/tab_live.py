@@ -64,12 +64,11 @@ class LiveTab(QtWidgets.QWidget):
 
         split = QtWidgets.QSplitter(Qt.Orientation.Vertical)
         self.table = QtWidgets.QTableWidget()
-        # The signal name gets a fixed, readable width and Group takes up the slack: with the Log
-        # panel open on a 1280-wide laptop the table has ~850 px, and a stretching name column
-        # used to be squeezed to "En...".
+        # Starting widths until the first rows arrive; then the columns fit their contents
+        # (setup_table's rule) and stay where the user drags them.
         cols = list(COLS)
         cols[C_SRC], (cols[C_PGN], cols[C_SPN]) = self.model.source_header, self.model.id_headers
-        setup_table(self.table, cols, stretch=(C_GROUP,))
+        setup_table(self.table, cols)
         for c, w in ((C_PLOT, 44), (C_NAME, 210), (C_VALUE, 90), (C_UNIT, 55), (C_MIN, 70), (C_MAX, 70),
                      (C_SRC, 110), (C_PGN, 55), (C_SPN, 55), (C_AGE, 50)):
             self.table.setColumnWidth(c, w)

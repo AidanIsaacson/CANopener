@@ -107,7 +107,7 @@ class ObdTab(QtWidgets.QWidget):
         row.addWidget(self.mil_label)
         lay.addLayout(row)
         self.codes = QtWidgets.QTableWidget()
-        setup_table(self.codes, ["Module", "Type", "Code", "Description"], stretch=(3,))
+        setup_table(self.codes, ["Module", "Type", "Code", "Description"])
         self.codes.itemSelectionChanged.connect(self._code_selected)
         lay.addWidget(self.codes, 1)
         row = QtWidgets.QHBoxLayout()
@@ -149,7 +149,7 @@ class ObdTab(QtWidgets.QWidget):
         row.addStretch(1)
         lay.addLayout(row)
         self.freeze = QtWidgets.QTableWidget()
-        setup_table(self.freeze, ["Module", "Parameter", "Value"], stretch=(1,))
+        setup_table(self.freeze, ["Module", "Parameter", "Value"])
         lay.addWidget(self.freeze, 1)
         return w
 
@@ -168,7 +168,7 @@ class ObdTab(QtWidgets.QWidget):
         self.ready_summary.setStyleSheet("font-size: 13pt; font-weight: bold;")
         lay.addWidget(self.ready_summary)
         self.readiness = QtWidgets.QTableWidget()
-        setup_table(self.readiness, ["Module", "Monitor", "Status"], stretch=(1,))
+        setup_table(self.readiness, ["Module", "Monitor", "Status"])
         lay.addWidget(self.readiness, 1)
         return w
 
@@ -210,7 +210,7 @@ class ObdTab(QtWidgets.QWidget):
         row.addStretch(1)
         lay.addLayout(row)
         self.results = QtWidgets.QTableWidget()
-        setup_table(self.results, ["Module", "Monitor", "Test", "Value", "Min", "Max", "Result"], stretch=(1, 2))
+        setup_table(self.results, ["Module", "Monitor", "Test", "Value", "Min", "Max", "Result"])
         lay.addWidget(self.results, 1)
         return w
 
@@ -228,7 +228,7 @@ class ObdTab(QtWidgets.QWidget):
         row.addWidget(self.vin_label)
         lay.addLayout(row)
         self.info = QtWidgets.QTableWidget()
-        setup_table(self.info, ["Module", "Item", "Value"], stretch=(2,))
+        setup_table(self.info, ["Module", "Item", "Value"])
         lay.addWidget(self.info, 1)
         return w
 

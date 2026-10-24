@@ -61,10 +61,7 @@ class CodesTab(QtWidgets.QWidget):
 
         split = QtWidgets.QSplitter(Qt.Orientation.Vertical)
         self.table = QtWidgets.QTableWidget()
-        setup_table(self.table, COLS, stretch=(3, 5))
-        for c, w in zip(range(len(COLS)), (95, 180, 90, 0, 45, 0, 55, 260, 80)):
-            if w:
-                self.table.setColumnWidth(c, w)
+        setup_table(self.table, COLS)
         self.table.itemSelectionChanged.connect(self.show_detail)
         split.addWidget(self.table)
 

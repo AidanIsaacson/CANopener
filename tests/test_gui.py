@@ -988,3 +988,35 @@ def test_obd_quiet_gateway_port_is_not_a_dropout(app, monkeypatch):
     assert cues == []                                    # stopping the stream isn't "traffic lost"
     w.disconnect()
     w.close()
+
+
+def test_table_columns_fit_contents_and_stay_where_dragged(app):
+    from canopener.gui.widgets import FIT_MAX, setup_table
+
+    t = qt.QtWidgets.QTableWidget()
+    setup_table(t, ["Module", "Parameter", "Value"])
+    t.resize(900, 300)
+    t.show()
+    t.setRowCount(2)
+    for r, cells in enumerate((["ECM (7E8)", "Engine speed", "2150 rpm"],
+                               ["ECM (7E8)", "Caused by", "P0133  O2 Sensor Circuit Slow Response (Bank 1 Sensor 1)"])):
+        for c, text in enumerate(cells):
+            t.setItem(r, c, qt.QtWidgets.QTableWidgetItem(text))
+    pump(app, 0.1)
+    fm = t.fontMetrics()
+    assert t.columnWidth(1) < 300                                  # fits "Engine speed", not stretched
+    assert t.columnWidth(1) >= fm.horizontalAdvance("Engine speed")
+    assert t.horizontalHeader().stretchLastSection()               # the last column takes the slack
+    assert t.columnWidth(0) + t.columnWidth(1) + t.columnWidth(2) >= t.viewport().width() - 2
+    # A long cell is capped, so it can't push everything else off.
+    t.setRowCount(3)
+    t.setItem(2, 0, qt.QtWidgets.QTableWidgetItem("x" * 300))
+    pump(app, 0.1)
+    assert t.columnWidth(0) <= FIT_MAX
+    # Dragged by the user: their width stays, even when the table refills.
+    t.setProperty("user_sized", True)
+    t.setColumnWidth(1, 333)
+    t.setRowCount(5)
+    pump(app, 0.1)
+    assert t.columnWidth(1) == 333
+    t.close()
