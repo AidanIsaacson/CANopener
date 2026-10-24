@@ -6,12 +6,12 @@ record what happens while you work the machine.
 
 **For now, just this program.** With active development for a Raspberry Pi-based handheld, packed with features to make it an all-in-one electrical and electronic diagnostic platform.
 
-* **Features Techs actually want** Error codes take you to the indicated sensor, a signal finder that chimes when you pick up or lose CAN
+* **Features Techs actually want:** Error codes take you to the indicated sensor, a signal finder that chimes when you pick up or lose CAN
   signal, a Log tool that records *everything* with timestamps you tag from the keyboard, with playback, and one-click
   export to a USB stick.
   Easy setup, clear indicators, configurable layout and controls.
-* **Not ones we don't** NEVER ANY $1000 Dongles, proprietary nonsense, or gatekeeping.
- **Supports:**
+* **Not ones we don't:**  NEVER ANY $1000 Dongles, proprietary nonsense, or gatekeeping.
+  **Supports:**
 * **Equipment and trucks (J1939):** forklifts, telehandlers, loaders, generators, on-highway
   trucks. Active and stored codes with warning lamps, ~35 live engine and chassis values, every
   module on the bus.
@@ -39,7 +39,7 @@ For a **Raspberry Pi** that starts CANopener full screen at power-on: [Raspberry
 **Updating:** **Help → Check for updates…**, then **Install update** and **Restart now**.
 (Tick **Help → Check for updates at startup** to be told when there's one.)
 
-## Hooking up
+## Hooking up ( ͡° ͜ʖ ͡°)
 
 **Adapters:** any that Linux sees as a CAN interface: CANable / candleLight, PEAK, Kvaser,
 8devices, or a CAN HAT on a Pi. The installer sets up the CANable (both firmwares) for you.
