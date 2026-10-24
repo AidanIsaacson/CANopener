@@ -33,7 +33,7 @@ git clone https://github.com/AidanIsaacson/CANopener.git ~/CANopener
 
 You get CANopener in the app menu and on the desktop, plus the drivers for USB CAN adapters.
 Step by step, with your adapter: [Linux laptop guide](docs/install/linux-laptop.md).
-For a **Raspberry Pi** that starts CANopener full screen at power-on: [Raspberry Pi guide](docs/install/raspberry-pi.md).
+For a **Raspberry Pi** that starts CANopener full screen at power-on: [Raspberry Pi guide](docs/install/raspberry-pi.md) [Untested].
 
 **Try it without a machine:** open **🔌 Connection**, pick **Simulator** (a telehandler) or
 **OBD-II simulator (car)**, and press **Connect**.
