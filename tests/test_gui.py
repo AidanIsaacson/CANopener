@@ -958,3 +958,33 @@ def test_update_dialog_and_restart(app, monkeypatch):
     w2.show()
     monkeypatch.setattr(updates, "under_systemd", lambda: True)
     assert w2.restart_app() and exits[-1] == updates.RESTART_EXIT_CODE
+
+
+def test_obd_quiet_gateway_port_is_not_a_dropout(app, monkeypatch):
+    from canopener.core import connection, link
+    from canopener.gui.main_window import MainWindow
+
+    w = MainWindow()
+    w.show()
+    cues = []
+    monkeypatch.setattr(w.conn_panel, "cue", lambda name, **k: cues.append(name))
+    w.source.setCurrentIndex(w.source.findData(connection.OBD_SIM))
+    w.connect()
+    o = w.obd
+    o.check_codes()
+    assert _wait(app, lambda: not o._jobs)
+    # The simulated car is gatewayed: silent unless asked. Modules answered, so quiet = fine.
+    assert _wait(app, lambda: w.bus_lamp.level == link.IDLE, 6)
+    assert "gateway" in w.bus_lamp.text() and cues == []
+    o.start_stream()                                     # (finds the PIDs first)
+    o.stop_stream()                                      # Stop before it got going: cancels the start
+    assert _wait(app, lambda: not o._jobs)
+    pump(app, 0.3)
+    assert not o._streaming and o.stream_btn.text() == "▶ Stream"
+    o.start_stream()
+    assert _wait(app, lambda: o._streaming and w.bus_lamp.level == link.OK, 6)
+    o.stop_stream()
+    assert _wait(app, lambda: w.bus_lamp.level == link.IDLE, 6)
+    assert cues == []                                    # stopping the stream isn't "traffic lost"
+    w.disconnect()
+    w.close()

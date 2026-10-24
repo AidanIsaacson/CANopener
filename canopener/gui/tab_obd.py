@@ -52,6 +52,7 @@ class ObdTab(QtWidgets.QWidget):
         self._jobs = 0
         self._streaming = False
         self._auto_stream = False       # started by the Log tool's recording
+        self._stream_pending = False    # Stream pressed before any PIDs were known: start after the read
         self._poll: list[tuple[int, int]] = []
         self._rate = 0.0
         self._freeze_by_ecu: dict = {}
@@ -247,6 +248,11 @@ class ObdTab(QtWidgets.QWidget):
         if session is not None and session.offline:
             self._show_log()         # the Live Data page has decoded the log by now
         self._update_enabled()
+
+    @property
+    def polling(self) -> bool:
+        """Asking the car something right now (streaming, or a read / command in progress)."""
+        return self._streaming or self._jobs > 0
 
     @property
     def can_talk(self) -> bool:
@@ -540,7 +546,7 @@ class ObdTab(QtWidgets.QWidget):
         return polled
 
     def toggle_stream(self):
-        if self._streaming:
+        if self._streaming or self._stream_pending:
             self.stop_stream()
         else:
             self.start_stream()
@@ -549,8 +555,12 @@ class ObdTab(QtWidgets.QWidget):
         if not self.can_talk or self._streaming:
             return
         if not self.model.order:
-            self.read_live(then=self.start_stream)     # nothing to poll yet: find the PIDs first
+            # Nothing to poll yet: find the PIDs first. Stop pressed meanwhile cancels the start.
+            self._stream_pending = True
+            self.stream_btn.setText("■ Stop")
+            self.read_live(then=self._start_pending)
             return
+        self._stream_pending = False
         self._streaming = True
         self._poll = self._poll_list()
         self.stream_btn.setText("■ Stop")
@@ -575,8 +585,18 @@ class ObdTab(QtWidgets.QWidget):
         self._stream_thread.start()
         self._update_enabled()
 
+    def _start_pending(self):
+        if self._stream_pending and self.model.order:
+            self.start_stream()
+        else:
+            self._stream_pending = False
+            self.stream_btn.setText("▶ Stream")
+
     def stop_stream(self):
         self._auto_stream = False
+        if self._stream_pending:
+            self._stream_pending = False
+            self.stream_btn.setText("▶ Stream")
         if not self._streaming:
             return
         self._streaming = False

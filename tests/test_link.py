@@ -260,3 +260,24 @@ def test_buzzer_spec_and_nothing_to_play(monkeypatch):
     monkeypatch.setattr(sound, "find_beeper", lambda *a: None)
     assert sound.play("found") is False                    # front-end falls back to its own beep
     assert sound.play("nope") is False
+
+
+def test_bus_status_gatewayed_obd_port():
+    class Backend:
+        can_transmit = True
+    s = Session(Backend())
+    now = 1000.0
+    # Never answered: plain "no traffic" (probes? key?).
+    assert link.bus_status(s, now, last_answer=0.0).level == link.WAIT
+    # Modules answered earlier, nobody asking now: a gatewayed port between requests, fine.
+    st = link.bus_status(s, now, last_answer=now - 30)
+    assert st.level == link.IDLE and "gateway" in st.text
+    # Asking and no answer: a real dropout.
+    st = link.bus_status(s, now, last_answer=now - 30, polling=True)
+    assert st.level == link.WAIT and "no answer" in st.text
+    # Traffic, error frames and link errors win as before.
+    s.last_rx_t = now - 0.5
+    assert link.bus_status(s, now, last_answer=now - 30).level == link.OK
+    s.last_rx_t = 0.0
+    s.health.last_error, s.health.last_error_t = "bus error", now - 1
+    assert link.bus_status(s, now, last_answer=now - 30).level == link.BAD

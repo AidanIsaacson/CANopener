@@ -52,6 +52,7 @@ class ObdSniffer:
     names: dict = field(default_factory=dict)         # ecu -> "ECM" (Mode 09 PID 0A)
     events: list = field(default_factory=list)        # (t, text)
     extended: bool | None = None                      # 29-bit seen (None: no OBD traffic yet)
+    last_answer_t: float = 0.0                        # when a module last answered (0: never)
 
     def __post_init__(self):
         self._reasm = IsoTpReassembler()
@@ -87,6 +88,7 @@ class ObdSniffer:
         if resp is None:
             return []
         self.extended = extended
+        self.last_answer_t = t
         self._answer(t, can_id, resp)
         return [(can_id, resp)]
 

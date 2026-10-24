@@ -17,7 +17,8 @@ MARKER_COLOR = "#c2255c"
 SERIES_COLORS = ["#1c7ed6", "#e8590c", "#2f9e44", "#ae3ec9", "#c92a2a", "#0c8599", "#5c940d", "#862e9c"]
 
 
-STATUS_COLORS = {"ok": "#2f9e44", "wait": "#f08c00", "bad": "#e03131", "off": "#868e96", "sim": "#1c7ed6"}
+STATUS_COLORS = {"ok": "#2f9e44", "wait": "#f08c00", "bad": "#e03131", "off": "#868e96", "sim": "#1c7ed6",
+                 "idle": "#748ffc"}
 
 
 class StatusLamp(QtWidgets.QLabel):

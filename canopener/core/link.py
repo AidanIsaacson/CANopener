@@ -20,6 +20,7 @@ from . import interfaces
 from .connection import REPLAY, SOCKETCAN
 
 OK, WAIT, BAD, OFF, SIM = "ok", "wait", "bad", "off", "sim"      # lamp colours: green / amber / red / grey / blue
+IDLE = "idle"           # quiet but fine: a gatewayed OBD-II port with nobody asking (indigo, no chime)
 QUIET_SECS = 2.0            # no good frame for this long = no traffic
 
 
@@ -51,8 +52,14 @@ def adapter_status(kind: str, name: str, found: list | None = None, usb: list | 
     return Status(BAD, "No adapter", "No CAN adapter found. Is it plugged into this computer?")
 
 
-def bus_status(session, now: float | None = None, quiet: float = QUIET_SECS) -> Status:
-    """Is the connected adapter hearing the machine? ``session`` may be None (not connected)."""
+def bus_status(session, now: float | None = None, quiet: float = QUIET_SECS, last_answer: float = 0.0,
+               polling: bool = False) -> Status:
+    """Is the connected adapter hearing the machine? ``session`` may be None (not connected).
+
+    For an OBD-II car pass ``last_answer`` (when a module last answered a request, 0 = never) and
+    ``polling`` (the app is asking right now). Behind a security gateway the diagnostic port is
+    silent unless a tester asks, so a quiet bus after modules have answered is normal (IDLE), not
+    a lost connection. Silence while polling still is one."""
     if session is None:
         return Status(OFF, "Bus: not connected", "Not connected to a bus.")
     if session.offline:
@@ -66,6 +73,12 @@ def bus_status(session, now: float | None = None, quiet: float = QUIET_SECS) -> 
     if h.last_error and now - h.last_error_t <= quiet:
         return Status(BAD, "Bus: errors only", f"Only error frames ({h.last_error}): wrong bitrate, or "
                       "CAN-H / CAN-L swapped or on the wrong wires?")
+    if last_answer and not polling:
+        return Status(IDLE, "Bus: quiet (gateway?)",
+                      "Modules answered, and the port is quiet between requests: this car's diagnostic port "
+                      "only carries traffic when asked (a security gateway). Stream or Check codes to talk to it.")
+    if last_answer and polling:
+        return Status(WAIT, "Bus: no answer", "Asking, but the modules stopped answering. Key off? Probe moved?")
     return Status(WAIT, "Bus: no traffic", "Connected but hearing nothing. Key on? Probes on CAN-H and CAN-L?")
 
 

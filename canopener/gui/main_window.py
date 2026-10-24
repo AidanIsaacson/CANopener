@@ -973,6 +973,9 @@ class MainWindow(QtWidgets.QMainWindow):
         adapter = self._adapter
         if self.conn_panel.finding:
             bus = link.Status(link.WAIT, "Bus: finding signal…", "The signal finder is listening; see Connection.")
+        elif self._protocol == profiles.OBD2 and session is not None and not session.offline:
+            bus = link.bus_status(session, now, last_answer=self.obd.model.sniffer.last_answer_t,
+                                  polling=self.obd.polling)
         else:
             bus = link.bus_status(session, now)
         self.adapter_lamp.set_status(adapter.level, adapter.text, adapter.detail)
@@ -983,7 +986,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if bus.level != link.OK and now - session.started_at < link.QUIET_SECS:
             return                  # just connected: the first frames haven't had time to arrive
         was, self._bus_level = self._bus_level, bus.level
-        if was == link.OK and bus.level != link.OK:
+        if bus.level == link.IDLE or was == link.IDLE:
+            pass                    # a gatewayed car going quiet between requests (or asked again): fine
+        elif was == link.OK and bus.level != link.OK:
             self.conn_panel.cue("lost", link_status=True)
         elif was in (link.WAIT, link.BAD) and bus.level == link.OK:
             # Connected first, probes moved after: the first good traffic is "found", later ones "back".

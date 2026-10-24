@@ -159,7 +159,7 @@ class ConnectionPanel(QtWidgets.QDockWidget):
     def show_status(self, adapter: link.Status, bus: link.Status):
         self.adapter_lamp.set_status(adapter.level, adapter.text, adapter.detail)
         self.bus_lamp.set_status(bus.level, bus.text, bus.detail)
-        bad = [s.detail for s in (adapter, bus) if s.level in (link.BAD, link.WAIT)]
+        bad = [s.detail for s in (adapter, bus) if s.level in (link.BAD, link.WAIT, link.IDLE)]
         self.status_detail.setText("\n".join(bad))
 
     def cue(self, name: str, link_status: bool = False):
