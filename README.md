@@ -111,7 +111,7 @@ someone.
 ![Recording a job: three tagged timestamps drawn as lines on the live chart, with the Log panel listing them](docs/images/log-timestamps.png)
 *Three timestamps tagged with the spacebar, drawn on the chart of the readings you ticked.*
 
-Did you *actually* have to drive the machine around for an hour? Logs record indefinitely for ~500MB of storage per hour.
+Did you *actually* have to drive the machine around for an hour? Logs record for as long as you have disk space, about 100-170 MB per hour on a busy bus.
 After the log is stopped, you have the option to trim it to just the area you timestamped!
 
 (All the details: [Recording a job](#recording-a-job-the-log-tool).)
