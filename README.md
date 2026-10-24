@@ -7,9 +7,9 @@ record what happens while you work the machine.
 **For now, just this program.** With active development for a Raspberry Pi-based handheld, packed with features to make it an all-in-one electrical and electronic diagnostic platform.
 
 * **Features Techs actually want:** Error codes take you to the indicated sensor, a signal finder that chimes when you pick up or lose CAN
-  signal, a Log tool that records *everything* with timestamps you tag from the keyboard, with playback, and one-click
+  signal, a [Log tool](#recording-a-job-the-log-tool) that records *everything* with timestamps you tag from the keyboard, with playback, and one-click
   export to a USB stick.
-  Easy setup, clear indicators, configurable layout and controls.
+  **Easy setup, clear indicators, configurable layout and controls.**
 * **Not ones we don't:**  NEVER ANY $1000 Dongles, proprietary nonsense, or gatekeeping.
 
 **Supports:**
@@ -31,7 +31,7 @@ git clone https://github.com/AidanIsaacson/CANopener.git ~/CANopener
 ~/CANopener/deploy/linux/install.sh
 ```
 
-You get CANopener in the app menu and on the desktop, plus the drivers for USB CAN adapters.
+That gets you CANopener in the app menu and on the desktop, plus the drivers for USB CAN adapters.
 Step by step, with your adapter: [Linux laptop guide](docs/install/linux-laptop.md).
 For a **Raspberry Pi** that starts CANopener full screen at power-on: [Raspberry Pi guide](docs/install/raspberry-pi.md) [Untested].
 
@@ -41,17 +41,17 @@ For a **Raspberry Pi** that starts CANopener full screen at power-on: [Raspberry
 **Updating:** **Help → Check for updates…**, then **Install update** and **Restart now**.
 (Tick **Help → Check for updates at startup** to be told when there's one.)
 
-## Hooking up ( ͡° ͜ʖ ͡°)
+## Hooking up (¬‿¬)
 
-**Adapters:** any that Linux sees as a CAN interface: CANable / candleLight, PEAK, Kvaser,
-8devices, or a CAN HAT on a Pi. The installer sets up the CANable (both firmwares) for you.
+**Use any adapter** that Linux sees as a CAN interface: CANable / candleLight, PEAK, Kvaser,
+8devices, or a CAN HAT on a Pi. The installer sets up the CANable (both firmwares) for you. Currently developed on the CANable 2.0 Pro.
 
-1. Plug the adapter into the laptop and connect it to the machine's diagnostic port. Key on.
+1. Plug the adapter into the laptop and connect it to CAN HI&LO (the machine's diagnostic port, or back-probe any CAN HI/LO pair) Key on.
 2. Open **🔌 Connection** (top left, or **F3**). Pick **SocketCAN adapter**, then the bitrate:
-   **250k** for most equipment and trucks, **500k** for cars and some newer machines, or **Auto**.
+   **250k** for most equipment and trucks, **500k** for cars and some newer machines, or **Auto** to scan baud rates.
    Press **Connect**.
-3. Two lamps at the bottom of the window tell you where you stand:
-   * **Adapter:** is the adapter plugged in and on?
+3. Two lamps at the bottom of the window or **🔌 Connection** panel tell you where you stand:
+   * **Adapter:** is the adapter plugged in and working?
    * **Bus:** is it hearing the machine? Green = traffic, amber = connected but silent (key on?
      probes on CAN-H / CAN-L?), red = errors only (wrong bitrate, or the wires swapped).
 
@@ -59,29 +59,31 @@ For a **Raspberry Pi** that starts CANopener full screen at power-on: [Raspberry
 
 ### It tells you when your probes land
 
-Back-probing a harness for CAN-H and CAN-L usually means moving a probe, walking back to the
-laptop, squinting at the screen, and walking back again. Here you press **Find signal** in the
-Connection panel (or **F4**) and go do the probing. It listens the whole time, without sending a
+Back-probing connectors is iffy at best, and CAN needs a solid connection. That would usually mean jiggling a probe, walking back to the
+laptop, squinting at the screen, realizing it wasn't at the right angle, and walking back again. Here you press **Find signal** in the
+**🔌 Connection** panel (or **F4**) and go do the probing. It listens the whole time, without sending a
 thing, and **chimes** as soon as it hears steady traffic, usually within 5 seconds of a good probe
-position. Then it locks the bitrate in and connects. Once connected, a falling tone tells you the
+position. Then it locks in the bitrate and connects. Once connected, a falling tone tells you the
 traffic dropped out (a probe slipped) and a rising one that it's back, so you can keep your head
 in the machine. Both chimes can be switched off in the Connection panel. Turn the laptop volume
 up, or wire a buzzer to a Pi (**Settings → Sound cues**).
 
 ### From a code straight to its sensor
 
-My favourite. When you pull codes and a code points at a specific sensor, **there's a button that
-pulls that sensor up in Live Data**, already ticked and charting. No hunting through a list of
+**My favorite!** When you pull codes and a code points at a specific sensor, ***there's a button that
+pulls that sensor up in Live Data***, already ticked and charting. No hunting through a list of
 fifty values for the right one. On J1939 it's **Show this parameter in Live Data**; on a car
 it's **Show in Live Data**, and if the car stored a freeze frame for that code, **Show freeze
 frame** takes you to the snapshot from the moment it was set.
 
 ### Data logs built for the fault that only happens sometimes
 
-You know the call: *"It runs about ten minutes, shuts down, then you have to wait 30 seconds and
-cycle the key twice before it'll start again."* A data log lets you reproduce that and pick it
-apart afterwards, and the Log tool is built around exactly that job. Before you start, list the
-moments you expect:
+Customer states: *"It runs about ten minutes, shuts down, then you have to wait 30 seconds and
+cycle the key twice before it'll start again."* A data log guarantees that when you reproduce that
+fault after an hour of driving in circles, you have the data you need, and can pick it
+apart afterwards. The Log tool is built around exactly that job.
+
+Before you start, list the moments you expect:
 
 1. Key on, start: **slap the spacebar** (timestamp 1)
 2. Drive it around
@@ -94,7 +96,12 @@ on the bus for the whole run**. Afterwards, tick just the readings you care abou
 charted with **your timestamps drawn as lines on the graph**, so you can see exactly what oil
 pressure, voltage or engine speed were doing at the moment it quit. The saved capture also has a
 plain-text timeline of codes coming and going against those same timestamps, ready to send to
-someone. (All the details: [Recording a job](#recording-a-job-the-log-tool).)
+someone.
+
+Did you *actually* have to drive the machine around for an hour? Logs record indefinitely for ~500MB of storage per hour.
+After the log is stopped, you have the option to trim it to just the area you timestamped!
+
+(All the details: [Recording a job](#recording-a-job-the-log-tool).)
 
 ### It opens in about a second
 
