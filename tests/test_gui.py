@@ -754,7 +754,7 @@ def test_connection_sidebar_lamps_and_signal_finder(app, tmp_path, monkeypatch):
     # The connection controls live in the Connection sidebar now, not the toolbar.
     assert w.conn_panel.isAncestorOf(w.source) and w.conn_panel.isAncestorOf(w.connect_btn)
     cues = []
-    monkeypatch.setattr(w.conn_panel, "cue", cues.append)
+    monkeypatch.setattr(w.conn_panel, "cue", lambda name, **k: cues.append((name, k.get("link_status"))))
 
     # Simulator: blue adapter lamp, then green bus lamp once traffic flows.
     w.source.setCurrentIndex(w.source.findData(connection.SIMULATOR))
@@ -766,8 +766,28 @@ def test_connection_sidebar_lamps_and_signal_finder(app, tmp_path, monkeypatch):
     w.ctx.session.last_rx_t = 0.0
     w.ctx.connection.simulator.stop()
     pump(app, 2.6)
-    assert w.bus_lamp.level == link.WAIT and cues == ["lost"]
+    assert w.bus_lamp.level == link.WAIT and cues == [("lost", True)]
     w.disconnect()
+    monkeypatch.undo()
+
+    # Its own checkbox, under the lamps (shown for every source): off = no traffic chimes, while
+    # the signal finder's lock-on chime keeps its own setting.
+    from canopener.core import sound
+    played = []
+    monkeypatch.setattr(sound, "play", lambda name, **k: played.append(name) or True)
+    p = w.conn_panel
+    assert p.link_sound.isChecked() and not p.link_sound.isHidden()
+    p.link_sound.setChecked(False)
+    assert w.settings.value("sound/link_cues") in (False, "false")
+    p.cue("lost", link_status=True)
+    p.cue("found")
+    assert played == ["found"]
+    p.link_sound.setChecked(True)
+    p.cue("back", link_status=True)
+    assert played == ["found", "back"]
+    monkeypatch.setattr(w.conn_panel, "cue", lambda name, **k: cues.append((name, k.get("link_status"))))
+    monkeypatch.setattr(interfaces, "list_interfaces", lambda *a, **k: [interfaces.CanInterface("can0", "up")])
+    monkeypatch.setattr(interfaces, "usb_adapters", lambda *a, **k: [])
 
     # Signal finder: Auto without passwordless access asks first (declined: nothing starts).
     w.source.setCurrentIndex(w.source.findData(connection.SOCKETCAN))
@@ -803,7 +823,7 @@ def test_connection_sidebar_lamps_and_signal_finder(app, tmp_path, monkeypatch):
     w.conn_panel.handle_event(link.FinderEvent("locked", "Locked on 500k", 500000, 40, 0))
     assert not w.conn_panel.finding and w.connect_btn.isEnabled()
     assert w.bitrate.currentData() == 500000 and "LOCKED" in w.conn_panel.finder_state.text()
-    assert cues[-1] == "found" and connects == [1]
+    assert cues[-1] == ("found", None) and connects == [1]           # the finder's chime, not a link cue
     assert int(w.settings.value("finder/last_bitrate")) == 500000
     w.close()
 

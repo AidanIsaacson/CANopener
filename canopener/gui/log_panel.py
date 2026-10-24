@@ -24,6 +24,7 @@ STAMP_STYLE = BIG + "background: #1c7ed6; color: white; border-radius: 6px;"
 NEXT_BG = QtGui.QColor("#d0ebff")
 COL_NUM, COL_NAME, COL_TIME, COL_NOTE = range(4)
 FLASH_BG = QtGui.QColor("#b2f2bb")
+DARK_TEXT = QtGui.QColor("#212529")      # on the light highlights, so a dark theme stays readable
 
 
 class LogPanel(QtWidgets.QDockWidget):
@@ -642,6 +643,7 @@ class LogPanel(QtWidgets.QDockWidget):
             for it in (num, title, when, note):
                 if i == nxt and c.state == cap.RECORDING:
                     it.setBackground(NEXT_BG)
+                    it.setForeground(DARK_TEXT)
                     f = it.font()
                     f.setBold(True)
                     it.setFont(f)
@@ -702,5 +704,6 @@ class LogPanel(QtWidgets.QDockWidget):
                     it = self.table.item(i, col)
                     if it is not None:
                         it.setBackground(FLASH_BG)
+                        it.setForeground(DARK_TEXT)
                 self._rebuilding = False
 

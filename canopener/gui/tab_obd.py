@@ -28,6 +28,7 @@ from .widgets import item, setup_table
 BAD = QtGui.QColor("#ffc9c9")
 WARN = QtGui.QColor("#ffec99")
 CAUSE = QtGui.QColor("#d0ebff")
+DARK_TEXT = QtGui.QColor("#212529")
 P_CODES, P_LIVE, P_FREEZE, P_READY, P_TESTS, P_RESULTS, P_INFO = range(7)
 POLL_GAP = 0.01         # between live-data requests: ~100/s at most, polite to a busy gateway
 
@@ -305,6 +306,7 @@ class ObdTab(QtWidgets.QWidget):
                 it = item(str(text))
                 if colors and r in colors:
                     it.setBackground(colors[r])
+                    it.setForeground(DARK_TEXT)     # light highlight: keep the text readable in a dark theme
                 table.setItem(r, c, it)
 
     def tick(self):

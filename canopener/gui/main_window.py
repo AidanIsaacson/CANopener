@@ -984,10 +984,10 @@ class MainWindow(QtWidgets.QMainWindow):
             return                  # just connected: the first frames haven't had time to arrive
         was, self._bus_level = self._bus_level, bus.level
         if was == link.OK and bus.level != link.OK:
-            self.conn_panel.cue("lost")
+            self.conn_panel.cue("lost", link_status=True)
         elif was in (link.WAIT, link.BAD) and bus.level == link.OK:
             # Connected first, probes moved after: the first good traffic is "found", later ones "back".
-            self.conn_panel.cue("back" if self._bus_was_ok else "found")
+            self.conn_panel.cue("back" if self._bus_was_ok else "found", link_status=True)
         if bus.level == link.OK:
             self._bus_was_ok = True
 

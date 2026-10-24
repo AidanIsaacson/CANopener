@@ -60,6 +60,12 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         self.status_detail.setWordWrap(True)
         self.status_detail.setStyleSheet("color: gray")
         lay.addWidget(self.status_detail)
+        self.link_sound = QtWidgets.QCheckBox("Chime when the bus traffic drops out or comes back")
+        self.link_sound.setToolTip("While connected: a falling tone when traffic stops (a probe slipped, key "
+                                   "off), a rising one when it's back")
+        self.link_sound.setChecked(self.settings.value("sound/link_cues", "true") in (True, "true"))
+        self.link_sound.toggled.connect(lambda on: self.settings.setValue("sound/link_cues", on))
+        lay.addWidget(self.link_sound)
 
         box = QtWidgets.QGroupBox("Connection")
         form = QtWidgets.QFormLayout(box)
@@ -133,7 +139,7 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         self.connect_when_found.setChecked(self.settings.value("finder/connect", "true") in (True, "true"))
         self.connect_when_found.toggled.connect(lambda on: self.settings.setValue("finder/connect", on))
         fl.addWidget(self.connect_when_found)
-        self.sound = QtWidgets.QCheckBox("Sound cues (found, and traffic lost / back)")
+        self.sound = QtWidgets.QCheckBox("Chime when the signal finder locks on")
         self.sound.setChecked(self.settings.value("finder/sound", "true") in (True, "true"))
         self.sound.toggled.connect(lambda on: self.settings.setValue("finder/sound", on))
         fl.addWidget(self.sound)
@@ -156,10 +162,11 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         bad = [s.detail for s in (adapter, bus) if s.level in (link.BAD, link.WAIT)]
         self.status_detail.setText("\n".join(bad))
 
-    def cue(self, name: str):
-        """Play a sound cue on the speaker and/or buzzer (Settings > Sound cues), if cues are on.
-        Falls back to the system beep when neither could play."""
-        if not self.sound.isChecked():
+    def cue(self, name: str, link_status: bool = False):
+        """Play a sound cue on the speaker and/or buzzer (Settings > Sound cues), if that kind is on:
+        ``link_status`` cues (traffic lost / back while connected) have their own checkbox, the
+        signal finder's lock-on chime another. Falls back to the system beep when nothing played."""
+        if not (self.link_sound if link_status else self.sound).isChecked():
             return
         speaker = self.settings.value("sound/speaker", "true") in (True, "true")
         if not sound.play(name, speaker=speaker, buzzer=str(self.settings.value("sound/buzzer", sound.AUTO))):
