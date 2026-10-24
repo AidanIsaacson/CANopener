@@ -11,15 +11,13 @@ record what happens while you work the machine.
   export to a USB stick.
   Easy setup, clear indicators, configurable layout and controls.
 * **Not ones we don't** NEVER ANY $1000 Dongles, proprietary nonsense, or gatekeeping.
-**Supports:**
+  **Supports:**
 * **Equipment and trucks (J1939):** forklifts, telehandlers, loaders, generators, on-highway
   trucks. Active and stored codes with warning lamps, ~35 live engine and chassis values, every
   module on the bus.
 * **Cars and light trucks (OBD-II):** codes from every module, live sensor data, freeze frame,
   readiness for inspection, and clearing codes, like a good generic scan tool.
 
-
-It reads freely and asks before changing anything (see [What it sends](#what-it-sends)).
 
 ## Get it
 
