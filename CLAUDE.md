@@ -1,7 +1,8 @@
 # CANopener: notes for Claude Code
 
-J1939 / CAN diagnostics. Python 3.10+. See README.md (usage), docs/DESIGN.md (the hardware device this is
-for) and docs/ARCHITECTURE.md (software structure).
+J1939 / OBD-II / CAN diagnostics. Python 3.10+. See README.md (usage, written for mechanics: keep it
+plain), docs/DEVELOPING.md (dev setup, profile format, plugins), docs/DESIGN.md (the hardware device
+this is for) and docs/ARCHITECTURE.md (software structure).
 
 ## Commands
 
