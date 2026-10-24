@@ -1,17 +1,23 @@
 # CANopener
 
-A free diagnostic tool for **heavy equipment, trucks and cars**. Plug a USB CAN adapter into a
-laptop (or a Raspberry Pi), connect to the machine, and read fault codes, watch live data, and
+A free, Open Source diagnostic tool for **heavy equipment, trucks, and cars**. Plug a USB CAN adapter into a Linux
+laptop, connect to the machine; read fault codes, watch live data, and
 record what happens while you work the machine.
 
+**For now, just this program.** With active development for a Raspberry Pi-based handheld, packed with features to make it an all-in-one electrical and electronic diagnostic platform.
+
+* **Features Techs actually want** Error codes take you to the indicated sensor, a signal finder that chimes when you pick up or lose CAN
+  signal, a Log tool that records *everything* with timestamps you tag from the keyboard, with playback, and one-click
+  export to a USB stick.
+  Easy setup, clear indicators, configurable layout and controls.
+* **Not ones we don't** NEVER ANY $1000 Dongles, proprietary nonsense, or gatekeeping.
+* **Supports:**
 * **Equipment and trucks (J1939):** forklifts, telehandlers, loaders, generators, on-highway
   trucks. Active and stored codes with warning lamps, ~35 live engine and chassis values, every
   module on the bus.
 * **Cars and light trucks (OBD-II):** codes from every module, live sensor data, freeze frame,
   readiness for inspection, and clearing codes, like a good generic scan tool.
-* **Built for the field:** a signal finder that chimes when your back-probes land on the CAN
-  wires, a Log tool that records a job with timestamps you tag from the keyboard, and one-click
-  export to a USB stick.
+
 
 It reads freely and asks before changing anything (see [What it sends](#what-it-sends)).
 
@@ -45,7 +51,7 @@ For a **Raspberry Pi** that starts CANopener full screen at power-on: [Raspberry
    **250k** for most equipment and trucks, **500k** for cars and some newer machines, or **Auto**.
    Press **Connect**.
 3. Two lamps at the bottom of the window tell you where you stand:
-   * **Adapter:** is the adapter plugged into the laptop?
+   * **Adapter:** is the adapter plugged in and on?
    * **Bus:** is it hearing the machine? Green = traffic, amber = connected but silent (key on?
      probes on CAN-H / CAN-L?), red = errors only (wrong bitrate, or the wires swapped).
 
