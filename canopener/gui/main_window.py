@@ -98,6 +98,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._bus_session = None
         self._bus_was_ok = False
         self._protocol = None               # the profile protocol whose screens are shown
+        self.switch_to: str | None = None   # another front-end to start once this window has closed
+        self.was_fullscreen = False
 
         self._build_conn_panel()
         self._build_toolbar()
@@ -291,6 +293,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.autoconnect_action.toggled.connect(
             lambda on: self.settings.setValue("connect_on_startup", on))
         st.addAction(self.autoconnect_action)
+        st.addSeparator()
+        self.handheld_action = QtGui.QAction("Handheld (Pi) screen", self, checkable=True)
+        self.handheld_action.setToolTip("Switch to the Raspberry Pi handheld's touch UI in a window, to try it "
+                                        "here. Its System > Desktop app instead switches back.")
+        self.handheld_action.toggled.connect(self._switch_to_handheld)
+        st.addAction(self.handheld_action)
         p = m.addMenu("&Profiles")
         self._action(p, "&Manage profiles…", self._manage_profiles)
         self._action(p, "Reload profiles", self._load_profiles)
@@ -1054,6 +1062,33 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_status = status
         self.update_action.setText(f"Update available ({status.latest or 'new'}): install…")
         self.statusBar().showMessage(f"{status.message} Help > Update available to install it.", 30000)
+
+    def _switch_to_handheld(self, on: bool):
+        """Settings > Handheld (Pi) screen: save the choice and become the Pygame UI."""
+        if not on:
+            return
+        from .. import frontends
+        from ..core.settings import Settings
+        ok, why = frontends.available(frontends.DEVICE)
+        if not ok:
+            QtWidgets.QMessageBox.information(self, "Handheld (Pi) screen", why)
+        elif QtWidgets.QMessageBox.question(
+                self, "Handheld (Pi) screen",
+                "Switch to the handheld's touch UI? CANopener closes and reopens as the Raspberry Pi "
+                "screen, in a window here (the mouse is your finger, the keyboard the buttons: F1-F5, "
+                "arrows, Enter, mouse wheel for the encoder).\n\nIt opens that way every time until you "
+                "pick System > Desktop app instead on the handheld.") == QtWidgets.QMessageBox.StandardButton.Yes:
+            settings = Settings()
+            settings.set("ui", frontends.DEVICE)
+            self.switch_to, self.was_fullscreen = frontends.DEVICE, self.isFullScreen()
+            if self.close():
+                QtWidgets.QApplication.instance().quit()
+                return
+            settings.set("ui", frontends.DESKTOP)           # closing was cancelled (unsaved capture)
+            self.switch_to = None
+        self.handheld_action.blockSignals(True)
+        self.handheld_action.setChecked(False)
+        self.handheld_action.blockSignals(False)
 
     def restart_app(self) -> bool:
         """Close (asking about an unsaved capture as usual), then start the new version: under the

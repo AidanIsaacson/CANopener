@@ -1,0 +1,26 @@
+# CANopener handheld controls: append to /boot/firmware/config.txt, then reboot.
+# Wiring and the reasons for these pins are in docs/DEVICE.md ("Controls"). Each switch goes
+# between its GPIO and ground; the Pi's internal pull-ups are used, so no resistors are needed.
+#
+# Pins left free on purpose: GPIO2/3 (I2C: an ADC, an RTC), GPIO7-11 + 25 (SPI0 + interrupt: the
+# MCP2518FD CAN controller), GPIO14/15 (UART), GPIO18-21 (PWM buzzer / I2S audio).
+# Key codes are from linux/input-event-codes.h; the app's key map (System > Key map) expects these.
+
+# Five buttons along the top edge: soft keys F1-F4, and button 5 (F5: Back by default)
+dtoverlay=gpio-key,gpio=5,active_low=1,gpio_pull=up,keycode=59,label="F1"
+dtoverlay=gpio-key,gpio=6,active_low=1,gpio_pull=up,keycode=60,label="F2"
+dtoverlay=gpio-key,gpio=12,active_low=1,gpio_pull=up,keycode=61,label="F3"
+dtoverlay=gpio-key,gpio=13,active_low=1,gpio_pull=up,keycode=62,label="F4"
+dtoverlay=gpio-key,gpio=16,active_low=1,gpio_pull=up,keycode=63,label="F5"
+
+# D-pad: up, down, left, right
+dtoverlay=gpio-key,gpio=17,active_low=1,gpio_pull=up,keycode=103,label="UP"
+dtoverlay=gpio-key,gpio=27,active_low=1,gpio_pull=up,keycode=108,label="DOWN"
+dtoverlay=gpio-key,gpio=22,active_low=1,gpio_pull=up,keycode=105,label="LEFT"
+dtoverlay=gpio-key,gpio=23,active_low=1,gpio_pull=up,keycode=106,label="RIGHT"
+
+# Rotary encoder (A / B) and its push button (Enter = Select; hold it for Back)
+gpio=24,4=ip,pu
+dtoverlay=rotary-encoder,pin_a=24,pin_b=4,relative_axis=1,steps-per-period=1
+dtoverlay=gpio-key,gpio=26,active_low=1,gpio_pull=up,keycode=28,label="SELECT"
+# One detent moving two rows? Use steps-per-period=2 (or 4) to match the encoder.

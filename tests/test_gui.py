@@ -1085,3 +1085,21 @@ def test_trim_long_capture_on_save(app, tmp_path, monkeypatch):
     assert c.state == cap.SAVED and c.started == t0 + 2940
     assert "Trimmed" in open(os.path.join(c.folder, cap.SUMMARY_TXT)).read()
     w.close()
+
+
+def test_settings_menu_switches_to_the_handheld_ui(app, tmp_path, monkeypatch):
+    from canopener import frontends
+    from canopener.core.settings import Settings
+    from canopener.gui.main_window import MainWindow
+
+    Q = qt.QtWidgets.QMessageBox
+    monkeypatch.setattr(frontends, "available", lambda ui: (True, ""))
+    answer = [Q.StandardButton.No]
+    monkeypatch.setattr(Q, "question", lambda *a, **k: answer[0])
+    w = MainWindow()
+    w.show()
+    w.handheld_action.setChecked(True)                  # asked, and said No: nothing changes
+    assert not w.handheld_action.isChecked() and w.switch_to is None and Settings().get("ui") == ""
+    answer[0] = Q.StandardButton.Yes
+    w.handheld_action.setChecked(True)
+    assert w.switch_to == "device" and Settings().get("ui") == "device" and not w.isVisible()

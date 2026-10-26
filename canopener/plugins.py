@@ -17,6 +17,10 @@ The module may define any of these; all are optional:
   ``set_defaults(fn=...)``, the function gets the parsed args and returns an exit code)
 * ``register_gui(api)``: add tabs / menu actions to the desktop app; ``api`` is a
   ``canopener.gui.main_window.PluginApi``
+* ``register_device(api)``: add a mode (a home-screen tile and its screens) to the handheld UI
+  with ``api.register_mode(canopener.device.modes.Mode(...))``; ``api`` is a
+  ``canopener.device.modes.DeviceApi``. Keep the logic in Qt- and Pygame-free modules so both
+  UIs can share it.
 
 A plugin that transmits anything beyond J1939 requests must ask the user first: the main app is
 read-only, and ``Session.send_frame`` refuses in listen-only mode.

@@ -41,6 +41,14 @@ For a **Raspberry Pi** that starts CANopener full screen at power-on: [Raspberry
 **Updating:** **Help → Check for updates…**, then **Install update** and **Restart now**.
 (Tick **Help → Check for updates at startup** to be told when there's one.)
 
+## The handheld (in progress)
+
+The Raspberry Pi handheld gets its own screen, made for a 7" or 10" touch panel, gloves and a
+few hardware buttons: CAN diagnostics, a meter, and a data log that records the bus **and** the
+meter readings on one timeline. To try it on the laptop: **Settings → Handheld (Pi) screen**
+(and **System → Desktop app instead** to come back). Details for builders:
+[docs/DEVICE.md](docs/DEVICE.md).
+
 ## Hooking up (¬‿¬)
 
 **Use any adapter** that Linux sees as a CAN interface: CANable / candleLight, PEAK, Kvaser,

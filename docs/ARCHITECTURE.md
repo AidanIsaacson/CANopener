@@ -10,8 +10,8 @@ navigation encoder, a fullscreen Pygame UI, and Pico / ESP32 subsystems), descri
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ Front-ends                                                               │
-│   gui/   desktop Qt app      cli.py   terminal / SSH      (future) Pygame │
-│                                                           instrument UI  │
+│   gui/   desktop Qt app      cli.py   terminal / SSH      device/ Pygame │
+│                                                           handheld UI    │
 └───────────────▲──────────────────────────▲───────────────────────────────┘
                 │ reads state, calls scans │
 ┌───────────────┴──────────────────────────┴───────────────────────────────┐
@@ -103,7 +103,9 @@ answers all of it, on 11- or 29-bit IDs.
 | `can_logger.py` foundation | `Session.start_recording()` → `can.logfile.LogWriter` (candump format) |
 | Source-address filtering, dropout detection | `Session.stats` / `ecus` (first/last seen, rate per PGN). Dropout alerts are a small addition on top |
 | CAN Node & PID Label Profiles | `core/profiles.py` + `canopener/profiles/*.json` |
-| Paged screens: Live Data, Fault Codes, Capture Log ... | GUI tabs today; the same core calls back each Pygame page. Live Data's model (values, min/max, history, picked signals) is `core/live.py` |
+| Paged screens: Live Data, Fault Codes, Capture Log ... | Desktop GUI tabs, and the handheld UI's pages in `device/screens/` over the same core calls. Live Data's model (values, min/max, history, picked signals) is `core/live.py` |
+| DMM probes, Pico analog channels, wireless satellites on the capture timeline | `core/measure.py` (hub, channels, clock mapping) + `core/meters.py` (sources); recorded to `measurements.csv` by `core/capture.py` |
+| Header chrome, soft keys, encoder / d-pad navigation | `device/app.py` + `device/input.py`; wiring in `deploy/raspberry-pi/config-controls.txt` |
 | Fault code → live PID (use-case step 2) | `Signal.spn` links; GUI "Show in Live Data" button |
 | CAN status pill / "is the adapter hearing the machine" | `core/link.py`: `adapter_status`, `bus_status` (GUI: Adapter / Bus lamps) |
 | Placing probes: wait for good traffic, chime, lock bitrate | `core/link.SignalFinder` (listen-only, never stops on errors) + `core/sound.py` (speaker WAV, or piezo via sysfs PWM / kernel beeper). GUI: `gui/connection_panel.py`; CLI: `canopener-cli find` |
@@ -136,12 +138,30 @@ point for the instrument UI:
 `core` already gives each of those screens its data: `Session.current_lamps()`, `scan.run_preset()`,
 `Session.latest_for()`, `Session.ecu_list()`, `Session.frames_since()`, `Session.health`.
 
-### Suggested path to the Pygame instrument UI
+### The Pygame instrument UI (`canopener/device/`)
 
-1. Add `canopener/device/` (or a separate package) with the Pygame app: header chrome, soft-key
-   footer, paged screens, encoder/button input.
-2. Each page takes a `Session` and reads from it each frame, exactly like `gui/tab_*.py` do.
-3. Keep the desktop GUI as the bench / laptop tool. Both front-ends share every bug fix in `core/`.
+Built along these lines; usage, wiring and status are in [DEVICE.md](DEVICE.md).
+
+* `device/context.py` (no Pygame) holds the state every screen shares: settings, connection,
+  live models, the meter hub, the capture, and worker-thread jobs drained once per frame. Tests
+  drive it directly, like `gui/context.py` but without Qt.
+* `device/input.py` (no Pygame) turns keys (the `gpio-key` buttons), the rotary encoder (evdev
+  `REL_X`) and an optional resistor ladder into actions: up / down / left / right, select (hold
+  = back), back, home, soft keys 1-5, rotate, log, tag.
+* `device/app.py` draws the chrome (soft keys on the buttons' edge, status strip opposite) and
+  stacks screens; `device/ui.py` is the drawing kit (sizes in millimetres from the panel's pixel
+  density, lists with drag scrolling, procedural icons); `device/screens/` are the pages.
+* Modes (home-screen tiles) register in `device/modes.py`: CAN, Meter, Data log, System today;
+  a logic analyzer or scope later, and plugins through `register_device(api)`.
+* `frontends.py` switches between the desktop GUI and the handheld UI (shared `ui` setting).
+
+### Measurements on the CAN timeline
+
+`core/measure.py` (channels, samples, `MeasurementHub`, `ClockMapper`, `MeasurementLiveData`) and
+`core/meters.py` (simulated, serial JSON-lines and Linux IIO sources) are the groundwork for the
+DMM, the Pico's analog channels and wireless satellites. Samples carry wall-clock time like
+`CanFrame`; a capture records them to `measurements.csv`, and `capture_report` merges them into
+`live_data.csv` and the summary timeline.
 
 ## Device readiness review (October 2026)
 
@@ -163,11 +183,10 @@ How well this app drops into the handheld as one system, checked against [DESIGN
 
 **Recommended before the device UI** (in priority order; not changed yet)
 
-1. **Settings that both front-ends share.** Interface, bitrate, listen-only, units, profile,
-   connect-on-startup and the save folder are stored with Qt's `QSettings`, which a Pygame UI
-   can't read. Move them to a small JSON store in `core/` (`~/.config/canopener/settings.json`,
-   via `config.config_dir()`), reading the old `QSettings` values once to migrate. Window geometry
-   and other purely desktop state can stay in `QSettings`.
+1. **Settings that both front-ends share.** *Partly done:* the JSON store exists
+   (`core/settings.py`, `~/.config/canopener/settings.json`) and the handheld UI uses it. The
+   desktop GUI still keeps interface, bitrate, units, profile and so on in `QSettings`; moving
+   them over (reading the old values once to migrate) is the remaining step.
 2. **Timestamps for the shared timebase.** `SocketCanBackend.recv()` stamps frames with
    `time.time()` in Python after `recv()` returns: wall-clock (it jumps when a Pi with no RTC gets
    NTP time after boot) and subject to scheduler jitter. For lining CAN up with Pico captures, enable
@@ -187,9 +206,8 @@ How well this app drops into the handheld as one system, checked against [DESIGN
    the Log panel open. Its minimum width (~970 px) is too wide for an 800x480 panel, so the
    on-device UI is a separate front-end, as planned. Size it for the chosen panel (800x480,
    1024x600 or 720x1280 portrait are the common 7" DSI options).
-7. **Encoder.** Buttons map to keys through `gpio-key`, but the rotary-encoder overlay emits relative
-   (REL) input events, not key presses. The Pygame UI needs to read the encoder from evdev, or a
-   small daemon translates rotation into keys.
+7. **Encoder.** *Done:* `device/input.EvdevReader` reads the rotary-encoder overlay's `REL_X`
+   events from `/dev/input` (overlay lines in `deploy/raspberry-pi/config-controls.txt`).
 8. **Missing-module alerts.** Profiles know which modules a machine has (`detect.addresses`) and the
    capture summary reports ECUs going silent; a live "expected module missing" alert in `core/`
    would serve both front-ends (the Hyster plugin's Modules list does this for one OEM).

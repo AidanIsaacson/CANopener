@@ -15,6 +15,8 @@ def main(argv=None) -> int:
     ap.add_argument("--log", help="open and decode a candump log file on start")
     ap.add_argument("--fullscreen", action="store_true", help="start full screen (touch panels)")
     ap.add_argument("--scale", type=float, help="UI scale factor, e.g. 1.5 for a small high-DPI touch screen")
+    ap.add_argument("--desktop", action="store_true", help="start this desktop app even when Settings > "
+                    "Handheld (Pi) screen is switched on")
     ap.add_argument("--install-desktop", action="store_true",
                     help="add CANopener (with its icon) to the application menu, then exit")
     ap.add_argument("--desktop-shortcut", action="store_true",
@@ -32,6 +34,15 @@ def main(argv=None) -> int:
                 print(f"Installed {path}")
             print("CANopener is in your application menu" + (" and on your desktop." if a.desktop_shortcut else "."))
         return 0
+
+    from .. import frontends
+    from ..core.settings import Settings
+    if not a.desktop and not a.log and Settings().get("ui") == frontends.DEVICE:
+        ok, why = frontends.available(frontends.DEVICE)
+        if ok:
+            frontends.exec_ui(frontends.DEVICE, fullscreen=a.fullscreen, sim=a.sim)
+            return 0                        # (only reached when exec_ui is stubbed in tests)
+        print(f"{why}\nStarting the desktop app instead.", file=sys.stderr)
 
     if a.scale:
         os.environ["QT_SCALE_FACTOR"] = str(a.scale)
@@ -64,7 +75,10 @@ def main(argv=None) -> int:
         win.source.setCurrentIndex(win.source.findData(connection.SOCKETCAN))
         win.iface.setCurrentText(a.iface)
         win.connect()
-    return app.exec()
+    code = app.exec()
+    if win.switch_to:                       # Settings > Handheld (Pi) screen: become the handheld UI
+        frontends.exec_ui(win.switch_to, fullscreen=win.was_fullscreen)
+    return code
 
 
 if __name__ == "__main__":

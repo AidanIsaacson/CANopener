@@ -14,8 +14,10 @@ cd ~/CANopener
 
 | File | Purpose |
 |---|---|
-| `install.sh` | Runs [`../linux/adapter-setup.sh`](../linux) (USB CAN drivers, CANable plug-in rule), creates `~/canopener-venv`, installs the app, adds the launcher and a menu entry. `--sudoers` and `--autostart` are optional. |
-| `canopener-launch.sh` | Runs `canopener-cli setup` for the CAN interface, then the GUI fullscreen. Configured with `CANOPENER_*` environment variables (see the top of the file). |
+| `install.sh` | Runs [`../linux/adapter-setup.sh`](../linux) (USB CAN drivers, CANable plug-in rule), creates `~/canopener-venv`, installs the app (with the handheld UI as the default), adds the launcher and a menu entry. `--sudoers`, `--autostart` and `--device` (encoder + brightness access) are optional. |
+| `canopener-launch.sh` | Runs `canopener-cli setup` for the CAN interface, then the UI fullscreen: the handheld UI or the desktop GUI, whichever was last chosen (`CANOPENER_UI` forces one). Configured with `CANOPENER_*` environment variables (see the top of the file). |
+| `config-controls.txt` | `config.txt` lines for the handheld's buttons, d-pad and rotary encoder ([docs/DEVICE.md](../../docs/DEVICE.md#controls-wiring)). |
+| `71-canopener-backlight.rules` | udev rule: the `video` group may set the screen brightness. Installed by `install.sh --device`. |
 | `canopener.sudoers` | Lets your user run **only** `ip link set canN up/down/type can ...` without a password. Without it, interface setup asks for a password (pkexec), which a kiosk can't answer. |
 | `canopener.service` | systemd **user** service: start at login, restart on crash. |
 | `canopener.desktop` | Application-menu entry. |
@@ -43,9 +45,10 @@ straight on the display with no desktop session. Set in the service or environme
 
 ## Small screens
 
-`CANOPENER_ARGS="--fullscreen --scale 1.3"` enlarges everything for touch. The current GUI
-targets 1024x600 and up; 800x480 works but is cramped. The planned on-device UI is designed
-for small screens from the start (see docs/ARCHITECTURE.md).
+The handheld UI (`canopener-device`, the default on the Pi) is made for 7"-10" touch panels
+and the hardware controls: see [docs/DEVICE.md](../../docs/DEVICE.md). For the desktop GUI on a
+small screen, `CANOPENER_ARGS="--fullscreen --scale 1.3"` enlarges everything for touch; it
+targets 1024x600 and up, and 800x480 works but is cramped.
 
 ## Hardware buttons for the Log tool
 

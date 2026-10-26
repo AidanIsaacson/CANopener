@@ -8,10 +8,12 @@ this is for) and docs/ARCHITECTURE.md (software structure).
 
 ```bash
 pip install -e ".[gui,dev]"      # PySide6 + pytest + ruff
+pip install -e ".[device]"       # Pygame, for the handheld UI
 pytest                           # full suite, incl. headless GUI tests (QT_QPA_PLATFORM=offscreen)
 ruff check .                     # lint (config in pyproject.toml)
 canopener --sim                  # GUI against the simulator
 canopener-cli scan --sim --full  # CLI against the simulator
+canopener-device --sim           # the handheld UI (Pygame) against the simulator + a simulated meter
 ```
 
 Headless or minimal Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libxcb-cursor0` for Qt.
@@ -32,8 +34,17 @@ Headless or minimal Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-
   node maps, OEM text). It lives in the private plugin repo or `~/.config/canopener/profiles/`.
   `tests/test_repo_hygiene.py` enforces file names and markers; keep its lists current.
 * **Layering.** `j1939/` and `can/` must not import `core/`, `gui/` or `sim/`. `core/` must not import
-  Qt. The GUI is one of several front-ends (CLI now, a Pygame instrument UI later).
-* **No new runtime dependencies below `gui/`.** Standard library only, so it stays light on a Pi.
+  Qt or Pygame. Front-ends: the desktop GUI (`gui/`, Qt), the CLI, and the handheld UI (`device/`,
+  Pygame; docs/DEVICE.md). In `device/`, only `app.py`, `ui.py` and `screens/` import Pygame:
+  `context.py` and `input.py` stay Pygame-free (a test checks). Logic both UIs need goes in `core/`.
+  `frontends.py` switches between the two graphical UIs (the shared `ui` setting).
+* **No new runtime dependencies below `gui/` / `device/`.** Standard library only, so it stays light
+  on a Pi. Pygame is the `device` extra, like PySide6 is the `gui` extra.
+* **Settings both UIs share** (connection, units, profile, sound, meters, the handheld's controls)
+  live in `core/settings.py` (`settings.json`); the desktop GUI still keeps its own in `QSettings`.
+* **Measurements** (meters, probes, anything read besides CAN) go through `core/measure.py`
+  (`MeasurementHub`, wall-clock timestamps like `CanFrame`); sources are in `core/meters.py`.
+  A capture records them to `measurements.csv` and the report merges them with the CAN data.
 * GUI code must work with both PySide6 and PyQt6: import from `canopener.gui.qt` and use fully
   scoped enums (`Qt.AlignmentFlag.AlignLeft`).
 * Don't invent OEM data. SPN/SA/PGN names in the built-in tables are SAE-standard only. OEM labels
@@ -48,6 +59,10 @@ Headless or minimal Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-
 * Anything that runs as root goes through `core.interfaces.run_privileged` as explicit argv
   lists (never `sh -c` with user input). Keep `deploy/raspberry-pi/canopener.sudoers` matching
   the commands `setup_steps()` produces.
+* The handheld's button wiring is `deploy/raspberry-pi/config-controls.txt`: keep its key codes
+  matching `device/input.DEFAULT_KEYS` (a test checks) and its pins out of the reserved buses.
+* This branch is the Pi / handheld branch: bring `main` in with `scripts/sync-from-main.sh` (a merge,
+  never a rebase). Keep handheld changes to shared files small so those merges stay clean.
 * First-plug-in adapter support lives in `deploy/linux/` (`install.sh` installs and updates;
   `adapter-setup.sh` adds drivers + the CANable udev rule / slcand unit). Keep the USB IDs in
   `70-canopener.rules` matching `interfaces.USB_SLCAN` (a test checks), and keep
