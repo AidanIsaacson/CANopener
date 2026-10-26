@@ -68,7 +68,7 @@ def test_apply_pulls_and_reinstalls_only_when_needed(repos):
     assert pip_calls == [] and "installer" in msg                  # deploy/ changed: run the installer once
     release(dev, "0.1.6", {"pyproject.toml": "[project]\ndependencies = []\n"})
     ok, msg = updates.apply(root=str(install), runner=runner)
-    assert ok and len(pip_calls) == 1 and pip_calls[0][-1].endswith("[gui]") and "installer" not in msg
+    assert ok and len(pip_calls) == 1 and pip_calls[0][-1].endswith("[gui,device]") and "installer" not in msg
 
 
 def test_local_commits_or_conflicting_edits_stop_it(repos):

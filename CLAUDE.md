@@ -61,8 +61,8 @@ Headless or minimal Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-
   the commands `setup_steps()` produces.
 * The handheld's button wiring is `deploy/raspberry-pi/config-controls.txt`: keep its key codes
   matching `device/input.DEFAULT_KEYS` (a test checks) and its pins out of the reserved buses.
-* This branch is the Pi / handheld branch: bring `main` in with `scripts/sync-from-main.sh` (a merge,
-  never a rebase). Keep handheld changes to shared files small so those merges stay clean.
+* Pi-only work can happen on a Pi branch; bring `main` into it with `scripts/sync-from-main.sh` (a
+  merge, never a rebase). Keep handheld changes to shared files small so those merges stay clean.
 * First-plug-in adapter support lives in `deploy/linux/` (`install.sh` installs and updates;
   `adapter-setup.sh` adds drivers + the CANable udev rule / slcand unit). Keep the USB IDs in
   `70-canopener.rules` matching `interfaces.USB_SLCAN` (a test checks), and keep

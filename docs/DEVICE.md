@@ -160,7 +160,7 @@ else rotates: the app draws sideways and turns touch coordinates to match.
 ## On the Pi
 
 ```bash
-git clone -b <this branch> https://github.com/AidanIsaacson/CANopener.git ~/CANopener
+git clone https://github.com/AidanIsaacson/CANopener.git ~/CANopener
 cd ~/CANopener
 ./deploy/raspberry-pi/install.sh --sudoers --autostart --device
 ```
@@ -177,22 +177,19 @@ the display, use Raspberry Pi OS's own build instead:
 `sudo apt install python3-pygame`, then recreate the venv with `--system-site-packages` and
 `pip uninstall pygame-ce` in it.
 
-## Keeping this branch up to date with main
+## Keeping a Pi branch up to date with main
 
-This branch is `main` plus the handheld: `canopener/device/`, the new `core/` modules
-(`settings.py`, `measure.py`, `meters.py`, `obd_stream.py`, `system.py`), small additions to
-`core/capture*.py`, and these docs and deploy files. Everything else is untouched, so merges from
-`main` are normally clean.
+The handheld UI is part of `main` (since 0.2.0). Work that only makes sense on the Pi, such as
+hardware experiments, can live on a branch: the handheld code is mostly its own files
+(`canopener/device/`, `core/settings.py`, `measure.py`, `meters.py`, `obd_stream.py`,
+`system.py`), so merges from `main` are normally clean.
 
 ```bash
 scripts/sync-from-main.sh          # merge origin/main in, then lint + test
 scripts/sync-from-main.sh --push   # and push it if everything passes
 ```
 
-It merges rather than rebases, so the branch's history never changes under anyone. The parts
-that aren't Pi-specific (the settings store, measurements in captures, the device front-end
-itself, which is just another front-end) can move to `main` whenever you like; after that the
-branch only carries what's left.
+It merges rather than rebases, so the branch's history never changes under anyone.
 
 ## Not tested yet
 

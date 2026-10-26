@@ -132,7 +132,7 @@ def apply(root: str | None = None, runner=subprocess.run, python: str = sys.exec
         if done.deps_changed:
             if progress:
                 progress("Updating the app's Python packages…")
-            r = runner([python, "-m", "pip", "install", "--quiet", "-e", f"{root}[gui]"],
+            r = runner([python, "-m", "pip", "install", "--quiet", "-e", f"{root}[gui,device]"],
                        capture_output=True, text=True, timeout=600)
             if r.returncode != 0:
                 return False, ("The code updated, but its Python packages didn't:\n" + (r.stderr or r.stdout).strip()
