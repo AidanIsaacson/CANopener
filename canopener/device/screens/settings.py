@@ -104,7 +104,7 @@ class SettingsScreen(Screen):
             Row("About this device", select=self._about),
             Row("Desktop app instead", select=self._to_desktop, hint="switch to the laptop window (Qt)"),
             Row("Close the app", select=lambda: confirm(self.app, "Close CANopener?",
-                                                         "A recording in progress is stopped and kept.", "Close",
+                                                         "A recording in progress is stopped and saved.", "Close",
                                                          lambda: setattr(self.app, "running", False))),
             Row("Restart", select=lambda: self._power("Restart", system.REBOOT)),
             Row("Power off", select=lambda: self._power("Power off", system.POWER_OFF)),
@@ -186,17 +186,19 @@ class SettingsScreen(Screen):
             self.app.running = False
         confirm(self.app, "Switch to the desktop app?",
                 "CANopener closes and reopens as the desktop window, and opens that way from now on. "
-                "Settings > Handheld (Pi) screen there switches back. A recording in progress is stopped and kept.",
+                "Settings > Handheld (Pi) screen there switches back. A recording in progress is stopped and saved.",
                 "Switch", go, danger=False)
 
     def _power(self, what, argv):
         def go():
+            if self.ctx.unsaved:
+                self.app.show_saving()
             self.ctx.shutdown()
             try:
                 subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except OSError as e:
                 self.ctx.toast(f"{what} failed: {e}")
-        confirm(self.app, f"{what}?", "A recording in progress is stopped and kept, and the bus disconnected.",
+        confirm(self.app, f"{what}?", "A recording in progress is stopped and saved, and the bus disconnected.",
                 what, go)
 
     def on_action(self, action, n=1):

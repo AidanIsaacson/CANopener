@@ -13,6 +13,7 @@ import argparse
 import os
 import sys
 import time
+import traceback
 
 import pygame
 
@@ -25,6 +26,7 @@ from .screens.base import Screen, SoftKey
 from .ui import UI, Theme
 
 TAP_SLOP_MM = 2.5           # a finger moving less than this is a tap, more is a drag
+MIN_WINDOW = 320            # pixels: the smallest a window may be dragged to, either way
 
 
 class DeviceApp:
@@ -35,18 +37,13 @@ class DeviceApp:
         self.rotate = (s.get("device.rotate") if rotate is None else rotate) % 360
         if self.rotate not in (0, 90, 180, 270):
             self.rotate = 0
-        sideways = self.rotate in (90, 270)
+        self.fullscreen = fullscreen
         if fullscreen:
             self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
             pygame.mouse.set_visible(False)
-        else:
-            phys = (size[1], size[0]) if sideways else size
-            self.screen = pygame.display.set_mode(phys)
-        pw, ph = self.screen.get_size()
-        self.size = (ph, pw) if sideways else (pw, ph)
-        self.canvas = pygame.Surface(self.size) if self.rotate else self.screen
-        self.theme = Theme(self.size, float(s.get("device.diagonal_in") or 7.0))
-        self.ui = UI(self.canvas, self.theme)
+        else:                               # a window (trying it on a laptop): resizable, maximizable
+            self.screen = pygame.display.set_mode(self._physical(size), pygame.RESIZABLE)
+        self._fit()
         self.keymap = inp.KeyMap(s.get("device.keys"), s.get("device.button5"))
         self.press = inp.PressTracker(float(s.get("device.long_press_s") or 0.7))
         self.encoder = None
@@ -59,10 +56,8 @@ class DeviceApp:
             self.ladder = inp.LadderButtons(levels[:len(acts)], acts, inp.iio_volts_reader(s.get("device.ladder")))
         self.clock = pygame.time.Clock()
         self.running = True
-        self.fullscreen = fullscreen
         self.switch_to: str | None = None   # another front-end to start once this one has closed
         self._touch = None              # (start pos, tap fn, scroller, moved, last pos)
-        self.content = pygame.Rect(0, 0, *self.size)
         if not modes.modes():
             modes.register_builtin()
         for p in plugins.loaded():
@@ -80,10 +75,53 @@ class DeviceApp:
         if key in ("device.keys", "device.button5"):
             self.keymap = inp.KeyMap(self.ctx.settings.get("device.keys"), self.ctx.settings.get("device.button5"))
         elif key == "device.diagonal_in":
-            self.theme = Theme(self.size, float(value or 7.0))
-            self.ui = UI(self.canvas, self.theme)
+            self._fit()
+        elif key == "device.window" and not self.fullscreen:     # System > Window size: apply now
+            try:
+                size = _size(str(value))
+            except ValueError:
+                return
+            if size != self.size:
+                self.resize_window(*self._physical(size))
         elif key == "device.long_press_s":
             self.press.long_press = float(value or 0.7)
+
+    # ------------------------------------------------------------------
+    # the display
+    # ------------------------------------------------------------------
+    def _physical(self, size: tuple[int, int]) -> tuple[int, int]:
+        """UI size -> window size (swapped when the picture is rotated sideways)."""
+        return (size[1], size[0]) if self.rotate in (90, 270) else tuple(size)
+
+    def _fit(self):
+        """(Re)build the drawing surfaces and sizes for the current window."""
+        pw, ph = self.screen.get_size()
+        self.size = (ph, pw) if self.rotate in (90, 270) else (pw, ph)
+        self.canvas = pygame.Surface(self.size) if self.rotate else self.screen
+        self.theme = Theme(self.size, float(self.ctx.settings.get("device.diagonal_in") or 7.0))
+        self.ui = UI(self.canvas, self.theme)
+        self.content = pygame.Rect(0, 0, *self.size)
+
+    def resize_window(self, w: int, h: int):
+        """The window was resized or maximized (or a size picked in System): fill it. The layout
+        is proportional, so the same screen just gets bigger, like a bigger panel."""
+        if self.fullscreen:
+            return
+        w, h = max(MIN_WINDOW, w), max(MIN_WINDOW, h)
+        surf = pygame.display.get_surface()
+        if surf is None or surf.get_size() != (w, h):
+            surf = pygame.display.set_mode((w, h), pygame.RESIZABLE)
+        self.screen = surf
+        self._fit()
+
+    def window_size(self) -> str:
+        return f"{self.size[0]}x{self.size[1]}"
+
+    def show_saving(self):
+        """One frame saying a log is being saved (closing, switching, powering off)."""
+        self.ctx.toast("Saving the log...")
+        self.draw()
+        pygame.display.flip()
 
     # ------------------------------------------------------------------
     # screens
@@ -174,6 +212,8 @@ class DeviceApp:
     def handle_event(self, ev):
         if ev.type == pygame.QUIT:
             self.running = False
+        elif ev.type == pygame.VIDEORESIZE:
+            self.resize_window(ev.w, ev.h)
         elif ev.type == pygame.KEYDOWN:
             if ev.key == pygame.K_q and ev.mod & pygame.KMOD_CTRL:
                 self.running = False
@@ -384,7 +424,13 @@ def main(argv=None) -> int:
     pygame.font.init()
     pygame.display.set_caption(f"CANopener {__version__}")
     ctx = DeviceContext(settings)
-    app = DeviceApp(ctx, size, rotate=a.rotate, fullscreen=a.fullscreen, encoder=not a.screenshot)
+    try:
+        app = DeviceApp(ctx, size, rotate=a.rotate, fullscreen=a.fullscreen, encoder=not a.screenshot)
+    except Exception:                       # no usable display (video driver, permissions, ...)
+        traceback.print_exc()
+        ctx.shutdown()
+        pygame.quit()
+        return _fall_back(settings)
     if a.sim or a.obd_sim:
         ctx.connect("obd-sim" if a.obd_sim else "sim")
     elif settings.get("can.connect_on_start"):
@@ -402,12 +448,32 @@ def main(argv=None) -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        try:
+            if ctx.unsaved:
+                app.show_saving()
+            if not app.fullscreen and not a.screenshot:
+                settings.set("device.window", app.window_size())    # opens this size next time
+        except pygame.error:
+            pass
         ctx.shutdown()
         pygame.quit()
     if app.switch_to:                       # System > Desktop app instead
         from .. import frontends
-        frontends.exec_ui(app.switch_to, fullscreen=app.fullscreen)
+        return frontends.switch(app.switch_to, fullscreen=app.fullscreen)
     return 0
+
+
+def _fall_back(settings) -> int:
+    """The handheld UI couldn't open. If it was only running because it's the chosen UI, go back
+    to the desktop app, so the menu entry can't get stuck on a UI that doesn't start."""
+    from .. import frontends
+    if settings.get("ui") != frontends.DEVICE:
+        return 1
+    settings.set("ui", frontends.DESKTOP)
+    print("The handheld UI couldn't start (above); switched back to the desktop app.", file=sys.stderr)
+    if frontends.available(frontends.DESKTOP)[0]:
+        return frontends.switch(frontends.DESKTOP)
+    return 1
 
 
 if __name__ == "__main__":

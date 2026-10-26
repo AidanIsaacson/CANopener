@@ -4,17 +4,23 @@
 The choice is the shared setting ``ui`` (``core.settings``): ``"device"`` makes the ``canopener``
 command (and its menu entry, and the Pi's launcher) start the handheld UI instead of the
 desktop window. Both apps can flip it: the desktop app under Settings > Handheld (Pi) screen,
-the handheld under System > Desktop app instead. Switching replaces the running process
-(``os.execv``) once the current app has closed cleanly, so under the Pi's systemd service the
-new UI keeps the same process and the service doesn't see an exit.
+the handheld under System > Desktop app instead.
+
+A switch happens after the current app has closed cleanly, by starting the other one as a
+**fresh process** (``switch``), the same way "Restart now" after an update does: nothing the
+old toolkit left behind in the process (SDL's or Qt's open handles) can trip up the new one.
+Under the Pi's systemd service the app exits with the restart code instead, and the service's
+launcher starts whichever UI the setting now names. The new process's output goes to
+``log_path()`` so a UI that fails to open leaves a reason behind.
 """
 
+import datetime
 import importlib.util
 import os
+import subprocess
 import sys
 
 DESKTOP, DEVICE = "desktop", "device"
-MODULES = {DESKTOP: "canopener.gui.app", DEVICE: "canopener.device.app"}
 
 
 def available(ui: str) -> tuple[bool, str]:
@@ -29,9 +35,10 @@ def available(ui: str) -> tuple[bool, str]:
 
 
 def argv_for(ui: str, fullscreen: bool = False, sim: bool = False) -> list[str]:
-    argv = [sys.executable, "-m", MODULES[ui]]
-    if ui == DESKTOP:
-        argv.append("--desktop")            # don't bounce straight back if the setting says otherwise
+    if ui == DEVICE:
+        argv = [sys.executable, "-m", "canopener.device.app"]
+    else:   # --desktop: don't bounce straight back to the handheld if the setting says otherwise
+        argv = [sys.executable, "-m", "canopener", "--desktop"]
     if fullscreen:
         argv.append("--fullscreen")
     if sim:
@@ -39,9 +46,43 @@ def argv_for(ui: str, fullscreen: bool = False, sim: bool = False) -> list[str]:
     return argv
 
 
+def log_path() -> str:
+    base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    return os.path.join(base, "canopener", "canopener.log")
+
+
+def switch(ui: str, fullscreen: bool = False, popen=subprocess.Popen) -> int:
+    """Start ``ui`` once this app has closed. Returns the exit code this app should end with:
+    the service's restart code under systemd, else 0 (the new UI is already starting)."""
+    from .core import updates
+    if updates.under_systemd():
+        return updates.RESTART_EXIT_CODE
+    path = log_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    argv = argv_for(ui, fullscreen)
+    with open(path, "a") as log:
+        log.write(f"=== {datetime.datetime.now():%Y-%m-%d %H:%M:%S} switching to the {ui} UI: {' '.join(argv)}\n")
+        log.flush()
+        popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+              close_fds=True)
+    return 0
+
+
 def exec_ui(ui: str, fullscreen: bool = False, sim: bool = False):
-    """Replace this process with the other front-end. Doesn't return."""
+    """Replace this process with ``ui`` at startup, before any window exists (``canopener``
+    following the setting). Doesn't return."""
     argv = argv_for(ui, fullscreen, sim)
     sys.stdout.flush()
     sys.stderr.flush()
+    try:
+        if not os.isatty(2):                # started from a menu: keep a crash's reason in the log
+            path = log_path()
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+            os.write(fd, f"=== {datetime.datetime.now():%Y-%m-%d %H:%M:%S} starting the {ui} UI\n".encode())
+            os.dup2(fd, 1)
+            os.dup2(fd, 2)
+            os.close(fd)
+    except OSError:
+        pass
     os.execv(argv[0], argv)

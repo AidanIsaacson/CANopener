@@ -427,7 +427,7 @@ class LogPanel(QtWidgets.QDockWidget):
         for folder in cap.pending_captures():
             try:
                 c = Capture.load(folder)
-            except (OSError, ValueError):
+            except Exception:           # unreadable (or from a newer version): never block startup
                 continue
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(c.started or 0))
             box = QtWidgets.QMessageBox(self)

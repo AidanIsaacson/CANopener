@@ -502,11 +502,23 @@ class DeviceContext:
             self._fps_mark = (now, s.rx_count)
         return getattr(self, "_fps", 0.0)
 
-    def shutdown(self):
-        """Leave things tidy: stop the finder, stop (and keep) a recording, close the bus."""
+    @property
+    def unsaved(self) -> bool:
+        """A log is recording or stopped but not saved (closing will save it)."""
+        return self.capture.state in (cap.RECORDING, cap.STOPPED)
+
+    def shutdown(self, save: bool = True):
+        """Leave things tidy: stop the finder, stop a recording and save it (so switching UIs or
+        powering off never leaves an unsaved log behind), close the bus. If saving fails the log
+        stays a pending capture, which either UI offers to recover on its next start."""
         self.stop_finder()
         if self.recording:
-            self.capture.stop()             # stays a pending capture: recovered on the next start
+            self.capture.stop()
+        if save and self.capture.state == cap.STOPPED:
+            try:
+                self.last_saved = self.capture.save(system=self.units)
+            except Exception:
+                traceback.print_exc()
         self.disconnect()
         self.hub.stop()
 

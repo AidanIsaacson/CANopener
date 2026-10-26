@@ -344,7 +344,7 @@ def test_frontend_argv_and_the_canopener_command_follows_the_switch(monkeypatch)
     from canopener import frontends
     from canopener.gui import app as gui_app
     argv = frontends.argv_for(frontends.DESKTOP, fullscreen=True)
-    assert argv[:3] == [sys.executable, "-m", "canopener.gui.app"] and "--desktop" in argv and "--fullscreen" in argv
+    assert argv == [sys.executable, "-m", "canopener", "--desktop", "--fullscreen"]
     assert frontends.argv_for(frontends.DEVICE, sim=True)[2:] == ["canopener.device.app", "--sim"]
     calls = []
     monkeypatch.setattr(frontends, "exec_ui", lambda ui, **kw: calls.append((ui, kw)))
@@ -370,3 +370,84 @@ def test_handheld_system_screen_switches_to_the_desktop_app(app_for, monkeypatch
     app.action(inp.ROTATE, 1)
     app.action(inp.SELECT)
     assert not app.running and app.switch_to == "desktop" and app.ctx.settings.get("ui") == "desktop"
+
+
+def test_switching_starts_a_fresh_process_or_asks_systemd_to(monkeypatch, tmp_path):
+    """The other UI starts as a new process (own session, output logged), never inside the old one."""
+    import subprocess
+
+    from canopener import frontends
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.delenv("INVOCATION_ID", raising=False)
+    started = []
+    assert frontends.switch("desktop", popen=lambda argv, **kw: started.append((argv, kw))) == 0
+    argv, kw = started[0]
+    assert argv[1:] == ["-m", "canopener", "--desktop"] and kw["start_new_session"] and kw["close_fds"]
+    assert kw["stdin"] is subprocess.DEVNULL and kw["stderr"] is subprocess.STDOUT
+    assert "switching to the desktop UI" in open(frontends.log_path()).read()
+    monkeypatch.setenv("INVOCATION_ID", "abc")          # the Pi's systemd service: it restarts the launcher
+    assert frontends.switch("device", popen=lambda *a, **k: started.append(a)) == 75 and len(started) == 1
+
+
+def test_closing_the_handheld_saves_a_recording(ctx):
+    assert ctx.start_log()
+    time.sleep(0.3)
+    assert ctx.unsaved
+    ctx.shutdown()
+    assert ctx.capture.state == cap.SAVED and ctx.last_saved and not ctx.pending_captures()
+    assert "measurements.csv" in os.listdir(ctx.last_saved)
+
+
+def test_a_handheld_that_cant_start_hands_back_to_the_desktop_app(monkeypatch):
+    from canopener import frontends
+    from canopener.device import app as dev_app
+    switched = []
+    monkeypatch.setattr(frontends, "switch", lambda ui, **kw: switched.append(ui) or 0)
+    monkeypatch.setattr(frontends, "available", lambda ui: (True, ""))
+    s = Settings()
+    assert dev_app._fall_back(s) == 1 and switched == []          # not the chosen UI: just fail
+    s.set("ui", "device")
+    assert dev_app._fall_back(s) == 0 and switched == ["desktop"] and s.get("ui") == "desktop"
+
+
+def test_device_main_switches_to_the_desktop_app_after_closing(monkeypatch):
+    from canopener import frontends
+    from canopener.device import app as dev_app
+    monkeypatch.setenv("SDL_VIDEODRIVER", "dummy")
+    switched = []
+    monkeypatch.setattr(frontends, "switch", lambda ui, **kw: switched.append(ui) or 0)
+
+    def run(self):
+        self.ctx.start_log()
+        self.resize_window(1000, 600)                  # the user resized the window
+        self.ctx.settings.set("ui", "desktop")
+        self.switch_to, self.running = "desktop", False
+    monkeypatch.setattr(dev_app.DeviceApp, "run", run)
+    Settings().set("meters.sim", True)
+    assert dev_app.main([]) == 0 and switched == ["desktop"]
+    s = Settings()
+    assert s.get("device.window") == "1000x600"       # reopens at that size
+    assert not __import__("canopener.core.capture", fromlist=["x"]).pending_captures()   # log saved
+
+
+def test_window_resizes_and_maximizes(app_for):
+    app = app_for()
+    small = app.theme.touch
+    app.step([pygame.event.Event(pygame.VIDEORESIZE, w=1600, h=960, size=(1600, 960))])
+    assert app.size == (1600, 960) and app.screen.get_size() == (1600, 960)
+    assert abs(app.theme.touch - 2 * small) <= 1        # same 7" layout, just bigger
+    keys, stat, content = app.layout()
+    assert keys.w == 1600 and stat.bottom == 960
+    app.step([pygame.event.Event(pygame.VIDEORESIZE, w=100, h=100, size=(100, 100))])
+    assert app.size == (320, 320)                       # never smaller than usable
+    app.ctx.settings.set("device.window", "1280x720")   # System > Window size applies straight away
+    assert app.size == (1280, 720)
+    app.step([])
+
+
+def test_rotated_window_resizes_too(app_for):
+    app = app_for(rotate=90)
+    app.step([pygame.event.Event(pygame.VIDEORESIZE, w=600, h=1000, size=(600, 1000))])
+    assert app.screen.get_size() == (600, 1000) and app.size == (1000, 600)
+    assert app.to_logical((599, 0)) == (0, 0)
+    app.step([])

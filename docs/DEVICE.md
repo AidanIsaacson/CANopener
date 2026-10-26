@@ -23,9 +23,15 @@ canopener-device --obd-sim             # a simulated car (OBD-II)
 **From the desktop app:** tick **Settings → Handheld (Pi) screen**. CANopener closes (asking
 about an unsaved log as usual) and reopens as the handheld UI in a window. It stays that way,
 from the menu entry and the `canopener` command too, until you pick **System → Desktop app
-instead** on the handheld. The window size is **System → Window size** (800x480 by default);
-`canopener --desktop` always opens the desktop app. The same switch works on the Pi: the
-launcher starts whichever you last chose.
+instead** on the handheld; a log still recording there is stopped and saved first. The window
+can be resized or maximized (everything scales with it, like a bigger panel) and reopens at the
+size it was closed at; **System → Window size** sets a size directly. `canopener --desktop`
+always opens the desktop app. The same switch works on the Pi: the launcher starts whichever
+you last chose.
+
+Each switch starts the other app as a new process and writes its output to
+`~/.local/state/canopener/canopener.log`; if a UI ever fails to open, the reason is there. If
+the handheld UI can't open at all, it switches the choice back to the desktop app by itself.
 
 Keyboard stand-ins for the hardware: **F1-F4** soft keys, **F5** button 5, **arrows** d-pad,
 **Enter** encoder push (hold it for Back), **mouse wheel** or **Page Up/Down** the encoder,

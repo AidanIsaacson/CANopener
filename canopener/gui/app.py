@@ -40,8 +40,11 @@ def main(argv=None) -> int:
     if not a.desktop and not a.log and Settings().get("ui") == frontends.DEVICE:
         ok, why = frontends.available(frontends.DEVICE)
         if ok:
-            frontends.exec_ui(frontends.DEVICE, fullscreen=a.fullscreen, sim=a.sim)
-            return 0                        # (only reached when exec_ui is stubbed in tests)
+            try:
+                frontends.exec_ui(frontends.DEVICE, fullscreen=a.fullscreen, sim=a.sim)
+                return 0                    # (only reached when exec_ui is stubbed in tests)
+            except OSError as e:
+                why = f"Couldn't start the handheld UI: {e}"
         print(f"{why}\nStarting the desktop app instead.", file=sys.stderr)
 
     if a.scale:
@@ -76,8 +79,8 @@ def main(argv=None) -> int:
         win.iface.setCurrentText(a.iface)
         win.connect()
     code = app.exec()
-    if win.switch_to:                       # Settings > Handheld (Pi) screen: become the handheld UI
-        frontends.exec_ui(win.switch_to, fullscreen=win.was_fullscreen)
+    if win.switch_to:                       # Settings > Handheld (Pi) screen: start the handheld UI
+        return frontends.switch(win.switch_to, fullscreen=win.was_fullscreen)
     return code
 
 
