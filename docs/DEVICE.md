@@ -26,7 +26,8 @@ from the menu entry and the `canopener` command too, until you pick **System →
 instead** on the handheld; a log still recording there is stopped and saved first. The window
 can be resized or maximized (everything scales with it, like a bigger panel) and reopens at the
 size it was closed at; **System → Window size** sets a size directly. `canopener --desktop`
-always opens the desktop app. The same switch works on the Pi: the launcher starts whichever
+always opens the desktop app (installed with `deploy/linux/install.sh` it isn't on the
+terminal's PATH: run `~/CANopener/.venv/bin/canopener --desktop`). The same switch works on the Pi: the launcher starts whichever
 you last chose.
 
 Each switch starts the other app as a new process and writes its output to

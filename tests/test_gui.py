@@ -954,6 +954,8 @@ def test_update_dialog_and_restart(app, monkeypatch):
     monkeypatch.setattr(updates, "under_systemd", lambda: False)
     w.show()
     assert w.restart_app() and started and started[0][1][:2] == ["-m", "canopener"] and exits == [0]
+    from canopener.core import config
+    assert started[0][2] == config.install_dir()        # not the home folder, where ~/canopener would shadow it
     w2 = MainWindow()
     w2.show()
     monkeypatch.setattr(updates, "under_systemd", lambda: True)

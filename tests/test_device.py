@@ -378,14 +378,15 @@ def test_switching_starts_a_fresh_process_or_asks_systemd_to(monkeypatch, tmp_pa
 
     from canopener import frontends
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
-    monkeypatch.delenv("INVOCATION_ID", raising=False)
+    monkeypatch.setenv("INVOCATION_ID", "from-gnome-terminal")     # a laptop terminal: not the service
+    monkeypatch.delenv("CANOPENER_SERVICE", raising=False)
     started = []
     assert frontends.switch("desktop", popen=lambda argv, **kw: started.append((argv, kw))) == 0
     argv, kw = started[0]
     assert argv[1:] == ["-m", "canopener", "--desktop"] and kw["start_new_session"] and kw["close_fds"]
     assert kw["stdin"] is subprocess.DEVNULL and kw["stderr"] is subprocess.STDOUT
     assert "switching to the desktop UI" in open(frontends.log_path()).read()
-    monkeypatch.setenv("INVOCATION_ID", "abc")          # the Pi's systemd service: it restarts the launcher
+    monkeypatch.setenv("CANOPENER_SERVICE", "1")        # the Pi's systemd service: it restarts the launcher
     assert frontends.switch("device", popen=lambda *a, **k: started.append(a)) == 75 and len(started) == 1
 
 
@@ -451,3 +452,54 @@ def test_rotated_window_resizes_too(app_for):
     assert app.screen.get_size() == (600, 1000) and app.size == (1000, 600)
     assert app.to_logical((599, 0)) == (0, 0)
     app.step([])
+
+
+def test_only_the_pi_service_counts_as_running_under_systemd(monkeypatch, tmp_path):
+    """INVOCATION_ID leaks into every app started from GNOME Terminal (a systemd service): it must
+    not make the app exit expecting a restart that never comes."""
+    from canopener.core import updates
+    laptop, pi = tmp_path / "laptop", tmp_path / "pi"
+    laptop.write_text("0::/user.slice/user-1000.slice/user@1000.service/app.slice/"
+                      "app-org.gnome.Terminal.slice/vte-spawn-1234.scope\n")
+    pi.write_text("0::/user.slice/user-1000.slice/user@1000.service/app.slice/canopener.service\n")
+    monkeypatch.setenv("INVOCATION_ID", "0123456789abcdef")
+    monkeypatch.delenv("CANOPENER_SERVICE", raising=False)
+    assert not updates.under_systemd(str(laptop))
+    assert not updates.under_systemd(str(tmp_path / "missing"))
+    assert updates.under_systemd(str(pi))                   # a unit installed before the variable
+    monkeypatch.setenv("CANOPENER_SERVICE", "1")
+    assert updates.under_systemd(str(laptop))
+    monkeypatch.setenv("CANOPENER_SERVICE", "0")
+    assert not updates.under_systemd(str(pi))
+    unit = open(os.path.join(os.path.dirname(__file__), "..", "deploy", "raspberry-pi", "canopener.service")).read()
+    assert "Environment=CANOPENER_SERVICE=1" in unit
+
+
+def test_a_canopener_folder_in_the_working_directory_cant_shadow_the_app(tmp_path):
+    """Menu entries start in the home folder, where the logs folder ~/canopener lives: Python would
+    import that folder instead of the app (it broke launching after the first saved log)."""
+    import subprocess
+    import sys
+
+    from canopener.core import config
+    (tmp_path / "canopener" / "logs").mkdir(parents=True)
+    r = subprocess.run([sys.executable, "-m", "canopener", "--version"], cwd=tmp_path, capture_output=True,
+                       text=True, timeout=60)
+    assert r.returncode == 0 and r.stdout.strip().startswith("canopener "), r.stderr
+    assert os.path.exists(os.path.join(config.install_dir(), "canopener", "__init__.py"))
+
+
+def test_every_way_of_starting_the_app_uses_its_own_folder(monkeypatch, tmp_path):
+    from canopener import desktop, frontends
+    from canopener.core import config
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.delenv("CANOPENER_SERVICE", raising=False)
+    started = []
+    frontends.switch("desktop", popen=lambda argv, **kw: started.append(kw))
+    assert started[0]["cwd"] == config.install_dir()
+    assert f"Path={config.install_dir()}" in desktop.entry_text("/icon.svg").splitlines()
+    calls = []
+    monkeypatch.setattr(frontends.os, "chdir", lambda d: calls.append(("chdir", d)))
+    monkeypatch.setattr(frontends.os, "execv", lambda p, a: calls.append(("execv", a[2])))
+    frontends.exec_ui("device")
+    assert calls == [("chdir", config.install_dir()), ("execv", "canopener.device.app")]

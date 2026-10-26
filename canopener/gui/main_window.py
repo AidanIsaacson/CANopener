@@ -1100,7 +1100,8 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QApplication.instance().exit(updates.RESTART_EXIT_CODE)
         else:
             cmd = updates.restart_command()
-            QtCore.QProcess.startDetached(cmd[0], cmd[1:])
+            from ..core import config  # (start it from the app's folder: see config.install_dir)
+            QtCore.QProcess.startDetached(cmd[0], cmd[1:], config.install_dir())
             QtWidgets.QApplication.instance().quit()
         return True
 

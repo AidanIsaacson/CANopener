@@ -5,6 +5,13 @@ import os
 _data_dir_override: str | None = None
 
 
+def install_dir() -> str:
+    """The folder holding the ``canopener`` package: the working directory to start
+    ``python -m canopener`` in. Python looks in the working directory first, so started from the
+    home folder the default logs folder, ``~/canopener``, would be imported instead of the app."""
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
 def config_dir() -> str:
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
     return os.path.join(base, "canopener")

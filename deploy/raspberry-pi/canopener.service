@@ -12,6 +12,9 @@ Type=simple
 ExecStart=CANOPENER_LAUNCHER
 Restart=on-failure
 RestartSec=5
+# Tells the app it runs under this service: to restart (after an update, or to switch between
+# the handheld UI and the desktop app) it exits and lets the service start it again.
+Environment=CANOPENER_SERVICE=1
 # Environment=CANOPENER_BITRATE=auto
 # Environment=CANOPENER_ARGS=--fullscreen --scale 1.3
 

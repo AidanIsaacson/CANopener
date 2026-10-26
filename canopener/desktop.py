@@ -13,6 +13,8 @@ import shutil
 import subprocess
 import sys
 
+from .core import config
+
 APP_ID = "canopener"
 ICON_SRC = os.path.join(os.path.dirname(__file__), "assets", "canopener.svg")
 
@@ -49,6 +51,7 @@ def entry_text(icon_path: str, python: str | None = None) -> str:
         "GenericName=CAN / J1939 diagnostics",
         "Comment=Read fault codes, live data and record CAN logs",
         f'Exec="{python}" -m canopener',
+        f"Path={config.install_dir()}",      # not the home folder: ~/canopener (logs) would shadow the app
         f"Icon={icon_path}",
         "Terminal=false",
         "Categories=Utility;Development;",

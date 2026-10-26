@@ -20,6 +20,8 @@ import os
 import subprocess
 import sys
 
+from .core import config
+
 DESKTOP, DEVICE = "desktop", "device"
 
 
@@ -64,7 +66,7 @@ def switch(ui: str, fullscreen: bool = False, popen=subprocess.Popen) -> int:
         log.write(f"=== {datetime.datetime.now():%Y-%m-%d %H:%M:%S} switching to the {ui} UI: {' '.join(argv)}\n")
         log.flush()
         popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
-              close_fds=True)
+              close_fds=True, cwd=config.install_dir())    # not the home folder: see install_dir()
     return 0
 
 
@@ -85,4 +87,5 @@ def exec_ui(ui: str, fullscreen: bool = False, sim: bool = False):
             os.close(fd)
     except OSError:
         pass
+    os.chdir(config.install_dir())          # not the home folder: see core.config.install_dir()
     os.execv(argv[0], argv)

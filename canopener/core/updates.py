@@ -155,10 +155,20 @@ def installer_command(root: str | None = None) -> str:
     return f"{root}/deploy/raspberry-pi/install.sh --sudoers --autostart"
 
 
-def under_systemd() -> bool:
-    """Started by the Pi's systemd user service (which restarts us when we exit with
-    RESTART_EXIT_CODE)."""
-    return bool(os.environ.get("INVOCATION_ID")) and os.environ.get("CANOPENER_SERVICE", "1") != "0"
+def under_systemd(cgroup_file: str = "/proc/self/cgroup") -> bool:
+    """Started by the Pi's systemd user service, ``canopener.service`` (which restarts us when we
+    exit with RESTART_EXIT_CODE). The unit sets ``CANOPENER_SERVICE=1``; for units installed before
+    it did, the process's cgroup names the service. ``INVOCATION_ID`` is no evidence: everything
+    started from a systemd-managed terminal or desktop has it (GNOME Terminal is a systemd
+    service), and an app there that exits expecting a restart just disappears."""
+    flag = os.environ.get("CANOPENER_SERVICE")
+    if flag is not None:
+        return flag == "1"
+    try:
+        with open(cgroup_file) as f:
+            return "/canopener.service" in f.read()
+    except OSError:
+        return False
 
 
 def restart_command() -> list[str]:
