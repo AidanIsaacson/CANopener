@@ -15,10 +15,14 @@ dependencies = []          # the core and CLI are standard-library only
 # 6.12.0 crashes at interpreter exit on Python < 3.12 ("none_dealloc"); 6.11 and earlier are fine.
 gui = ["PySide6-Essentials>=6.5,!=6.12.0"]
 dev = ["pytest>=7", "ruff>=0.4"]
+# The handheld's instrument UI (canopener-device). pygame-ce and pygame both work (2.1+);
+# on a Pi with no desktop, Raspberry Pi OS's python3-pygame is the safe choice (see docs/DEVICE.md).
+device = ["pygame-ce>=2.4"]
 
 [project.scripts]
 canopener = "canopener.gui.app:main"
 canopener-cli = "canopener.cli:main"
+canopener-device = "canopener.device.app:main"
 
 [tool.setuptools.dynamic]
 version = { attr = "canopener.__version__" }
