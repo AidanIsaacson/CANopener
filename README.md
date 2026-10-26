@@ -23,7 +23,7 @@ record what happens while you work the machine.
 
 ## Get it
 
-**Linux laptop** (Mint, Ubuntu, Debian), about 10 minutes. Open a terminal and paste:
+**Linux laptop** (Mint, Ubuntu, Debian), just a few minutes. Open a terminal and paste:
 
 ```bash
 sudo apt update && sudo apt install -y git
@@ -43,10 +43,19 @@ For a **Raspberry Pi** that starts CANopener full screen at power-on: [Raspberry
 
 ## The handheld (in progress)
 
-The Raspberry Pi handheld gets its own screen, made for a 7" or 10" touch panel, gloves and a
-few hardware buttons: CAN diagnostics, a meter, and a data log that records the bus **and** the
-meter readings on one timeline. To try it on the laptop: **Settings → Handheld (Pi) screen**
-(and **System → Desktop app instead** to come back). Details for builders:
+The same core app runs on desktop and Raspberry Pi. To try it on the laptop: **Settings → Handheld (Pi) screen**
+(and **System → Desktop app instead** to come back).
+
+The Raspberry Pi, however, can be made into a portable handset, packed with other features.
+
+Plans include:
+* 4-channel DMM, which can log alongside the CANBUS data
+* Small, Wireless DMM modules
+* Logic Analyzer
+* Support for LIN and OBD-I
+* Any other method of data gathering you can imagine
+
+Details for builders:
 [docs/DEVICE.md](docs/DEVICE.md).
 
 ## Hooking up (¬‿¬)
