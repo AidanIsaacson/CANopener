@@ -13,6 +13,12 @@ The workflow (shared by the desktop GUI and, later, the handheld's hardware keys
 5. Optionally ``trim(before, after)`` first: keep only the stretch around the tagged
    timestamps (an hour of driving around until the fault shows, cut down to the fault).
 
+Measurements (meter probes, see ``core/measure.py``) record alongside: pass the
+``MeasurementHub`` to ``start()`` and every reading goes to ``measurements.csv`` on the same
+clock as the frames in ``capture.log``. The channels are listed in ``capture.json`` (``meta``
+"channels"), and the report puts them in ``live_data.csv`` and the summary next to the CAN data.
+A capture can also record measurements with no bus connected (``session=None``).
+
 Markers and metadata are written to disk on every change, so a crash mid-recording leaves a
 pending folder that ``pending_captures()`` finds and ``Capture.load()`` can recover.
 """
@@ -28,12 +34,14 @@ from dataclasses import asdict, dataclass
 
 from .. import __version__
 from . import config
+from .measure import MEASUREMENTS_CSV, MeasurementLog, trim_measurements
 
 CAPTURE_LOG = "capture.log"
 MARKERS_CSV = "markers.csv"
 META_JSON = "capture.json"
 LIVE_CSV = "live_data.csv"
 FULL_LOG = "capture_full.log"       # the untrimmed log, when trimming keeps it
+FULL_MEASUREMENTS = "measurements_full.csv"
 SUMMARY_TXT = "summary.txt"
 PENDING_PREFIX = ".recording_"
 
@@ -78,7 +86,9 @@ class Capture:
         self.root: str | None = None        # where it will be saved by default
         self.meta: dict = {}
         self.frames = 0
+        self.samples = 0                    # measurement readings recorded
         self._session = None
+        self._mlog: MeasurementLog | None = None
 
     # ------------------------------------------------------------------
     # markers
@@ -221,6 +231,11 @@ class Capture:
                     kept += t is not None
                 else:
                     dropped += 1
+        mpath = self.measurements_path
+        if mpath and os.path.exists(mpath):
+            if keep_full:
+                shutil.copyfile(mpath, os.path.join(self.folder, FULL_MEASUREMENTS))
+            self.samples = trim_measurements(mpath, lo, hi)[0]
         if keep_full:
             os.replace(src, os.path.join(self.folder, FULL_LOG))
         os.replace(tmp, src)
@@ -252,16 +267,30 @@ class Capture:
     def log_path(self) -> str | None:
         return os.path.join(self.folder, CAPTURE_LOG) if self.folder else None
 
-    def start(self, session, root: str | None = None, meta: dict | None = None):
+    @property
+    def measurements_path(self) -> str | None:
+        return os.path.join(self.folder, MEASUREMENTS_CSV) if self.folder else None
+
+    def start(self, session, root: str | None = None, meta: dict | None = None, measurements=None):
+        """Start recording ``session`` (None: measurements only) and, when given, every reading
+        from the ``measurements`` hub (a ``core.measure.MeasurementHub``)."""
         if self.state != IDLE:
             raise RuntimeError(f"capture is {self.state}")
+        if session is None and measurements is None:
+            raise ValueError("nothing to record: no bus and no meters")
         self.root = root or self.root or config.logs_dir()
         self.started = time.time()
         stamp = datetime.datetime.fromtimestamp(self.started).strftime("%Y%m%d_%H%M%S")
         self.folder = config.ensure_dir(os.path.join(self.root, f"{PENDING_PREFIX}{stamp}"))
         self.meta = dict(meta or {})
         self.meta.setdefault("app_version", __version__)
-        session.start_recording(self.log_path)
+        if session is not None:
+            session.start_recording(self.log_path)
+        else:
+            open(self.log_path, "w").close()     # no bus: an empty log keeps every tool working
+        if measurements is not None:
+            self._mlog = MeasurementLog(self.measurements_path, measurements)
+            self.meta["channels"] = [c.to_dict() for c in self._mlog.channels.values()]
         self._session = session
         self.state = RECORDING
         self._write_state()
@@ -272,6 +301,10 @@ class Capture:
         done = self._session.stop_recording() if self._session else None
         self.frames = done[1] if done else self.frames
         self._session = None
+        if self._mlog is not None:
+            self.samples = self._mlog.close()
+            self.meta["channels"] = [c.to_dict() for c in self._mlog.channels.values()]
+            self._mlog = None
         self.stopped = time.time()
         self.state = STOPPED
         self._write_state()
@@ -280,6 +313,10 @@ class Capture:
     def recorded_frames(self) -> int:
         rec = self._session.recording if self._session else None
         return rec.count if rec else self.frames
+
+    @property
+    def recorded_samples(self) -> int:
+        return self._mlog.count if self._mlog is not None else self.samples
 
     def default_folder_name(self) -> str:
         stamp = datetime.datetime.fromtimestamp(self.started or time.time()).strftime("%Y%m%d_%H%M%S")
@@ -332,6 +369,7 @@ class Capture:
         return {
             "name": self.name, "notes": self.notes, "state": self.state,
             "started": self.started, "stopped": self.stopped, "frames": self.recorded_frames,
+            "samples": self.recorded_samples,
             "markers": [asdict(m) for m in self.markers], "meta": self.meta,
         }
 
@@ -361,6 +399,7 @@ class Capture:
         c.markers = [Marker(**m) for m in d.get("markers", [])]
         c.started, c.stopped = d.get("started"), d.get("stopped")
         c.frames = d.get("frames", 0)
+        c.samples = d.get("samples", 0)
         c.meta = d.get("meta", {})
         c.folder = folder
         c.root = os.path.dirname(os.path.abspath(folder))

@@ -11,6 +11,11 @@ afterwards just regenerates the outputs.
 OBD-II traffic in the log (the app polling a car while recording) is decoded too, by the same
 ``obd.ObdSniffer`` the live view uses: its PIDs become columns, and codes read, cleared and tests
 run join the timeline.
+
+Meter readings (``measurements.csv``, see ``core/measure.py``) join the same way: each channel
+is a column (its latest reading at that half-second), going out of its normal range or giving no
+reading ("OL") are timeline events, and the summary lists every channel's range and its value at
+each timestamp. A capture with meters but no bus gets rows from the meter readings alone.
 """
 
 import csv
@@ -27,10 +32,13 @@ from ..j1939.signals import all_signals
 from ..j1939.spn import spn_name
 from . import units
 from .capture import LIVE_CSV, SUMMARY_TXT, Capture, fmt_elapsed
+from .measure import ChannelSeries, read_measurements, value_at
 from .session import Session
 
 SAMPLE_PERIOD = 0.5     # seconds between live_data.csv rows
 SILENT_AFTER = 2.0      # an ECU that sends nothing for this long counts as "went silent"
+MEASURE_MAX_AGE = 2.0   # a meter reading older than this is left blank in live_data.csv
+MAX_CHANNEL_EVENTS = 100    # timeline events per channel before the rest are only counted
 
 
 def _when(t: float) -> str:
@@ -54,6 +62,7 @@ class _Analysis:
         self.next_sample = None
         self.frames = 0
         self.obd = obd.ObdSniffer()
+        self.series: dict[str, ChannelSeries] = {}
 
     # --- per frame ---
     def feed(self, fr):
@@ -148,7 +157,96 @@ def analyze(capture: Capture, system: str = units.METRIC, progress=None) -> _Ana
         if progress and i % 5000 == 0:
             progress(i, len(frames))
     a.finish(capture.stopped or (frames[-1].timestamp if frames else a.t0))
+    mpath = capture.measurements_path
+    if mpath and os.path.exists(mpath):
+        a.series = read_measurements(mpath, capture.meta.get("channels"))
+        _add_measurements(a)
     return a
+
+
+def _add_measurements(a: _Analysis):
+    """Meter channels -> live_data columns (sampled on the same half-second grid) and timeline events."""
+    series = [s for s in a.series.values() if s.points]
+    if not series:
+        return
+    first = min(s.points[0][0] for s in series)
+    last = max(s.points[-1][0] for s in series)
+    t = a.rows[-1][0] + SAMPLE_PERIOD if a.rows else first
+    while t <= last + 1e-9:                 # meter readings past the last CAN frame (or with no bus)
+        a.rows.append([t, {}])
+        t += SAMPLE_PERIOD
+    for s in series:
+        ch = s.channel
+        col = len(a.col_titles)
+        unit = units.display_unit(ch.unit, a.system)
+        a.col_titles.append(f"{ch.name} [{unit}]" if unit else ch.name)
+        for t, values in a.rows:
+            v = value_at(s.points, t, MEASURE_MAX_AGE)
+            if v is not None:
+                values[col] = units.convert(v, ch.unit, a.system)[0]
+        a.events += _channel_events(s, a.system)
+
+
+def _channel_events(s: ChannelSeries, system: str) -> list[tuple[float, str]]:
+    """Out of range / back in range, and no reading (flagged) / reading again."""
+    ch = s.channel
+    out, state, skipped = [], "ok", 0
+
+    def fmt(v):
+        return units.fmt(v, ch.unit, ch.decimals, system)
+
+    rng = ""
+    if ch.low is not None or ch.high is not None:
+        rng = f", normal {'' if ch.low is None else fmt(ch.low)} to {'' if ch.high is None else fmt(ch.high)}"
+    flags = dict(s.flags)
+    for t, v in s.points:
+        if v is None:
+            now, text = "flag", f"{ch.name}: no reading ({flags.get(t) or 'no value'})"
+        elif (ch.low is not None and v < ch.low) or (ch.high is not None and v > ch.high):
+            now, text = "out", f"{ch.name} out of range: {fmt(v)}{rng}"
+        else:
+            now, text = "ok", f"{ch.name} back to normal: {fmt(v)}"
+        if now == state:
+            continue
+        state = now
+        if len(out) < MAX_CHANNEL_EVENTS:
+            out.append((t, text))
+        else:
+            skipped += 1
+    if skipped:
+        out.append((s.points[-1][0], f"{ch.name}: {skipped} more range changes not listed"))
+    return out
+
+
+def measurement_summary(a: _Analysis) -> list[str]:
+    if not a.series:
+        return []
+    c = a.c
+    L = ["", "-- Measurements --"]
+    for s in a.series.values():
+        ch = s.channel
+        vals = [v for _, v in s.points if v is not None]
+        if not vals:
+            L.append(f"  {ch.name:<28} no valid readings ({len(s.points)} flagged)")
+            continue
+
+        def fmt(v, ch=ch):
+            return units.fmt(v, ch.unit, ch.decimals, a.system)
+
+        flagged = f", {len(s.points) - len(vals)} without a reading" if len(vals) < len(s.points) else ""
+        L.append(f"  {ch.name:<28} min {fmt(min(vals)):<12} max {fmt(max(vals)):<12} "
+                 f"avg {fmt(sum(vals) / len(vals)):<12} {len(vals)} readings{flagged}")
+    tagged = c.tagged()
+    if tagged:
+        L += ["", "-- Measurements at each timestamp --"]
+        for i, m in tagged:
+            parts = []
+            for s in a.series.values():
+                v = value_at(s.points, m.t, MEASURE_MAX_AGE)
+                shown = "n/a" if v is None else units.fmt(v, s.channel.unit, s.channel.decimals, a.system)
+                parts.append(f"{s.channel.name} {shown}")
+            L.append(f"  {c.title(i):<34} " + ", ".join(parts))
+    return L
 
 
 def write_live_csv(a: _Analysis, path: str):
@@ -172,7 +270,8 @@ def summary_text(a: _Analysis) -> str:
     L = [f"=== Capture: {c.name.strip() or '(unnamed)'} ==="]
     if c.started:
         L.append(f"Recorded     {_when(c.started)}  ->  {_when(c.stopped or c.started)}"
-                 f"   ({fmt_elapsed(c.elapsed())[1:]} long, {a.frames} frames)")
+                 f"   ({fmt_elapsed(c.elapsed())[1:]} long, {a.frames} frames"
+                 + (f", {sum(len(x.points) for x in a.series.values())} meter readings)" if a.series else ")"))
     for k in ("source", "interface", "bitrate", "profile", "listen_only", "app_version"):
         if k in c.meta:
             L.append(f"{k.replace('_', ' ').capitalize():<13}{c.meta[k]}")
@@ -221,6 +320,8 @@ def summary_text(a: _Analysis) -> str:
         for ecu, kinds in sorted(a.obd.dtcs.items()):
             for kind, codes in kinds.items():
                 L += [f"  {kind:<10} {a.obd.label(ecu):<18} {code}  {obd.describe_dtc(code)}" for code in codes]
+
+    L += measurement_summary(a)
 
     L += ["", "-- ECUs --"]
     for e in a.session.ecu_list():
