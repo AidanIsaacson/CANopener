@@ -211,10 +211,14 @@ class ConfirmDialog(Dialog):
 
     def draw(self, ui, rect):
         t = ui.theme
-        p = self.panel(ui, rect, 0.8, 0.8)
+        long = len(self.text) > 200             # a full warning (clearing codes): use the whole screen
+        p = self.panel(ui, rect, 0.94, 0.96) if long else self.panel(ui, rect, 0.8, 0.8)
         ui.text(self.title, (p.x + t.pad * 2, p.y + t.pad * 2), "big", "text", valign="top", max_w=p.w - 4 * t.pad)
         body = pygame.Rect(p.x + t.pad * 2, p.y + t.touch * 1.1, p.w - 4 * t.pad, p.h - t.touch * 2.6)
-        ui.paragraph(self.text, body, "body", "text")
+        font = "body"
+        if len(ui.wrap(self.text, font, body.w)) * t.font(font).get_linesize() > body.h:
+            font = "small"                      # never cut a warning short: smaller text instead
+        ui.paragraph(self.text, body, font, "text")
         bw = (p.w - 5 * t.pad) // 2
         no = pygame.Rect(p.x + t.pad * 2, p.bottom - t.touch - t.pad * 2, bw, t.touch)
         yes = pygame.Rect(no.right + t.pad, no.y, bw, t.touch)

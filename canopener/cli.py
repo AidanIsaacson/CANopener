@@ -3,8 +3,10 @@
     canopener-cli scan --iface can0 --full
     canopener-cli scan --sim
     canopener-cli decode capture.log
+    canopener-cli clear --iface can0 --stored        # clear J1939 codes (DM11 active, --stored DM3; asks first)
     canopener-cli sim --iface vcan0         # run the simulator on a real/virtual SocketCAN bus
-    canopener-cli interfaces
+    canopener-cli interfaces --python-can          # Linux interfaces, plus adapters python-can finds
+    canopener-cli scan --iface pcan:PCAN_USBBUS1 --bitrate 250000   # any python-can adapter
     canopener-cli setup --iface can0 --bitrate auto   # configure + bring up (listen-only probe)
     canopener-cli find --iface can0 --sound           # keep listening while probing; chime on lock
 """
@@ -32,7 +34,7 @@ def _apply_profile(pid: str | None):
 def cmd_scan(a) -> int:
     kind = connection.SIMULATOR if a.sim else connection.SOCKETCAN
     try:
-        conn = connection.open_connection(kind, a.iface, listen_only=a.listen_only)
+        conn = connection.open_connection(kind, a.iface, listen_only=a.listen_only, bitrate=a.bitrate)
     except OSError as e:
         print(f"Could not open {a.iface}: {e}", file=sys.stderr)
         return 2
@@ -73,12 +75,45 @@ def _confirm(question: str, yes: bool) -> bool:
     return input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
 
 
+def cmd_clear(a) -> int:
+    from .core import j1939_clear as jc
+    which = jc.BOTH if a.both else jc.STORED if a.stored else jc.ACTIVE
+    try:
+        da = int(a.module, 16) if a.module else jc.GLOBAL_SA
+    except ValueError:
+        print(f"--module is a source address in hex, e.g. 00 or 0x27 (got {a.module!r})", file=sys.stderr)
+        return 2
+    kind = connection.SIMULATOR if a.sim else connection.SOCKETCAN
+    try:
+        conn = connection.open_connection(kind, a.iface, bitrate=a.bitrate)
+    except OSError as e:
+        print(f"Could not open {a.iface}: {e}", file=sys.stderr)
+        return 2
+    try:
+        if conn.session.listen_only:
+            print("Clearing codes has to transmit; this adapter is listen-only.", file=sys.stderr)
+            return 2
+        if not _confirm(jc.warning(which, da), a.yes):
+            return 1
+        result = jc.clear_codes(conn.session, which, da)
+        for line in result.lines():
+            print(line)
+        time.sleep(1.2)                 # let the next DM1 broadcast arrive
+        for preset in (["active"] if which == jc.ACTIVE else ["stored"] if which == jc.STORED
+                       else ["active", "stored"]):
+            print()
+            print("\n".join(report.code_table(scan.run_preset(conn.session, preset))))
+        return 0 if result.ok else 1
+    finally:
+        conn.close()
+
+
 def cmd_obd(a) -> int:
     from . import obd as obdlib
     from .core.obd import CLEAR_WARNING, ObdClient
     kind = connection.OBD_SIM if a.sim else connection.SOCKETCAN
     try:
-        conn = connection.open_connection(kind, a.iface)
+        conn = connection.open_connection(kind, a.iface, bitrate=a.bitrate)
     except OSError as e:
         print(f"Could not open {a.iface}: {e}", file=sys.stderr)
         return 2
@@ -169,7 +204,7 @@ def cmd_uds(a) -> int:
     from .core.uds import UdsClient
     kind = connection.OBD_SIM if a.sim else connection.SOCKETCAN
     try:
-        conn = connection.open_connection(kind, a.iface)
+        conn = connection.open_connection(kind, a.iface, bitrate=a.bitrate)
     except OSError as e:
         print(f"Could not open {a.iface}: {e}", file=sys.stderr)
         return 2
@@ -247,8 +282,15 @@ def cmd_interfaces(a) -> int:
               f"'{interfaces.setup_command('vcan0', 0)}'")
     for i in found:
         print(i.describe())
-    for a in interfaces.usb_adapters():
-        print(f"USB: {a.product} ({a.kind}{', ' + a.tty if a.tty else ''})")
+    for u in interfaces.usb_adapters():
+        print(f"USB: {u.product} ({u.kind}{', ' + u.tty if u.tty else ''})")
+    if a.python_can:
+        from .can import pythoncan
+        if not pythoncan.available():
+            print(pythoncan.INSTALL_HINT)
+            return 1
+        found_pc = pythoncan.detect()
+        print("python-can adapters (use as --iface): " + (", ".join(found_pc) or "none found"))
     return 0
 
 
@@ -353,6 +395,10 @@ def cmd_profiles(a) -> int:
     return 0
 
 
+IFACE_HELP = "a Linux CAN interface (can0), or a python-can adapter as interface:channel (pcan:PCAN_USBBUS1)"
+BITRATE_HELP = "bits/s for a python-can adapter (a Linux interface keeps the bitrate it was set up with)"
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="canopener-cli", description="CANopener J1939 diagnostics")
     ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -363,7 +409,8 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("scan", help="read fault codes from a live bus")
-    s.add_argument("--iface", default="can0")
+    s.add_argument("--iface", default="can0", help=IFACE_HELP)
+    s.add_argument("--bitrate", type=int, default=250000, help=BITRATE_HELP)
     s.add_argument("--sim", action="store_true", help="scan the built-in simulator instead")
     s.add_argument("--listen-only", action="store_true", help="send nothing (DM1 + live data only)")
     g = s.add_mutually_exclusive_group()
@@ -382,7 +429,10 @@ def main(argv=None) -> int:
     m.add_argument("--iface", default="vcan0")
     m.set_defaults(fn=cmd_sim)
 
-    sub.add_parser("interfaces", help="list CAN interfaces").set_defaults(fn=cmd_interfaces)
+    it = sub.add_parser("interfaces", help="list CAN interfaces")
+    it.add_argument("--python-can", action="store_true", help="also look for adapters python-can can open "
+                                                             "(PEAK, Kvaser, gs_usb ...; takes a few seconds)")
+    it.set_defaults(fn=cmd_interfaces)
 
     u = sub.add_parser("setup", help="configure a CAN interface and bring it up (needs root, sudo or pkexec)")
     u.add_argument("--iface", default="can0")
@@ -400,9 +450,23 @@ def main(argv=None) -> int:
     f.set_defaults(fn=cmd_find)
     sub.add_parser("profiles", help="list machine profiles").set_defaults(fn=cmd_profiles)
 
+    cl = sub.add_parser("clear", help="clear J1939 fault codes: active (DM11, default) or stored (DM3); "
+                                      "asks first, then reads the codes again")
+    cl.add_argument("--iface", default="can0", help=IFACE_HELP)
+    cl.add_argument("--bitrate", type=int, default=250000, help=BITRATE_HELP)
+    cl.add_argument("--sim", action="store_true", help="clear the built-in simulator's codes instead")
+    g = cl.add_mutually_exclusive_group()
+    g.add_argument("--stored", action="store_true", help="stored / previously active codes (DM3)")
+    g.add_argument("--both", action="store_true", help="active and stored codes (DM11 + DM3)")
+    cl.add_argument("--module", metavar="SA", help="only this module's source address in hex, e.g. 00 "
+                                                   "(default: every module)")
+    cl.add_argument("--yes", action="store_true", help="don't ask first")
+    cl.set_defaults(fn=cmd_clear)
+
     o = sub.add_parser("obd", help="OBD-II (J1979) scan tool: codes from every module, readiness, live data, "
                                    "vehicle info; --clear / --evap-test send commands")
-    o.add_argument("--iface", default="can0")
+    o.add_argument("--iface", default="can0", help=IFACE_HELP)
+    o.add_argument("--bitrate", type=int, default=500000, help=BITRATE_HELP)
     o.add_argument("--sim", action="store_true", help="use the built-in OBD-II simulator instead")
     o.add_argument("--freeze", action="store_true", help="also read the freeze frame")
     o.add_argument("--tests", action="store_true", help="also read on-board test results (Mode 06)")
@@ -415,7 +479,8 @@ def main(argv=None) -> int:
     o.set_defaults(fn=cmd_obd)
 
     ud = sub.add_parser("uds", help="read a module via UDS (ISO 14229): DTCs with status, a data identifier")
-    ud.add_argument("--iface", default="can0")
+    ud.add_argument("--iface", default="can0", help=IFACE_HELP)
+    ud.add_argument("--bitrate", type=int, default=500000, help=BITRATE_HELP)
     ud.add_argument("--sim", action="store_true", help="read the built-in simulator instead")
     ud.add_argument("--module", default="7E0", help="module request CAN ID in hex (default 7E0)")
     ud.add_argument("--did", help="also read this data identifier (hex, e.g. F190)")

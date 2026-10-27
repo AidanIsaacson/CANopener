@@ -16,6 +16,7 @@ import threading
 import time
 from dataclasses import dataclass
 
+from ..can import pythoncan
 from . import interfaces
 from .connection import REPLAY, SOCKETCAN
 
@@ -38,6 +39,11 @@ def adapter_status(kind: str, name: str, found: list | None = None, usb: list | 
         return Status(SIM, "Log file", "Replaying a log file: no adapter needed.")
     if kind != SOCKETCAN:
         return Status(SIM, "Simulator", "Using a simulated bus: no adapter needed.")
+    if pythoncan.is_spec(name):
+        if not pythoncan.available():
+            return Status(BAD, "python-can missing", pythoncan.INSTALL_HINT)
+        return Status(OK, f"Adapter {name}", f"{name} is opened through python-can when you connect; "
+                      "if it isn't plugged in, Connect says so.")
     found = interfaces.list_interfaces(details=False) if found is None else found
     match = next((i for i in found if i.name == name), None)
     if match is not None:

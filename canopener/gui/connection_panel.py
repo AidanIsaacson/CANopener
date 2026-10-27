@@ -11,6 +11,7 @@ plays a chime, locks the bitrate in and (optionally) connects. All of its logic 
 import queue
 import time
 
+from ..can import pythoncan
 from ..core import connection, interfaces, link, sound
 from .qt import Qt, QtCore, QtWidgets, Signal
 from .widgets import STATUS_COLORS, RefreshComboBox, StatusLamp
@@ -193,6 +194,11 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         if self.source.currentData() != connection.SOCKETCAN:
             self.source.setCurrentIndex(self.source.findData(connection.SOCKETCAN))
         name = self.iface.currentText().strip() or "can0"
+        if pythoncan.is_spec(name):
+            QtWidgets.QMessageBox.information(
+                self, "Find signal", f"Find signal works with Linux CAN interfaces like can0. For {name} (a "
+                "python-can adapter), pick the bitrate and press Connect.")
+            return False
         if not interfaces.valid_name(name):
             QtWidgets.QMessageBox.critical(self, "Find signal", f"Bad interface name {name!r}")
             return False

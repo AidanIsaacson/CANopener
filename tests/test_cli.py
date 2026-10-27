@@ -73,3 +73,14 @@ def test_capture_trim_command(tmp_path, capsys):
     assert "Trimmed: kept 181 frames" in out.err and "Trimmed      to 2 min before" in out.out
     saved = [d for d in tmp_path.iterdir() if d.name.endswith("_bench")]    # saving moved it to its final name
     assert len(saved) == 1 and os.path.exists(saved[0] / cap.FULL_LOG)
+
+
+def test_clear_j1939_codes_on_the_simulator(capsys, monkeypatch):
+    assert cli.main(["clear", "--sim", "--stored", "--module", "27", "--yes"]) == 0
+    out = capsys.readouterr().out
+    assert "27 Management computer #1: DM3 ACK" in out
+    assert "27 Management computer #1  no codes reported" in out and "Water in fuel" in out   # engine kept its
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)                                     # without --yes:
+    assert cli.main(["clear", "--sim"]) == 1                                                   # not confirmed
+    assert "not confirmed" in capsys.readouterr().err
+    assert cli.main(["clear", "--sim", "--module", "zz", "--yes"]) == 2

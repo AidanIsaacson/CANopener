@@ -30,6 +30,7 @@ class SimEcu:
         self._send = send                  # send(can_id, data)
         self.broadcasts: list[Broadcast] = []
         self.responders: dict[int, object] = {}   # pgn -> callable() -> bytes | None
+        self.commands: dict[int, object] = {}     # pgn -> callable() -> bool: requests that do something (DM11 / DM3)
         self._tp_lock = threading.Lock()   # one multi-packet transfer at a time per ECU
         self._cts: dict[int, queue.Queue] = {}
 
@@ -38,6 +39,10 @@ class SimEcu:
 
     def respond(self, pgn: int, build):
         self.responders[pgn] = build
+
+    def command(self, pgn: int, run):
+        """A request that does something instead of returning data (J1939-73 DM11 / DM3 clears)."""
+        self.commands[pgn] = run
 
     # --- tx helpers ---
     def send_pgn(self, pgn: int, data: bytes, da: int = GLOBAL_SA, priority: int = 6):
@@ -52,8 +57,12 @@ class SimEcu:
         self._send(build_id(PGN_ADDRESS_CLAIM, self.sa, GLOBAL_SA, 6), self.name.to_bytes())
 
     def nack(self, pgn: int, requester: int):
+        self.ack(pgn, requester, control=1)
+
+    def ack(self, pgn: int, requester: int, control: int = 0):
+        """Acknowledgment (PGN 59392): 0 ACK, 1 NACK, 2 access denied, 3 cannot respond."""
         self._send(build_id(PGN_ACK, self.sa, GLOBAL_SA, 6),
-                   bytes([1, 0xFF, 0xFF, 0xFF, requester]) + pgn_bytes(pgn))
+                   bytes([control, 0xFF, 0xFF, 0xFF, requester]) + pgn_bytes(pgn))
 
     def _send_bam(self, pgn: int, data: bytes):
         with self._tp_lock:
@@ -90,6 +99,12 @@ class SimEcu:
     def on_request(self, pgn: int, requester: int, directed: bool):
         if pgn == PGN_ADDRESS_CLAIM:
             self.claim_address()
+            return
+        run = self.commands.get(pgn)
+        if run is not None:
+            done = run()
+            if directed:                  # J1939-73: a clear sent to everyone isn't acknowledged
+                self.ack(pgn, requester, control=0 if done else 1)
             return
         build = self.responders.get(pgn)
         data = build() if build else None

@@ -2,8 +2,9 @@
 
 import datetime
 import html
+import time
 
-from ..core import units
+from ..core import j1939_clear, scan, units
 from ..core.scan import DtcRow, ScanResult
 from ..j1939.addresses import sa_name
 from ..j1939.constants import STATUS_ORDER, pgn_label
@@ -44,6 +45,20 @@ class CodesTab(QtWidgets.QWidget):
             b.clicked.connect(lambda _=False, p=preset: ctx.run_preset(p))
             bar.addWidget(b)
             self.buttons.append(b)
+        self.clear_btn = QtWidgets.QToolButton()
+        self.clear_btn.setText("Clear Codes…")
+        self.clear_btn.setMinimumHeight(44)
+        self.clear_btn.setToolTip("Clear J1939 fault codes (DM11 active / DM3 stored) on every module, or only "
+                                  "the one picked under ECU. Asks first.")
+        self.clear_btn.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QtWidgets.QMenu(self.clear_btn)
+        for which, label in ((j1939_clear.ACTIVE, "Clear active codes (DM11)…"),
+                             (j1939_clear.STORED, "Clear stored codes (DM3)…"),
+                             (j1939_clear.BOTH, "Clear active and stored codes…")):
+            menu.addAction(label, lambda w=which: self.clear_codes(w))
+        self.clear_btn.setMenu(menu)
+        bar.addWidget(self.clear_btn)
+        self.buttons.append(self.clear_btn)
         self.history = QtWidgets.QCheckBox("Include every code seen this session")
         self.history.setToolTip("Catches intermittent faults: any DTC broadcast in DM1 since you "
                                 "connected stays listed, even if it has since cleared.")
@@ -102,6 +117,39 @@ class CodesTab(QtWidgets.QWidget):
             self.summary.setText("Reading...")
 
     # ------------------------------------------------------------------
+    def clear_codes(self, which: str):
+        """Clear codes on every module, or the one picked under ECU; asks first (default No)."""
+        ctx = self.ctx
+        s = ctx.session
+        if not ctx.live or ctx.busy:
+            return
+        if s.listen_only:
+            QtWidgets.QMessageBox.information(self, "Clear codes", "Listen-only is on: clearing codes has to "
+                                              "transmit. Turn listen-only off in Connection first.")
+            return
+        da = self.ecu.currentData()
+        da = j1939_clear.GLOBAL_SA if da is None else da
+        r = QtWidgets.QMessageBox.warning(self, "Clear codes", j1939_clear.warning(which, da),
+                                          QtWidgets.QMessageBox.StandardButton.Yes
+                                          | QtWidgets.QMessageBox.StandardButton.No,
+                                          QtWidgets.QMessageBox.StandardButton.No)
+        if r != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+        pgns = {j1939_clear.ACTIVE: scan.ACTIVE, j1939_clear.STORED: scan.STORED}.get(which, scan.ACTIVE + scan.STORED)
+
+        def work():
+            result = j1939_clear.clear_codes(s, which, da)
+            time.sleep(1.2)                 # the next DM1 broadcast shows what's still active
+            return result, scan.run_scan(s, pgns, title="Codes after clearing")
+
+        def done(value):
+            result, after = value
+            ctx.result_ready.emit(after)
+            ctx.status_message.emit("Clear codes: " + "; ".join(result.lines()[:-1]))
+            box = QtWidgets.QMessageBox.information if result.ok else QtWidgets.QMessageBox.warning
+            box(self, "Clear codes", "\n".join(result.lines()))
+        ctx.run_task("Clearing codes…", work, done)
+
     def _session_rows(self) -> list[DtcRow]:
         s = self.ctx.session
         if s is None:

@@ -6,6 +6,7 @@ they get the same behaviour for real hardware, the simulator and log replay.
 
 from dataclasses import dataclass
 
+from ..can import pythoncan
 from ..can.backends import SocketCanBackend, VirtualBackend, VirtualBus
 from ..can.logfile import LogReplayBackend, read_log_with_markers
 from .session import Session
@@ -37,15 +38,23 @@ class Connection:
             return "OBD-II simulator (virtual car)"
         if self.kind == REPLAY:
             return f"Replay: {self.session.backend.channel}"
+        if self.session.backend.kind == pythoncan.PythonCanBackend.kind:
+            return self.session.backend.describe()
         return f"SocketCAN {self.session.backend.channel}"
 
 
 def open_connection(kind: str, channel: str = "can0", *, listen_only: bool = False,
                     replay_speed: float = 1.0, replay_loop: bool = False, sim_seed=None,
-                    profile=None) -> Connection:
-    """Open a bus and start a session. Raises OSError / BackendError on failure."""
+                    profile=None, bitrate: int | None = 250000) -> Connection:
+    """Open a bus and start a session. Raises OSError / BackendError on failure.
+
+    For SOCKETCAN, ``channel`` is a Linux interface (can0, already up at its bitrate) or an
+    ``interface:channel`` adapter name for python-can (``can.pythoncan``), which ``bitrate``
+    configures."""
     sim = None
-    if kind == SOCKETCAN:
+    if kind == SOCKETCAN and pythoncan.is_spec(channel):
+        backend = pythoncan.PythonCanBackend(channel, bitrate, listen_only)
+    elif kind == SOCKETCAN:
         backend = SocketCanBackend(channel)
     elif kind == SIMULATOR:
         from ..sim import MachineSimulator  # imported lazily: only needed for the simulator

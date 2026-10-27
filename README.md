@@ -54,6 +54,11 @@ meter readings on one timeline. To try it on the laptop: **Settings → Handheld
 **Use any adapter** that Linux sees as a CAN interface: CANable / candleLight, PEAK, Kvaser,
 8devices, or a CAN HAT on a Pi. The installer sets up the CANable (both firmwares) for you. Currently developed on the CANable 2.0 Pro.
 
+**Other adapters** (through [python-can](https://python-can.readthedocs.io), optional): install it with
+`~/CANopener/.venv/bin/pip install python-can`, then **Connection → Find other adapters**, or type the
+adapter under Interface as `interface:channel`, e.g. `pcan:PCAN_USBBUS1`, `kvaser:0` or
+`slcan:/dev/ttyACM0`, and pick its bitrate.
+
 1. Plug the adapter into the laptop and connect it to CAN HI&LO (the machine's diagnostic port, or back-probe any CAN HI/LO pair) Key on.
 2. Open **🔌 Connection** (top left, or **F3**). Pick **SocketCAN adapter**, then the bitrate:
    **250k** for most equipment and trucks, **500k** for cars and some newer machines, or **Auto** to scan baud rates.
@@ -135,7 +140,7 @@ quicker to check something than to talk yourself out of checking it.
 
 | Tab | What you get |
 |---|---|
-| **Fault Codes** | **Read Active** / **Read Stored** / **Pending / Emissions** / **Full Scan**. Each code with its description, occurrence count and the warning lamps. Tick *Include every code seen this session* to catch intermittent ones. **Show this parameter in Live Data** jumps to the sensor behind a code. |
+| **Fault Codes** | **Read Active** / **Read Stored** / **Pending / Emissions** / **Full Scan**. Each code with its description, occurrence count and the warning lamps. Tick *Include every code seen this session* to catch intermittent ones. **Show this parameter in Live Data** jumps to the sensor behind a code. **Clear Codes…** clears active (DM11) or stored (DM3) codes on every module, or the one picked under ECU, after asking. |
 | **Live Data** | Engine speed, temperatures, pressures, voltages, DPF / DEF and more, with min / max. Tick values to chart them. **Hide unticked** and **Hide plots** tidy a small screen. |
 | **Bus Monitor** | Every raw frame, or one row per ID with changing bytes highlighted, for figuring out proprietary data. |
 | **Network** | Every module on the bus and what it sends. |
@@ -262,3 +267,6 @@ anything you distribute that includes it must be offered under the same license,
 The generic OBD-II trouble-code descriptions in `canopener/obd/dtc_codes.py` and the Mode 06
 unit/scaling table come from [python-OBD](https://github.com/brendan-w/python-OBD) (GPL-2.0-or-later,
 © Donour Sizemore, Secons Ltd., Peter J. Creath, Brendan Whitfield).
+
+Optional, installed separately and not part of CANopener: [python-can](https://github.com/hardbyte/python-can)
+(LGPL-3.0) for the "other adapters" above, and Pygame for the handheld UI.

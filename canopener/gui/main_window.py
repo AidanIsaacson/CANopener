@@ -5,6 +5,7 @@ import os
 import time
 
 from .. import __version__
+from ..can import pythoncan
 from ..core import config, connection, interfaces, link, profiles, report, scan, storage, transmit, units
 from ..core.connection import load_log_session, open_connection
 from .connection_panel import AUTO_BITRATE, ConnectionPanel
@@ -73,6 +74,10 @@ class PluginApi:
                                           | QtWidgets.QMessageBox.StandardButton.No,
                                           QtWidgets.QMessageBox.StandardButton.No)
         return r == QtWidgets.QMessageBox.StandardButton.Yes
+
+
+PYTHON_CAN_SETUP = ("{what} works with Linux CAN interfaces like can0. A python-can adapter ({name}) is "
+                    "set up when you press Connect, at the bitrate picked here.")
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -258,6 +263,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._action(cn, "Connect / disconnect", self.toggle_connect, "Ctrl+K")
         self._action(cn, "Find signal (start / stop)", self._toggle_finder, "F4")
         self._action(cn, "Set up interface", self.setup_interface)
+        self._action(cn, "Find other adapters (python-can)…", self.find_python_can)
         lg = m.addMenu("&Log")
         toggle = self.log_panel.toggleViewAction()
         toggle.setShortcut(QtGui.QKeySequence("F2"))
@@ -562,7 +568,7 @@ class MainWindow(QtWidgets.QMainWindow):
         re-check when the list opens skips that, so it doesn't undo a bitrate just picked."""
         cur = preferred or self.iface.currentText().strip() or "can0"
         found = interfaces.list_interfaces()
-        if found and cur not in [i.name for i in found]:
+        if found and cur not in [i.name for i in found] and not pythoncan.is_spec(cur):
             # The adapter came up under another name (can1, or can0 after using vcan0): use it.
             cur = next((i.name for i in found if not i.virtual), cur)
         self.iface.blockSignals(True)
@@ -570,6 +576,10 @@ class MainWindow(QtWidgets.QMainWindow):
         for i in found:
             self.iface.addItem(i.name)
             self.iface.setItemData(self.iface.count() - 1, i.describe(), Qt.ItemDataRole.ToolTipRole)
+        for spec in getattr(self, "_python_can_found", []):     # Connection > Find other adapters
+            self.iface.addItem(spec)
+            self.iface.setItemData(self.iface.count() - 1, "Opened through python-can",
+                                   Qt.ItemDataRole.ToolTipRole)
         self.iface.setCurrentText(cur)
         self.iface.blockSignals(False)
         self.iface.setToolTip("CAN interfaces connected now: " + ", ".join(i.describe() for i in found)
@@ -605,6 +615,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def setup_interface(self):
         self.conn_panel.stop_finder()       # it owns the interface while running
         name = self.iface.currentText().strip()
+        if pythoncan.is_spec(name):
+            QtWidgets.QMessageBox.information(self, "Set up interface", PYTHON_CAN_SETUP.format(
+                what="Set up", name=name))
+            return
         if not interfaces.valid_name(name):
             QtWidgets.QMessageBox.critical(self, "Set up interface", f"Bad interface name {name!r}")
             return
@@ -629,6 +643,28 @@ class MainWindow(QtWidgets.QMainWindow):
         self._refresh_interfaces(preferred=name)
         if was:
             self.connect()
+
+    def find_python_can(self):
+        """Connection > Find other adapters: what python-can can open (PEAK, Kvaser, gs_usb ...)."""
+        if not pythoncan.available():
+            QtWidgets.QMessageBox.information(self, "Find other adapters", pythoncan.INSTALL_HINT)
+            return
+        QtWidgets.QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            self._python_can_found = pythoncan.detect()
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+        found = self._python_can_found
+        if found:
+            self._refresh_interfaces(preferred=found[0])
+            self.source.setCurrentIndex(self.source.findData(connection.SOCKETCAN))
+        QtWidgets.QMessageBox.information(
+            self, "Find other adapters",
+            ("Found: " + ", ".join(found) + ".\n\nThe first is picked under Interface: choose the bitrate and "
+             "Connect.") if found else
+            "python-can found no adapters. Is the adapter plugged in, and its vendor driver installed (PEAK, "
+            "Kvaser, Vector ...)? You can also type one under Interface as interface:channel, e.g. "
+            "pcan:PCAN_USBBUS1 or slcan:/dev/ttyACM0.")
 
     def _detect_bitrate(self, name: str):
         def progress(br):
@@ -672,7 +708,8 @@ class MainWindow(QtWidgets.QMainWindow):
         """'Connect on startup' without an error dialog on every launch when the adapter isn't
         plugged in: just say so in the status bar."""
         self._refresh_interfaces()
-        if not any(i.name == self.iface.currentText() for i in interfaces.list_interfaces()):
+        name = self.iface.currentText()
+        if not pythoncan.is_spec(name) and not any(i.name == name for i in interfaces.list_interfaces()):
             self.statusBar().showMessage("Not connected: " + interfaces.no_adapter_hint().split("\n")[0], 15000)
             return
         self.connect()
@@ -730,9 +767,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 return
         try:
             conn = open_connection(kind, channel, listen_only=self.listen_only.isChecked(),
-                                   profile=profiles.active())
+                                   profile=profiles.active(), bitrate=self.bitrate.currentData())
         except Exception as e:
-            missing = kind == connection.SOCKETCAN and not any(
+            missing = kind == connection.SOCKETCAN and not pythoncan.is_spec(channel) and not any(
                 i.name == channel for i in interfaces.list_interfaces())
             hint = "\n\n" + interfaces.no_adapter_hint() if missing else ""
             QtWidgets.QMessageBox.critical(self, "Connect", f"Could not open {channel}: {e}{hint}")

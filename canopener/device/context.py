@@ -15,6 +15,7 @@ import traceback
 from collections import deque
 
 from .. import __version__
+from ..can import pythoncan
 from ..core import capture as cap
 from ..core import config, interfaces, link, meters, profiles, scan, sound, units
 from ..core.capture import Capture
@@ -64,6 +65,7 @@ class DeviceContext:
         self.bus = link.Status(link.OFF, "Bus: not connected")
         self.focus_spn: int | None = None   # a fault code's SPN to show in Live Data
         self.focus_pids: list[int] = []     # the OBD-II equivalent
+        self.python_can_found: list[str] = []
         self._jobs: queue.Queue = queue.Queue()
         self._last_sample = 0.0
         self._link_checked = 0.0
@@ -179,6 +181,10 @@ class DeviceContext:
         name = self.settings.get("can.iface") or "can0"
         bitrate = int(self.settings.get("can.bitrate") or 0)
         listen_only = bool(self.settings.get("can.listen_only"))
+        python_can = kind == SOCKETCAN and pythoncan.is_spec(name)
+        if python_can and not bitrate:
+            self.toast("Pick a bitrate for a python-can adapter (Auto works with can0-style interfaces)")
+            return
         if kind == SOCKETCAN and not bitrate and not name.startswith("vcan"):
             info = next((i for i in interfaces.list_interfaces(details=False) if i.name == name), None)
             if info is None or info.state != "up":
@@ -191,7 +197,7 @@ class DeviceContext:
             self.apply_profile("generic")
 
         def work():
-            if kind == SOCKETCAN and bitrate and not name.startswith("vcan"):
+            if kind == SOCKETCAN and bitrate and not name.startswith("vcan") and not python_can:
                 info = next((i for i in interfaces.list_interfaces(details=False) if i.name == name), None)
                 if info is None:
                     raise OSError(interfaces.no_adapter_hint().split("\n")[0])
@@ -199,7 +205,7 @@ class DeviceContext:
                     ok, msg = interfaces.bring_up(name, bitrate, listen_only)
                     if not ok:
                         raise OSError(f"couldn't bring {name} up: {msg}")
-            return open_connection(kind, name, listen_only=listen_only, profile=profiles.active())
+            return open_connection(kind, name, listen_only=listen_only, profile=profiles.active(), bitrate=bitrate)
 
         self.run_job("Connecting", work, self._connected)
 
@@ -233,6 +239,17 @@ class DeviceContext:
         self.connection = None
         self.session = None
 
+    def find_python_can(self):
+        """Look for adapters python-can can open; they join the Interface choices."""
+        if not pythoncan.available():
+            self.toast(pythoncan.INSTALL_HINT)
+            return
+
+        def done(found):
+            self.python_can_found = found
+            self.toast(("Found " + ", ".join(found)) if found else "python-can found no adapters")
+        self.run_job("Looking for adapters", pythoncan.detect, done)
+
     def describe_connection(self) -> str:
         if self.connection is None:
             return "Not connected"
@@ -247,6 +264,10 @@ class DeviceContext:
         if self.finder is not None:
             return True
         name = self.settings.get("can.iface") or "can0"
+        if pythoncan.is_spec(name):
+            self.toast("Find signal works with can0-style interfaces. For a python-can adapter, pick the "
+                       "bitrate and Connect.")
+            return False
         if not interfaces.valid_name(name):
             self.toast(f"Bad interface name {name!r}")
             return False
@@ -316,6 +337,50 @@ class DeviceContext:
         self.obd_codes = by_ecu
         n = sum(len(c) for kinds in by_ecu.values() for c in kinds.values())
         self.toast(f"{len(by_ecu)} module(s) answered, {n} code(s)")
+
+    # --- clearing codes (changes the vehicle: screens confirm first, default No) ---
+    def clear_j1939(self, which: str, da: int, then=None) -> bool:
+        """DM11 / DM3 (``core.j1939_clear``), then read the codes back. ``then(lines, ok)`` gets
+        the outcome on the UI thread."""
+        from ..core import j1939_clear
+        if not self.can_transmit:
+            self.toast("Clearing codes has to transmit: connect without listen-only")
+            return False
+        session = self.session
+        pgns = {j1939_clear.ACTIVE: scan.ACTIVE, j1939_clear.STORED: scan.STORED}.get(which,
+                                                                                     scan.ACTIVE + scan.STORED)
+
+        def work():
+            result = j1939_clear.clear_codes(session, which, da)
+            time.sleep(1.2)                 # the next DM1 broadcast shows what's still active
+            return result, scan.run_scan(session, pgns, title="Codes after clearing")
+
+        def done(value):
+            result, after = value
+            self.result = after
+            if then:
+                then(result.lines(), result.ok)
+        return self.run_job("Clearing codes", work, done)
+
+    def clear_obd(self, then=None) -> bool:
+        """OBD-II Mode 04 on every module, then read the codes back."""
+        client = self.obd_client
+        if client is None or not client.available:
+            self.toast("Clearing codes has to transmit: connect to the car without listen-only")
+            return False
+
+        def work():
+            result = client.clear_dtcs()
+            time.sleep(0.5)                 # let the modules settle before reading back
+            return result, client.read_dtcs_by_ecu()
+
+        def done(value):
+            result, by_ecu = value
+            self.obd_codes = by_ecu
+            lines = [f"{client.ecu_label(ecu)}: {msg}" for ecu, (_, msg) in result.items()]
+            if then:
+                then(lines or ["No module answered the clear request."], any(ok for ok, _ in result.values()))
+        return self.run_job("Clearing codes", work, done)
 
     def obd_label(self, ecu: int) -> str:
         if self.obd_client is not None:

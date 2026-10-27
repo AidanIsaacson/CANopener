@@ -503,3 +503,86 @@ def test_every_way_of_starting_the_app_uses_its_own_folder(monkeypatch, tmp_path
     monkeypatch.setattr(frontends.os, "execv", lambda p, a: calls.append(("execv", a[2])))
     frontends.exec_ui("device")
     assert calls == [("chdir", config.install_dir()), ("execv", "canopener.device.app")]
+
+
+def test_clearing_j1939_codes_asks_first_then_reads_back(app_for):
+    from canopener.device.screens.base import ChoiceDialog, ConfirmDialog, InfoDialog
+    app = app_for()
+    ctx = app.ctx
+    ctx.connect("sim")
+    assert ctx.wait_idle()
+    app.open_mode("can")
+    codes = app.top.page
+    press(app, pygame.K_F1)                               # Active
+    assert ctx.wait_idle(10) and any(r.spn == 3719 for r in ctx.result.rows)
+    app.step([])
+
+    def to_confirm():
+        press(app, pygame.K_F3)                           # More...
+        assert isinstance(app.top, ChoiceDialog)
+        app.action(inp.ROTATE, 1)                         # "Clear codes..."
+        app.action(inp.SELECT)
+        assert isinstance(app.top, ChoiceDialog) and app.top.title == "Clear which codes?"
+        labels = [lb for lb, _ in app.top.options]
+        assert labels[0] == "Active codes (DM11), every module" and "00 Engine #1 only" in labels[3]
+        app.action(inp.SELECT)                            # active, every module
+        assert isinstance(app.top, ConfirmDialog) and "every module" in app.top.text
+    to_confirm()
+    app.action(inp.SELECT)                                # Select straight away = No
+    assert not isinstance(app.top, ConfirmDialog) and not ctx.busy
+    to_confirm()
+    app.action(inp.ROTATE, 1)
+    app.action(inp.SELECT)                                # Clear
+    assert ctx.wait_idle(15)
+    app.step([])
+    assert isinstance(app.top, InfoDialog) and "sent to every module" in app.top.lines[0]
+    assert not any(r.spn == 3719 for r in ctx.result.rows) and codes.title == "Codes"
+
+
+def test_clearing_obd_codes_asks_first(app_for):
+    from canopener.device.screens.base import ConfirmDialog, InfoDialog
+    app = app_for()
+    ctx = app.ctx
+    ctx.connect("obd-sim")
+    assert ctx.wait_idle()
+    app.open_mode("can")
+    press(app, pygame.K_F1)
+    assert ctx.wait_idle(15) and any(c for k in ctx.obd_codes.values() for c in k.values())
+    app.step([])
+    press(app, pygame.K_F3)                               # Clear...
+    assert isinstance(app.top, ConfirmDialog) and "Mode 04" in app.top.text
+    app.action(inp.ROTATE, 1)
+    app.action(inp.SELECT)
+    assert ctx.wait_idle(20)
+    app.step([])
+    assert isinstance(app.top, InfoDialog)
+    assert not any(ctx.obd_codes[e]["stored"] for e in ctx.obd_codes)
+
+
+def test_clearing_is_refused_in_listen_only(app_for):
+    app = app_for(can__listen_only=True)
+    ctx = app.ctx
+    ctx.connect("sim")
+    assert ctx.wait_idle() and ctx.session.listen_only
+    assert not ctx.clear_j1939("active", 0xFF) and "listen-only" in ctx.current_toast()
+    assert ctx.session.tx_count == 0
+
+
+def test_handheld_connects_through_python_can(ctx):
+    pytest.importorskip("can")
+    from canopener.can.pythoncan import PythonCanBackend
+    from canopener.sim import MachineSimulator
+    sim = MachineSimulator(PythonCanBackend("virtual:dev1"), seed=1)
+    sim.start()
+    try:
+        ctx.settings.update({"can.source": "socketcan", "can.iface": "virtual:dev1", "can.bitrate": 0})
+        ctx.connect()
+        assert ctx.connection is None and "Pick a bitrate" in ctx.current_toast()
+        assert not ctx.start_finder() and ctx.finder is None
+        ctx.settings.set("can.bitrate", 250000)
+        ctx.connect()
+        assert ctx.wait_idle() and ctx.live and "python-can" in ctx.describe_connection()
+        assert ctx.read_codes("active") and ctx.wait_idle(10) and any(r.spn == 3719 for r in ctx.result.rows)
+    finally:
+        ctx.disconnect()
+        sim.stop()

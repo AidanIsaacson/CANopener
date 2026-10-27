@@ -4,11 +4,11 @@ The receive thread feeds frames into ``Session.feed``; the GUI or CLI reads the 
 state (latest payload per PGN/source, DTC history, statistics, raw frames) under ``lock``.
 Log files are decoded by creating a Session with no backend and feeding it frames.
 
-READ-ONLY by design: the diagnostics in this package only ever transmit J1939 Requests
-(PGN 59904) and transport-protocol flow control (CTS / end-of-message ACK). Never DM3/DM11
-clears or writes. ``send_frame()`` exists for separately installed plugins (see
-``canopener.plugins``); it obeys listen-only like everything else, and nothing in this
-package calls it.
+READ-ONLY by design: the receive and scan code only ever transmits J1939 Requests (PGN 59904)
+and transport-protocol flow control (CTS / end-of-message ACK). The one request that changes a
+machine, a DM11 / DM3 code clear, lives in ``core.j1939_clear`` and is sent only after the user
+confirms. ``send_frame()`` exists for the OBD-II / UDS clients and separately installed plugins
+(see ``canopener.plugins``); it obeys listen-only like everything else.
 """
 
 import itertools

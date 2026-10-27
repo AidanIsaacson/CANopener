@@ -21,8 +21,8 @@ navigation encoder, a fullscreen Pygame UI, and Pico / ESP32 subsystems), descri
                 │ CanFrame in / out
 ┌───────────────┴──────────────────┐   ┌───────────────────────────────────┐
 │ can/  backends: SocketCAN,       │   │ j1939/  pure protocol: IDs, DTCs, │
-│       virtual bus, log replay;   │   │         DM1-DM23, TP (BAM/RTS),   │
-│       candump read/write         │   │         signals, NAME, SA names   │
+│       python-can (opt.), virtual,│   │         DM1-DM23, TP (BAM/RTS),   │
+│       replay; candump read/write │   │         signals, NAME, SA names   │
 └──────────────────────────────────┘   └───────────────────────────────────┘
                 ▲
           sim/  simulated machine (another backend user on the same bus)
@@ -65,8 +65,10 @@ confirm-first window.
 The standard commands have their own paths: OBD-II Mode 04 (clear codes) and Mode 08 (on-board
 tests) are `ObdClient.clear_dtcs` / `run_control_test` in `core/obd.py`; UDS
 ClearDiagnosticInformation / ECUReset are `UdsClient.clear_dtcs` / `ecu_reset` in `core/uds.py`.
-Front-ends confirm before calling them (the clear-codes warning text is `core.obd.CLEAR_WARNING`,
-shared by the GUI and CLI).
+J1939 code clears (DM11 active, DM3 stored: a Request for that PGN, to every module or one, which
+answers with an ACK / NACK) are `core/j1939_clear.py`. Front-ends confirm before calling any of them
+(the warning texts are `core.obd.CLEAR_WARNING` and `j1939_clear.warning()`, shared by every
+front-end), and the simulator answers DM11 / DM3 like a real ECU.
 
 ### OBD-II
 
@@ -220,6 +222,8 @@ How well this app drops into the handheld as one system, checked against [DESIGN
   `info.py`, include it in a preset in `core/scan.py`, and render it in `core/report.py`.
 * **A new bus type** (CAN FD, a second channel, a serial gateway on the ESP32): implement
   `can.backends.CanBackend` (`open`, `close`, `send`, `recv`) and add it to `core/connection.py`.
+  First check whether python-can already covers it: `can/pythoncan.py` opens any adapter python-can
+  supports (optional `adapters` extra), named `interface:channel` in the same Interface box as can0.
 * **Simulator behaviour:** `sim/machine.py`. Tests rely on its codes, so update `tests/` with it.
 
 ## Roadmap ideas

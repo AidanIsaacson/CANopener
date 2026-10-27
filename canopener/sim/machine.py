@@ -18,9 +18,11 @@ from ..j1939.addresses import J1939Name
 from ..j1939.constants import (
     DM1,
     DM2,
+    DM3,
     DM4,
     DM5,
     DM6,
+    DM11,
     DM12,
     GLOBAL_SA,
     PGN_COMPONENT_ID,
@@ -99,6 +101,7 @@ class MachineSimulator:
             Dtc(520205, 11, 5),         # manufacturer-specific
         ]
         self.active_engine = [Dtc(3719, 16, 3)]   # DPF soot load moderately high
+        self.controller_stored = [Dtc(522001, 5, 1)]
 
         self.engine = SimEcu(self.ENGINE_SA, J1939Name.build(
             identity=123456, function=0, industry_group=3, arbitrary_address_capable=True), self._send)
@@ -136,6 +139,19 @@ class MachineSimulator:
         if self.oil_low_active:
             dtcs.append(Dtc(100, 18, self.oil_low_count))
         return dtcs
+
+    def _clear_active(self) -> bool:
+        """DM11: active codes and their counts are cleared. Low oil pressure is a real condition,
+        so if the engine is still idling hot it sets again on the next DM1."""
+        self.active_engine.clear()
+        self.oil_low_active = False
+        self.oil_low_count = 0
+        return True
+
+    def _clear_stored(self) -> bool:
+        """DM3: previously active codes are cleared."""
+        self.stored.clear()
+        return True
 
     def _setup_engine(self):
         e, m = self.engine, self.model
@@ -205,6 +221,8 @@ class MachineSimulator:
 
         e.respond(DM1, dm1)
         e.respond(DM2, lambda: encode_dm(LAMP_OFF, FLASH_NONE, self.stored))
+        e.command(DM11, self._clear_active)
+        e.command(DM3, self._clear_stored)
         e.respond(DM6, lambda: encode_dm(LAMP_OFF, FLASH_NONE, []))
         e.respond(DM12, lambda: encode_dm(LAMP_OFF, FLASH_NONE, []))
         e.respond(DM4, self._dm4)
@@ -252,7 +270,9 @@ class MachineSimulator:
         c.every(0xFF22, 0.5, prop_slow)
         c.every(DM1, 1.0, no_faults)
         c.respond(DM1, no_faults)
-        c.respond(DM2, lambda: encode_dm(LAMP_OFF, FLASH_NONE, [Dtc(522001, 5, 1)]))
+        c.respond(DM2, lambda: encode_dm(LAMP_OFF, FLASH_NONE, self.controller_stored))
+        c.command(DM11, lambda: True)                  # nothing active to clear
+        c.command(DM3, lambda: self.controller_stored.clear() is None)
         c.respond(PGN_COMPONENT_ID, lambda: b"SIMULATED*MACHINE CTRL*SIM-0042*")
         c.respond(PGN_SOFTWARE_ID, lambda: b"\x01CTRL 3.4.2*")
 

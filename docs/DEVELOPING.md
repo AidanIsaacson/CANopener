@@ -88,7 +88,7 @@ canopener/
   j1939/     protocol library: IDs, DTCs/DMx, transport protocol, signals, address names
   obd/       OBD-II (J1979) protocol: ISO-TP, PIDs, DTCs, readiness, Mode 06, passive decoder
   uds/       UDS (ISO 14229) protocol: services, NRCs, DTC status, request builders
-  can/       bus backends (SocketCAN, virtual, log replay) and candump log files
+  can/       bus backends (SocketCAN, python-can (optional), virtual, log replay) and candump log files
   core/      session engine, scans, live-data model, OBD/UDS clients, transmit, reports, profiles,
              units, link status + signal finder, sound cues, self-update
   sim/       simulated machine (J1939) and OBD-II/UDS simulator

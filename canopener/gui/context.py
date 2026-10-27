@@ -47,6 +47,9 @@ class AppContext(QtCore.QObject):
             self.busy = False
             if kind == "result":
                 self.result_ready.emit(payload)
+            elif kind == "call":
+                done, value = payload
+                done(value)
             else:
                 self.scan_failed.emit(payload)
             self.busy_changed.emit(False)
@@ -96,6 +99,23 @@ class AppContext(QtCore.QObject):
                 self._done.put(("error", traceback.format_exc(limit=3)))
 
         threading.Thread(target=work, name="scan", daemon=True).start()
+        return True
+
+    def run_task(self, message: str, fn, done) -> bool:
+        """Run ``fn()`` on a worker thread (busy meanwhile); ``done(result)`` runs on the GUI thread."""
+        if self.busy or not self.live:
+            return False
+        self.busy = True
+        self.busy_changed.emit(True)
+        self.status_message.emit(message)
+
+        def work():
+            try:
+                self._done.put(("call", (done, fn())))
+            except Exception:
+                self._done.put(("error", traceback.format_exc(limit=3)))
+
+        threading.Thread(target=work, name="task", daemon=True).start()
         return True
 
     def request_pgn(self, pgn: int, da: int = 0xFF) -> bool:

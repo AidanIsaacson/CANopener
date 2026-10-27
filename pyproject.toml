@@ -18,6 +18,10 @@ dev = ["pytest>=7", "ruff>=0.4"]
 # The handheld's instrument UI (canopener-device). pygame-ce and pygame both work (2.1+);
 # on a Pi with no desktop, Raspberry Pi OS's python3-pygame is the safe choice (see docs/DEVICE.md).
 device = ["pygame-ce>=2.4"]
+# Adapters Linux can't show as can0, through python-can (LGPL-3.0): PEAK, Kvaser, Vector, IXXAT,
+# slcan on a serial port ... (vendor drivers separately). gs_usb / candleLight without the Linux
+# driver: pip install "python-can[gs-usb]" (needs libusb). See can/pythoncan.py.
+adapters = ["python-can[serial]>=4.3"]
 
 [project.scripts]
 canopener = "canopener.gui.app:main"

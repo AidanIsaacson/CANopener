@@ -1105,3 +1105,55 @@ def test_settings_menu_switches_to_the_handheld_ui(app, tmp_path, monkeypatch):
     answer[0] = Q.StandardButton.Yes
     w.handheld_action.setChecked(True)
     assert w.switch_to == "device" and Settings().get("ui") == "device" and not w.isVisible()
+
+
+def test_codes_tab_clears_j1939_codes_after_asking(app, monkeypatch):
+    from canopener.core import connection
+    from canopener.gui.main_window import MainWindow
+    Q = qt.QtWidgets.QMessageBox
+    answers, shown = [Q.StandardButton.No], []
+    monkeypatch.setattr(Q, "warning", lambda *a, **k: answers[0] if len(a) > 3 else shown.append(a[2]))
+    monkeypatch.setattr(Q, "information", lambda *a, **k: shown.append(a[2]))
+    w = MainWindow()
+    w.show()
+    w.source.setCurrentIndex(w.source.findData(connection.SIMULATOR))
+    w.connect()
+    pump(app, 1.5)
+    w.codes.clear_codes("active")                     # said No: nothing sent
+    assert not w.ctx.busy and w.ctx.session.tx_count == 0
+    answers[0] = Q.StandardButton.Yes
+    w.codes.ecu.addItem("00 Engine #1", 0x00)          # (normally filled by a read)
+    w.codes.ecu.setCurrentIndex(w.codes.ecu.findData(0x00))
+    w.codes.clear_codes("active")
+    end = time.time() + 15
+    while time.time() < end and (w.ctx.busy or not shown):
+        pump(app, 0.2)
+    assert shown and "00 Engine #1: DM11 ACK" in shown[-1]
+    assert w.ctx.result is not None and not any(r.spn == 3719 for r in w.ctx.result.rows)
+    w.disconnect()
+    w.close()
+
+
+def test_python_can_adapter_from_the_interface_box(app, monkeypatch):
+    pytest.importorskip("can")
+    from canopener.can.pythoncan import PythonCanBackend
+    from canopener.core import connection
+    from canopener.gui.main_window import MainWindow
+    from canopener.sim import MachineSimulator
+    sim = MachineSimulator(PythonCanBackend("virtual:gui1"), seed=1)
+    sim.start()
+    try:
+        w = MainWindow()
+        w.show()
+        w.source.setCurrentIndex(w.source.findData(connection.SOCKETCAN))
+        w._refresh_interfaces(preferred="virtual:gui1")
+        assert w.iface.currentText() == "virtual:gui1"            # kept, not swapped for a Linux interface
+        w.bitrate.setCurrentIndex(w.bitrate.findData(250000))
+        w.connect()
+        assert w.ctx.live and "python-can" in w.conn_label.text()
+        pump(app, 1.0)
+        assert w.ctx.session.rx_count > 10
+        w.disconnect()
+        w.close()
+    finally:
+        sim.stop()

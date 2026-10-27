@@ -15,11 +15,11 @@ PGN_PROPA = 0xEF00          # 61184 Proprietary A
 # Diagnostic messages (J1939-73)
 DM1 = 0xFECA    # Active DTCs
 DM2 = 0xFECB    # Previously active DTCs
-DM3 = 0xFECC    # Clear previously active (never sent by this app)
+DM3 = 0xFECC    # Clear previously active: requested only by core.j1939_clear, after asking
 DM4 = 0xFECD    # Freeze frame
 DM5 = 0xFECE    # Diagnostic readiness
 DM6 = 0xFECF    # Pending DTCs
-DM11 = 0xFED3   # Clear active (never sent by this app)
+DM11 = 0xFED3   # Clear active: requested only by core.j1939_clear, after asking
 DM12 = 0xFED4   # Emissions-related active DTCs
 DM23 = 0xFDB5   # Emissions-related previously active DTCs
 

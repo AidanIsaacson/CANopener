@@ -1,15 +1,17 @@
 """The CAN mode: connection, fault codes, live data, the bus, and the data log, as pages on a
 left rail. Left / right on the d-pad changes page; the encoder moves within it.
 
-Everything works for J1939 machines and OBD-II cars (the active profile decides), and only
-reads: J1939 requests and OBD-II / UDS reads. Nothing here clears codes or changes a vehicle.
+Everything works for J1939 machines and OBD-II cars (the active profile decides). It reads,
+except for clearing codes (J1939 DM11 / DM3, OBD-II Mode 04), which says what it changes and
+asks first with No as the default, and never runs in listen-only.
 """
 
 import time
 
 import pygame
 
-from ...core import interfaces, profiles
+from ...can import pythoncan
+from ...core import interfaces, j1939_clear, profiles
 from ...core.connection import SOCKETCAN
 from ...j1939.addresses import sa_name
 from ...obd import describe_dtc, pids_for_dtc
@@ -17,7 +19,7 @@ from .. import input as inp
 from .. import ui as icons
 from ..context import BITRATES, SOURCES, bitrate_label, source_label
 from ..ui import ListView
-from .base import InfoDialog, Row, RowList, Screen, SoftKey, choose
+from .base import InfoDialog, Row, RowList, Screen, SoftKey, choose, confirm
 from .live import LivePage
 from .log import LogScreen
 
@@ -55,9 +57,11 @@ class ConnectPage(Screen):
         if kind == SOCKETCAN:
             names = [i.name for i in interfaces.list_interfaces(details=False)]
             cur = s.get("can.iface")
-            opts = [(n, n) for n in dict.fromkeys(names + [cur, "can0", "vcan0"])]
-            rows.append(Row("Interface", cur, select=lambda: pick("Interface", "can.iface", opts),
-                            hint="" if cur in names else "not present"))
+            opts = [(n, n) for n in dict.fromkeys(names + ctx.python_can_found + [cur, "can0", "vcan0"])]
+            hint = "python-can adapter" if pythoncan.is_spec(cur) else "" if cur in names else "not present"
+            rows.append(Row("Interface", cur, select=lambda: pick("Interface", "can.iface", opts), hint=hint))
+            rows.append(Row("Find other adapters (python-can)", select=ctx.find_python_can,
+                            hint="PEAK, Kvaser, gs_usb ... when python-can is installed"))
             rows.append(Row("Bitrate", lambda: bitrate_label(int(s.get("can.bitrate") or 0)),
                             select=lambda: pick("Bitrate", "can.bitrate", [(bitrate_label(b), b) for b in BITRATES])))
             rows.append(Row("Listen-only (never transmit)", select=lambda: self._toggle("can.listen_only"),
@@ -109,6 +113,10 @@ class ConnectPage(Screen):
 
 
 # ----------------------------------------------------------------------------
+CLEAR_KINDS = [(j1939_clear.ACTIVE, "Active codes (DM11)"), (j1939_clear.STORED, "Stored codes (DM3)"),
+               (j1939_clear.BOTH, "Active and stored")]
+
+
 class CodesPage(Screen):
     title = "Codes"
 
@@ -148,10 +156,46 @@ class CodesPage(Screen):
         can = ctx.live and not ctx.busy
         live = SoftKey("Live data", self.show_live, enabled=self._has_live(self.focused()))
         if self.obd:
-            return [SoftKey("Read codes", lambda: ctx.read_codes(), enabled=can), None, None, live]
+            return [SoftKey("Read codes", lambda: ctx.read_codes(), enabled=can), None,
+                    SoftKey("Clear...", self.clear_obd, enabled=can and ctx.can_transmit), live]
         return [SoftKey("Active", lambda: ctx.read_codes("active"), enabled=can),
                 SoftKey("Stored", lambda: ctx.read_codes("stored"), enabled=can),
-                SoftKey("Full scan", lambda: ctx.read_codes("full"), enabled=can), live]
+                SoftKey("More...", self.more, enabled=can), live]
+
+    def more(self):
+        def pick(what):
+            if what == "full":
+                self.ctx.read_codes("full")
+            elif what == "clear":
+                self.clear_j1939()
+        choose(self.app, "Codes", [("Full scan: every code, emissions, readiness", "full"),
+                                   ("Clear codes...", "clear")], None, pick)
+
+    def _show_cleared(self, lines, ok):
+        self.app.push(InfoDialog(self.app, "Codes cleared" if ok else "Clear codes: check the answers", lines))
+
+    def clear_j1939(self):
+        """Pick what to clear (and where), confirm (default No), clear, read back."""
+        ctx = self.ctx
+        if not ctx.can_transmit:
+            ctx.toast("Clearing codes has to transmit: connect without listen-only")
+            return
+        opts = [(f"{label}, every module", (which, j1939_clear.GLOBAL_SA)) for which, label in CLEAR_KINDS]
+        item = self.focused()
+        if item is not None and item[0] == "j1939":
+            sa = item[1].sa
+            opts += [(f"{label}, {sa_name(sa)} only", (which, sa)) for which, label in CLEAR_KINDS]
+
+        def go(choice):
+            which, da = choice
+            confirm(self.app, "Clear codes?", j1939_clear.warning(which, da), "Clear",
+                    lambda: ctx.clear_j1939(which, da, then=self._show_cleared))
+        choose(self.app, "Clear which codes?", opts, None, go)
+
+    def clear_obd(self):
+        from ...core.obd import CLEAR_WARNING
+        confirm(self.app, "Clear trouble codes?", CLEAR_WARNING, "Clear",
+                lambda: self.ctx.clear_obd(then=self._show_cleared))
 
     def show_live(self):
         item = self.focused()
