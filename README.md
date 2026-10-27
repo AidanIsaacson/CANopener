@@ -151,14 +151,37 @@ quicker to check something than to talk yourself out of checking it.
 |---|---|
 | **Fault Codes** | **Read Active** / **Read Stored** / **Pending / Emissions** / **Full Scan**. Each code with its description, occurrence count and the warning lamps. Tick *Include every code seen this session* to catch intermittent ones. **Show this parameter in Live Data** jumps to the sensor behind a code. **Clear Codes…** clears active (DM11) or stored (DM3) codes on every module, or the one picked under ECU, after asking. |
 | **Live Data** | Engine speed, temperatures, pressures, voltages, DPF / DEF and more, with min / max. Tick values to chart them. **Hide unticked** and **Hide plots** tidy a small screen. |
-| **Bus Monitor** | Every raw frame, or one row per ID with changing bytes highlighted, for figuring out proprietary data. |
-| **Network** | Every module on the bus and what it sends. |
+| **Bus Monitor** | Every raw frame, or one row per ID with changing bytes highlighted, for figuring out proprietary data. **Find changes…** and **Label…** (below). |
+| **Network** | Every module on the bus and what it sends. **Name this module…** gives one your own name. |
 | **Machine Info** | Component and software IDs, VIN, engine hours, fuel used. |
 | **Report** | A text report of the last scan, to save or copy. |
 
 **Machine profiles** (the **Profile** box, top right) name a specific machine's modules and add
 its own parameters. The app recognises a machine and offers its profile. **Profiles → Manage
 profiles…** hides ones you don't use and sets the order. Making your own: [docs/DEVELOPING.md](docs/DEVELOPING.md#machine-profiles).
+
+### Naming things CANopener doesn't know
+
+Most forklift and equipment traffic is the maker's own. You can label it yourself and keep it:
+
+* **Name a module:** in **Network**, pick an address and press **Name this module…** (e.g.
+  "Traction controller"). The name shows everywhere that address does.
+* **Find the data that moves:** in **Bus Monitor**, press **Find changes…**. Hold the pedal (or
+  switch, or lever) one way and press **Mark now** on A, the other way and **Mark now** on B. The
+  bytes that changed are listed, the likeliest first (rolling counters are left out). You can also
+  compare two Log tool timestamps, or two stretches of a saved log.
+* **Label it:** pick a result (or a row in Bus Monitor) and press **Label…**. Choose the byte(s) or
+  bits, then set scale, offset and unit while you work the control and watch the live number and
+  chart. Add a normal range or states (`0 = Off`, `1 = On`) if you like. **Save**, and it's in
+  **Live Data** straight away (group *My labels*).
+
+Your labels go in a profile of your own (the first label asks you to name it, e.g. "Unit 14
+reach truck"), built on the profile you had picked, so nothing built in is changed. Make one per
+machine: **Profiles → Save profile as…** copies the one in use under a new name.
+**Profiles → My labels…** lists them to edit or remove, and has **Recognise this machine** (next
+time it offers this profile when it sees these modules), **Export…** (to a USB stick, say) and
+**Delete profile…**. **Profiles → Import profile…** loads one someone exported. Labeling covers
+29-bit J1939 messages; 11-bit IDs (CANopen) show up in Find changes but can't be labeled yet.
 
 **Modules beyond the engine** (ABS, transmission, body): **Diagnostics → Read a module (UDS)**
 reads their codes, and can clear them or reset the module.

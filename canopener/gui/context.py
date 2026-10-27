@@ -20,6 +20,7 @@ class AppContext(QtCore.QObject):
     profile_changed = Signal()
     show_signal = Signal(int)               # SPN -> jump to it in Live Data
     status_message = Signal(str)
+    labels_saved = Signal(str)              # a user profile's labels changed: reload, keep it picked
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -31,6 +32,9 @@ class AppContext(QtCore.QObject):
         self.bitrate = 250000
         self.capture = None                   # the Log tool's current capture (core.capture.Capture)
         self.saved_paths: list[str] = []      # captures / reports saved this session, for Export Logs
+        # Set by the main window: the id of the user profile labels go into (it may ask the user
+        # to name a new one), or None if they cancelled.
+        self.label_target = lambda: None
         self.result_ready.connect(self._store_result)
         # Worker threads never touch Qt: they post here and a main-thread timer emits the signals.
         self._done: queue.Queue = queue.Queue()

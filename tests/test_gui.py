@@ -1183,3 +1183,62 @@ def test_simulators_are_hidden_until_switched_on(app):
     w.show_simulators(True, save=False)                     # canopener --sim: this run only
     assert connection.SIMULATOR in kinds() and Settings().get("show_simulators") is False
     w.close()
+
+
+def test_labeling_from_the_gui(app, tmp_path, monkeypatch):
+    """Recover a signal the profile lacks: label the simulator's boom position on the generic
+    profile, name its module, find it with 'Find what changed', then Save profile as."""
+    from canopener.core import connection, labeling, profiles
+    from canopener.gui.changes_dialog import ChangesDialog
+    from canopener.gui.label_dialog import LabelDialog, name_module
+    from canopener.gui.labels_dialog import LabelsDialog
+    from canopener.gui.main_window import MainWindow
+    from canopener.j1939.addresses import sa_name
+
+    answers = iter([("Sim truck", True), ("Boom ECU", True), ("Sim truck B", True)])
+    monkeypatch.setattr(qt.QtWidgets.QInputDialog, "getText", lambda *a, **k: next(answers))
+    w = MainWindow()
+    w.profile.setCurrentIndex(w.profile.findData("generic"))
+    w.source.setCurrentIndex(w.source.findData(connection.SIMULATOR))
+    w.connect()
+    pump(app, 1.5)
+
+    pid = w.ctx.label_target()                      # generic is built in: asks for a name, makes one
+    assert profiles.active().id == pid and profiles.active().extends == "generic"
+    dlg = LabelDialog(w.ctx, pid, {"pgn": 0xFF10, "sa": 0x27, "start": 1, "length": 1})
+    dlg.name.setText("Boom (mine)")
+    dlg.size.setCurrentIndex(dlg.size.findData(2))
+    dlg.scale.setText("0.1")
+    dlg.unit.setCurrentText("deg")
+    pump(app, 0.5)
+    assert "°" in dlg.value_label.text() and not dlg.error.text()
+    dlg.accept()
+    assert dlg.saved is not None
+    pump(app, 0.6)
+    w.live.sample()
+    row = next(r for r in w.live.rows.values() if r.sig.name == "Boom (mine)")
+    assert row.value is not None and 11 <= row.value <= 92        # 512 +- 400 counts x 0.1
+
+    assert w.ctx.label_target() == pid             # now the profile in use is ours: no question
+    assert name_module(w.ctx, 0x27, w)
+    assert sa_name(0x27, with_hex=False) == "Boom ECU"
+    w.network.refresh(force=True)
+
+    pump(app, 2.5)
+    ch = ChangesDialog(w.ctx, lambda d: None)
+    now = ch.now()
+    ch.a.set_range(now - 4.5, now - 3.0)
+    ch.b.set_range(now - 1.5, now)
+    ch.find()
+    assert ch.summary.text()
+    ch.close()
+
+    labels = LabelsDialog(w.ctx, lambda *a: None)
+    assert labels.signals.rowCount() == 1 and labels.modules.rowCount() == 1
+    labels.close()
+
+    w._save_profile_as()
+    assert profiles.active().name == "Sim truck B" and profiles.active().id != pid
+    assert {s.name for s, _ in labeling.own_signals(profiles.active().id)} == {"Boom (mine)"}
+    w.disconnect()
+    w.close()

@@ -225,6 +225,15 @@ class MonitorTab(QtWidgets.QWidget):
         self.follow = QtWidgets.QCheckBox("Auto-scroll")
         self.follow.setChecked(True)
         bar.addWidget(self.follow)
+        self.label_btn = QtWidgets.QPushButton("Label…")
+        self.label_btn.setToolTip("Name a value in the selected message (with a live preview); saved in "
+                                  "your profile and shown in Live Data")
+        self.label_btn.clicked.connect(self.label_selected)
+        bar.addWidget(self.label_btn)
+        changes = QtWidgets.QPushButton("Find changes…")
+        changes.setToolTip("Compare two moments (pedal up / down, switch off / on) and list the data that moved")
+        changes.clicked.connect(self.find_changes)
+        bar.addWidget(changes)
         lay.addLayout(bar)
 
         self.by_id = ByIdModel(self)
@@ -236,6 +245,11 @@ class MonitorTab(QtWidgets.QWidget):
         self.view.verticalHeader().setDefaultSectionSize(22)
         self.view.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.view.setModel(self.proxy)
+        self.view.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
+        act = QtGui.QAction("Label this data…", self.view)
+        act.triggered.connect(self.label_selected)
+        self.view.addAction(act)
+        self.view.doubleClicked.connect(lambda *_: self.label_selected())
         lay.addWidget(self.view)
         self.filter.textChanged.connect(self.proxy.set_text)
 
@@ -257,6 +271,41 @@ class MonitorTab(QtWidgets.QWidget):
         for c, w in enumerate(widths):
             self.view.setColumnWidth(c, w)
         self.follow.setEnabled(model is self.scroll)
+
+    def selected_frame(self) -> CanFrame | None:
+        """The latest frame of the selected row's ID (either view)."""
+        idx = self.view.currentIndex()
+        if not idx.isValid():
+            return None
+        src = self.proxy.mapToSource(idx)
+        if self.proxy.sourceModel() is self.by_id:
+            return self.by_id.ids[self.by_id.order[src.row()]].frame
+        text = self.scroll.rows[src.row()][2]
+        if not text:
+            return None
+        st = self.by_id.ids.get((int(text, 16), len(text) == 8))
+        return st.frame if st else None
+
+    def label_selected(self):
+        fr = self.selected_frame()
+        if fr is None:
+            QtWidgets.QMessageBox.information(self, "Label this data", "Select a message (a row) first.")
+            return
+        if not fr.extended:
+            QtWidgets.QMessageBox.information(
+                self, "Label this data", "This is an 11-bit ID (CANopen or a plain CAN message). Labeling "
+                "covers 29-bit J1939 messages for now.")
+            return
+        j = parse_id(fr.can_id)
+        st = self.by_id.ids.get((fr.can_id, True))
+        start = max(range(min(8, fr.dlc)), key=lambda i: st.changed[i]) if st and fr.dlc else 0
+        from .label_dialog import open_label_dialog
+        open_label_dialog(self.ctx, {"pgn": j.pgn, "sa": j.sa, "start": start, "length": 1}, self)
+
+    def find_changes(self):
+        from .changes_dialog import ChangesDialog
+        from .label_dialog import open_label_dialog
+        ChangesDialog(self.ctx, lambda draft: open_label_dialog(self.ctx, draft, self), self).exec()
 
     def _session_changed(self, session):
         self.clear()

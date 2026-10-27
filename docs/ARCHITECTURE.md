@@ -224,6 +224,11 @@ How well this app drops into the handheld as one system, checked against [DESIGN
   `can.backends.CanBackend` (`open`, `close`, `send`, `recv`) and add it to `core/connection.py`.
   First check whether python-can already covers it: `can/pythoncan.py` opens any adapter python-can
   supports (optional `adapters` extra), named `interface:channel` in the same Interface box as can0.
+* **Labels made in the app:** `core/labeling.py` edits user profile JSON (atomic writes, unknown
+  keys kept, `extends` the profile in use); front-ends then reload profiles, so labels apply live
+  with no reconnect. `core/analyze.py` ("Find what changed") ranks the bytes / bits / 16-bit
+  values that differ between two time windows of any `CanFrame` list (live buffer, log, capture
+  tags), skipping rolling counters. Both are UI-free so the handheld can share them.
 * **Simulator behaviour:** `sim/machine.py`. Tests rely on its codes, so update `tests/` with it.
 
 ## Roadmap ideas
@@ -231,7 +236,8 @@ How well this app drops into the handheld as one system, checked against [DESIGN
 * CAN FD frames in the SocketCAN backend (MCP2518FD supports them; J1939-22 uses them).
 * Dropout / missing-ECU alerts in the Network view (expected SAs per profile).
 * DM1 history timeline (when each code went active / inactive).
-* Bit-level signals and enumerated states in profiles.
+* Labeling 11-bit IDs (CANopen PDOs) and big-endian values; a passive CANopen decoder (heartbeat,
+  NMT state, EMCY as fault codes).
 * More transmit actions on the confirm-first path (saved frame replay); machine-changing OEM
   commands stay in private plugins.
 * Export to CSV for the live-data history.

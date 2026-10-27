@@ -56,9 +56,17 @@ edit it. The full format is documented at the top of
   Live Data group filter), with a normal range (`"low"`, `"high"`: out-of-range values show red)
 * limited to one source address or a list (`"sa": ["0x00", "0x27"]`)
 
-A profile signal at the same place as a built-in one replaces it, so a profile can rename and
+Each of those is also a field in the app's **Label…** dialog. A profile signal at the same place as a built-in one replaces it, so a profile can rename and
 regroup standard data too. `"protocol": "obd2"` makes a car profile (the OBD-II screens instead of
 the J1939 ones).
+
+**Building on another profile:** `"extends": "generic"` (a profile id) starts from that profile:
+its module names, SPN / PGN names, signals, detect section and protocol carry over, and this file
+adds or replaces things (a signal here replaces the base's at the same place). Chains work; a
+missing base is reported and the profile loads on its own. Profiles made in the app (**Label…**,
+**Name this module…**, **Save profile as…**; `core/labeling.py`) are written this way, so they
+hold only your labels and the built-in base keeps getting updates. Unknown keys survive those
+saves, so hand edits are safe.
 
 **Recognising a machine:** a `"detect": {"addresses": [...], "min_match": 2}` section lists the
 module addresses that machine has. When the bus matches, a banner offers to switch profiles.

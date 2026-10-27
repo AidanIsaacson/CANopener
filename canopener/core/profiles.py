@@ -38,6 +38,12 @@ show only the screens for the active profile's protocol.
 ``detect`` lets the app recognise a machine from the source addresses it sees on the bus and
 offer to switch to the profile.
 
+``extends`` (a profile id) builds on another profile: its sources, SPN / PGN names, signals,
+detect section and protocol carry over, and this file only adds or replaces things. A signal here
+replaces the base's signal at the same place (PGN, byte, bit, width). That's how labels you make
+in the app (``core.labeling``) sit on top of a built-in profile without copying it, so the base
+keeps getting updates.
+
 Applying a profile fills the override tables in ``canopener.j1939`` so every view (GUI,
 CLI, reports, a future on-device UI) picks the labels up without knowing about profiles.
 """
@@ -74,6 +80,7 @@ class Profile:
     path: str = ""
     builtin: bool = False
     protocol: str = J1939
+    extends: str = ""           # id of the profile this one builds on ("" = standalone)
 
 
 class ProfileError(ValueError):
@@ -143,15 +150,58 @@ def parse_profile(doc: dict, pid: str = "custom", path: str = "") -> Profile:
         det_min = int(det.get("min_match", min(2, len(det_addr))))
     except (ValueError, TypeError) as e:
         raise ProfileError(f"bad detect section: {e}") from None
-    protocol = str(doc.get("protocol", J1939)).lower()
-    if protocol not in PROTOCOLS:
+    extends = str(doc.get("extends") or "").strip()
+    # A profile that extends another inherits its protocol unless it names one ("" until resolved).
+    protocol = str(doc.get("protocol", "" if extends else J1939)).lower()
+    if protocol and protocol not in PROTOCOLS:
         raise ProfileError(f"protocol must be one of {', '.join(PROTOCOLS)}, not {protocol!r}")
     return Profile(
         id=pid, name=str(doc["name"]), description=str(doc.get("description", "")), protocol=protocol,
         sources=_num_map(doc.get("sources"), "sources"), spns=_num_map(doc.get("spns"), "spns"),
         pgns=_num_map(doc.get("pgns"), "pgns"), signals=sigs,
-        detect_addresses=det_addr, detect_min=det_min, path=path,
+        detect_addresses=det_addr, detect_min=det_min, path=path, extends=extends,
     )
+
+
+def merged(base: "Profile", own: "Profile") -> "Profile":
+    """``own`` laid over ``base`` (see ``extends``); keeps ``own``'s id, name, path and origin."""
+    taken = {s.location for s in own.signals}
+    return Profile(
+        id=own.id, name=own.name, description=own.description or base.description,
+        sources={**base.sources, **own.sources}, spns={**base.spns, **own.spns},
+        pgns={**base.pgns, **own.pgns},
+        signals=[s for s in base.signals if s.location not in taken] + list(own.signals),
+        detect_addresses=own.detect_addresses or base.detect_addresses,
+        detect_min=own.detect_min if own.detect_addresses else base.detect_min,
+        path=own.path, builtin=own.builtin, protocol=own.protocol or base.protocol, extends=own.extends,
+    )
+
+
+def _resolve(found: dict[str, "Profile"], errors: list[str]) -> dict[str, "Profile"]:
+    """Apply every profile's ``extends`` (chains allowed). A missing base or a loop is reported
+    and the profile loads on its own, so a deleted base never makes labels vanish."""
+    out: dict[str, Profile] = {}
+
+    def get(pid: str, chain: tuple = ()) -> Profile:
+        if pid in out:
+            return out[pid]
+        p = found[pid]
+        if p.extends:
+            if p.extends in chain or p.extends == pid:
+                errors.append(f"{os.path.basename(p.path)}: 'extends' loops back to {p.extends!r}")
+            elif p.extends not in found:
+                errors.append(f"{os.path.basename(p.path)}: extends {p.extends!r}, which isn't installed "
+                              f"(loaded on its own)")
+            else:
+                p = merged(get(p.extends, chain + (pid,)), p)
+        if not p.protocol:
+            p.protocol = J1939
+        out[pid] = p
+        return p
+
+    for pid in found:
+        get(pid)
+    return out
 
 
 def load_profile(path: str) -> Profile:
@@ -183,6 +233,7 @@ def available_profiles() -> tuple[list[Profile], list[str]]:
                 errors.append(str(e))
                 continue
             found[p.id] = p
+    found = _resolve(found, errors)
     return sorted(found.values(), key=lambda p: (p.id != "generic", p.name.lower())), errors
 
 
@@ -245,18 +296,21 @@ def active() -> Profile | None:
     return _active
 
 
+def _replace(table: dict, new: dict):
+    for k in [k for k in table if k not in new]:
+        del table[k]
+    table.update(new)
+
+
 def apply(profile: Profile | None, *, spn_csv: str | None = None):
     """Make ``profile`` the active one (None = no profile). A user SPN CSV is layered on top."""
     global _active
-    addresses.SA_OVERRIDES.clear()
-    constants.PGN_OVERRIDES.clear()
-    spn.SPN_OVERRIDES.clear()
     _active = profile
     signals.set_profile_signals(profile.signals if profile else [])
-    if profile:
-        addresses.SA_OVERRIDES.update(profile.sources)
-        constants.PGN_OVERRIDES.update(profile.pgns)
-        spn.SPN_OVERRIDES.update(profile.spns)
+    # Replace in place without emptying first: other threads may be looking names up meanwhile.
+    _replace(addresses.SA_OVERRIDES, profile.sources if profile else {})
+    _replace(constants.PGN_OVERRIDES, profile.pgns if profile else {})
+    _replace(spn.SPN_OVERRIDES, profile.spns if profile else {})
     spn.load_spn_csv(spn_csv if spn_csv is not None else config.spn_csv_path())
 
 

@@ -6,7 +6,7 @@ import time
 
 from .. import __version__
 from ..can import pythoncan
-from ..core import config, connection, interfaces, link, profiles, report, scan, storage, transmit, units
+from ..core import config, connection, interfaces, labeling, link, profiles, report, scan, storage, transmit, units
 from ..core.connection import load_log_session, open_connection
 from .connection_panel import AUTO_BITRATE, ConnectionPanel
 from .context import AppContext
@@ -86,6 +86,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, ctx: AppContext | None = None):
         super().__init__()
         self.ctx = ctx or AppContext(self)
+        self.ctx.label_target = self.label_target
+        self.ctx.labels_saved.connect(self._labels_saved)
         transmit.register_standard_actions()
         self.transmitter = transmit.Transmitter(None)   # rebound (and re-disabled) on each connect
         self.settings = QtCore.QSettings("CANopener", "CANopener")
@@ -314,6 +316,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.handheld_action.toggled.connect(self._switch_to_handheld)
         st.addAction(self.handheld_action)
         p = m.addMenu("&Profiles")
+        self._action(p, "Save profile &as…", self._save_profile_as)
+        self._action(p, "My &labels…", self._my_labels)
+        self._action(p, "&Import profile…", self._import_profile)
+        p.addSeparator()
         self._action(p, "&Manage profiles…", self._manage_profiles)
         self._action(p, "Reload profiles", self._load_profiles)
         self._action(p, "Open user profile folder", self._open_profile_dir)
@@ -484,7 +490,7 @@ class MainWindow(QtWidgets.QMainWindow):
         s.setValue("geometry", self.saveGeometry())
         s.setValue("window_state", self.saveState())
 
-    def _load_profiles(self, preferred=None):
+    def _load_profiles(self, preferred=None, quiet: bool = False):
         current = preferred if isinstance(preferred, str) else self.profile.currentData()
         found, errors = profiles.available_profiles()
         self._all_profiles = found
@@ -499,9 +505,56 @@ class MainWindow(QtWidgets.QMainWindow):
         self.profile.setCurrentIndex(idx if idx >= 0 else 0)
         self.profile.blockSignals(False)
         self._profile_changed()
-        if errors:
+        if errors and not quiet:
             QtWidgets.QMessageBox.warning(self, "Profiles",
                                           "Some profiles could not be loaded:\n\n" + "\n".join(errors))
+
+    # --- your own labels (core.labeling) ---
+    def label_target(self) -> str | None:
+        """The user profile labels are saved into: the one in use if it's yours, else a new one
+        built on it (asks for a name; None if cancelled)."""
+        active = profiles.active()
+        if labeling.is_editable(active):
+            return active.id
+        base = f"built on '{active.name}', " if active else ""
+        name, ok = QtWidgets.QInputDialog.getText(
+            self, "Your labels",
+            f"Labels are saved in a profile of your own ({base}so nothing built in is changed).\n"
+            "Name it after the machine:", text=f"My {active.name}" if active else "My machine")
+        if not ok:
+            return None
+        pid = labeling.create(name, active)
+        self._load_profiles(preferred=pid, quiet=True)
+        return pid
+
+    def _labels_saved(self, pid: str):
+        self._load_profiles(preferred=pid or None, quiet=True)
+
+    def _save_profile_as(self):
+        active = profiles.active()
+        name, ok = QtWidgets.QInputDialog.getText(
+            self, "Save profile as", "Name for the new profile (labels you add go into it):",
+            text=f"{active.name} (copy)" if labeling.is_editable(active) else
+            (f"My {active.name}" if active else "My machine"))
+        if ok and name.strip():
+            self._load_profiles(preferred=labeling.save_as(active, name), quiet=True)
+            self.statusBar().showMessage(f"Profile: {profiles.active().name}", 6000)
+
+    def _my_labels(self):
+        from .label_dialog import open_label_dialog
+        from .labels_dialog import LabelsDialog
+        LabelsDialog(self.ctx, lambda pid, d, key: open_label_dialog(self.ctx, d, self, pid, key), self).exec()
+
+    def _import_profile(self):
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Import profile", "", "Profiles (*.json)")
+        if not path:
+            return
+        try:
+            pid = labeling.import_file(path)
+        except profiles.ProfileError as e:
+            QtWidgets.QMessageBox.warning(self, "Import profile", str(e))
+            return
+        self._load_profiles(preferred=pid)
 
     def _manage_profiles(self):
         from .profiles_dialog import ProfilesDialog
