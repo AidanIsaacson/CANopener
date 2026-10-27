@@ -7,6 +7,13 @@ import pytest
 qt = pytest.importorskip("canopener.gui.qt", exc_type=ImportError)
 
 
+@pytest.fixture(autouse=True)
+def simulators_listed():
+    """Most tests here pick a simulator as the source: list them (they're hidden by default)."""
+    from canopener.core.settings import Settings
+    Settings().set("show_simulators", True)
+
+
 @pytest.fixture(scope="module")
 def app():
     return qt.QtWidgets.QApplication.instance() or qt.QtWidgets.QApplication([])
@@ -1157,3 +1164,22 @@ def test_python_can_adapter_from_the_interface_box(app, monkeypatch):
         w.close()
     finally:
         sim.stop()
+
+
+def test_simulators_are_hidden_until_switched_on(app):
+    from canopener.core import connection
+    from canopener.core.settings import Settings
+    from canopener.gui.main_window import MainWindow
+    Settings().set("show_simulators", False)
+    w = MainWindow()
+    kinds = lambda: [w.source.itemData(i) for i in range(w.source.count())]   # noqa: E731
+    assert kinds() == [connection.SOCKETCAN, connection.REPLAY] and not w.simulators_action.isChecked()
+    w.simulators_action.setChecked(True)                    # Connection > Show simulators
+    assert connection.OBD_SIM in kinds() and Settings().get("show_simulators") is True
+    w.source.setCurrentIndex(w.source.findData(connection.OBD_SIM))
+    w.simulators_action.setChecked(False)                   # hidden again: back to the adapter
+    assert connection.OBD_SIM not in kinds() and w.source.currentData() == connection.SOCKETCAN
+    assert not w.iface.isHidden()                           # the adapter's controls came back
+    w.show_simulators(True, save=False)                     # canopener --sim: this run only
+    assert connection.SIMULATOR in kinds() and Settings().get("show_simulators") is False
+    w.close()

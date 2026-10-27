@@ -30,6 +30,7 @@ DEFAULTS: dict = {
     "can.bitrate": 250000,              # 0 = auto (the signal finder picks it)
     "can.listen_only": False,
     "can.connect_on_start": False,
+    "show_simulators": False,           # list the simulators as sources (off: a shorter, adapter-only list)
     "sound.speaker": True,
     "sound.buzzer": "auto",
     "sound.link_cues": True,            # chime when traffic drops out / comes back

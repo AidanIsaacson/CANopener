@@ -26,6 +26,7 @@ from ..core.settings import Settings
 
 SOURCES = [(SOCKETCAN, "CAN adapter"), (SIMULATOR, "Simulator (J1939 machine)"),
            (OBD_SIM, "Simulator (OBD-II car)"), (PROFILE_SIM, "Simulate the profile")]
+SIMULATORS = (SIMULATOR, OBD_SIM, PROFILE_SIM)     # listed only with System > Show simulators
 BITRATES = [0] + interfaces.BITRATES        # 0 = auto (signal finder)
 SAMPLE_EVERY = 0.2                          # live models: 5 samples a second, like the desktop
 LINK_CHECK_SECS = 1.0
@@ -238,6 +239,16 @@ class DeviceContext:
             self.toast("Disconnected")
         self.connection = None
         self.session = None
+
+    def sources(self) -> list[tuple[str, str]]:
+        """(kind, label) choices for Source: the simulators only when they're switched on."""
+        show = self.settings.get("show_simulators")
+        return [(k, lb) for k, lb in SOURCES if show or k not in SIMULATORS]
+
+    def set_show_simulators(self, on: bool):
+        self.settings.set("show_simulators", on)
+        if not on and self.settings.get("can.source") in SIMULATORS:
+            self.settings.set("can.source", SOCKETCAN)     # (an open connection stays as it is)
 
     def find_python_can(self):
         """Look for adapters python-can can open; they join the Interface choices."""

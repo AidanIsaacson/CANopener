@@ -72,6 +72,7 @@ def main(argv=None) -> int:
     if a.log:
         win.open_log(a.log)
     elif a.sim:
+        win.show_simulators(True, save=False)     # --sim: listed for this run, the setting is unchanged
         win.source.setCurrentIndex(win.source.findData(connection.SIMULATOR))
         win.connect()
     elif a.iface:

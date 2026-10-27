@@ -1,8 +1,9 @@
 """Any adapter python-can supports: PEAK, Kvaser, Vector, IXXAT, neoVI, gs_usb / candleLight
 without the Linux driver, slcan on a serial port, socketcand over the network, and more.
 
-Optional (``pip install -e ".[adapters]"``): Linux interfaces like ``can0`` keep using the
-built-in ``SocketCanBackend``, which needs nothing extra. An adapter is named
+The installers include it (the ``adapters`` extra), but nothing else needs it: Linux interfaces
+like ``can0`` keep using the built-in ``SocketCanBackend``, and python-can is imported only when an
+adapter below is opened. An adapter is named
 ``interface:channel``, with optional ``;key=value`` settings python-can takes::
 
     pcan:PCAN_USBBUS1        kvaser:0        vector:0;app_name=CANalyzer
@@ -53,7 +54,8 @@ def available() -> bool:
     return importlib.util.find_spec("can") is not None
 
 
-INSTALL_HINT = "python-can isn't installed. Install it with: pip install -e \".[adapters]\" (or pip install python-can)"
+INSTALL_HINT = ("python-can isn't installed. Run the installer again to add it "
+                "(~/CANopener/deploy/linux/install.sh), or: pip install python-can")
 
 
 def detect(interfaces=DETECT, timeout: float = 2.0) -> list[str]:

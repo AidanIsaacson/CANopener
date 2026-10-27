@@ -71,7 +71,8 @@ if [ -e "$VENV" ] && ! "$VENV/bin/python" -c 'import sys' >/dev/null 2>&1; then
 fi
 [ -x "$VENV/bin/python" ] || python3 -m venv "$VENV"
 "$VENV/bin/python" -m pip install --quiet --upgrade pip
-"$VENV/bin/python" -m pip install --upgrade -e "${REPO}[gui,device]"     # device: the handheld UI (Pygame)
+# device: the handheld UI (Pygame); adapters: python-can, for adapters Linux doesn't show as can0
+"$VENV/bin/python" -m pip install --upgrade -e "${REPO}[gui,device,adapters]"
 if ! err="$("$VENV/bin/python" -c 'from canopener.gui.qt import QtWidgets' 2>&1)"; then
     echo "   WARNING: the GUI library doesn't load:" >&2
     echo "$err" >&2

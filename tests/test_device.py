@@ -586,3 +586,13 @@ def test_handheld_connects_through_python_can(ctx):
     finally:
         ctx.disconnect()
         sim.stop()
+
+
+def test_handheld_simulators_hidden_by_default(ctx):
+    kinds = lambda: [k for k, _ in ctx.sources()]   # noqa: E731
+    assert kinds() == ["socketcan"]
+    ctx.set_show_simulators(True)
+    assert "sim" in kinds() and "obd-sim" in kinds()
+    ctx.settings.set("can.source", "obd-sim")
+    ctx.set_show_simulators(False)
+    assert kinds() == ["socketcan"] and ctx.settings.get("can.source") == "socketcan"

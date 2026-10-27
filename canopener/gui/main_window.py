@@ -264,6 +264,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._action(cn, "Find signal (start / stop)", self._toggle_finder, "F4")
         self._action(cn, "Set up interface", self.setup_interface)
         self._action(cn, "Find other adapters (python-can)…", self.find_python_can)
+        cn.addSeparator()
+        from ..core.settings import Settings
+        self.simulators_action = QtGui.QAction("Show simulators", self, checkable=True)
+        self.simulators_action.setToolTip("List the simulated machine, car and profile under Source, to try "
+                                          "the app without hardware.")
+        self.simulators_action.setChecked(bool(Settings().get("show_simulators")))
+        self.simulators_action.toggled.connect(self.show_simulators)
+        cn.addAction(self.simulators_action)
         lg = m.addMenu("&Log")
         toggle = self.log_panel.toggleViewAction()
         toggle.setShortcut(QtGui.QKeySequence("F2"))
@@ -644,6 +652,16 @@ class MainWindow(QtWidgets.QMainWindow):
         if was:
             self.connect()
 
+    def show_simulators(self, on: bool, save: bool = True):
+        """Connection > Show simulators (off by default, to keep Source short)."""
+        if save:
+            from ..core.settings import Settings
+            Settings().set("show_simulators", on)
+        self.simulators_action.blockSignals(True)
+        self.simulators_action.setChecked(on)
+        self.simulators_action.blockSignals(False)
+        self.conn_panel.set_simulators(on)
+
     def find_python_can(self):
         """Connection > Find other adapters: what python-can can open (PEAK, Kvaser, gs_usb ...)."""
         if not pythoncan.available():
@@ -771,7 +789,8 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as e:
             missing = kind == connection.SOCKETCAN and not pythoncan.is_spec(channel) and not any(
                 i.name == channel for i in interfaces.list_interfaces())
-            hint = "\n\n" + interfaces.no_adapter_hint() if missing else ""
+            hint = ("\n\n" + interfaces.no_adapter_hint() + "\n\nA different kind of adapter (PEAK, Kvaser, "
+                    "Vector ...)? Try Connection → Find other adapters.") if missing else ""
             QtWidgets.QMessageBox.critical(self, "Connect", f"Could not open {channel}: {e}{hint}")
             self._replay_path = ""
             return

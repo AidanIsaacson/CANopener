@@ -35,8 +35,8 @@ That gets you CANopener in the app menu and on the desktop, plus the drivers for
 Step by step, with your adapter: [Linux laptop guide](docs/install/linux-laptop.md).
 For a **Raspberry Pi** that starts CANopener full screen at power-on: [Raspberry Pi guide](docs/install/raspberry-pi.md) [Untested].
 
-**Try it without a machine:** open **🔌 Connection**, pick **Simulator** (a telehandler) or
-**OBD-II simulator (car)**, and press **Connect**.
+**Try it without a machine:** tick **Connection → Show simulators**, then open **🔌 Connection**,
+pick **Simulator** (a telehandler) or **OBD-II simulator (car)**, and press **Connect**.
 
 **Updating:** **Help → Check for updates…**, then **Install update** and **Restart now**.
 (Tick **Help → Check for updates at startup** to be told when there's one.)
@@ -63,10 +63,10 @@ Details for builders:
 **Use any adapter** that Linux sees as a CAN interface: CANable / candleLight, PEAK, Kvaser,
 8devices, or a CAN HAT on a Pi. The installer sets up the CANable (both firmwares) for you. Currently developed on the CANable 2.0 Pro.
 
-**Other adapters** (through [python-can](https://python-can.readthedocs.io), optional): install it with
-`~/CANopener/.venv/bin/pip install python-can`, then **Connection → Find other adapters**, or type the
-adapter under Interface as `interface:channel`, e.g. `pcan:PCAN_USBBUS1`, `kvaser:0` or
-`slcan:/dev/ttyACM0`, and pick its bitrate.
+**Other adapters** (PEAK, Kvaser, Vector, IXXAT, ...): install the maker's driver, then
+**Connection → Find other adapters**, or type the adapter under Interface as `interface:channel`,
+e.g. `pcan:PCAN_USBBUS1`, `kvaser:0` or `slcan:/dev/ttyACM0`, and pick its bitrate. (This goes
+through [python-can](https://python-can.readthedocs.io), which the installer includes.)
 
 1. Plug the adapter into the laptop and connect it to CAN HI&LO (the machine's diagnostic port, or back-probe any CAN HI/LO pair) Key on.
 2. Open **🔌 Connection** (top left, or **F3**). Pick **SocketCAN adapter**, then the bitrate:
@@ -277,5 +277,5 @@ The generic OBD-II trouble-code descriptions in `canopener/obd/dtc_codes.py` and
 unit/scaling table come from [python-OBD](https://github.com/brendan-w/python-OBD) (GPL-2.0-or-later,
 © Donour Sizemore, Secons Ltd., Peter J. Creath, Brendan Whitfield).
 
-Optional, installed separately and not part of CANopener: [python-can](https://github.com/hardbyte/python-can)
+Installed alongside, not part of CANopener: [python-can](https://github.com/hardbyte/python-can)
 (LGPL-3.0) for the "other adapters" above, and Pygame for the handheld UI.

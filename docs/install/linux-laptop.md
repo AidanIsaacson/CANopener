@@ -50,8 +50,8 @@ Choose **Trust and Launch** (or **Allow Launching**). It only asks once.
 
 ## 3. Try it with the simulator (no adapter needed)
 
-Start CANopener from the menu or the desktop icon. Pick **Simulator** in the top-left box and press
-**Connect**. Try **Full Scan** on the Fault Codes tab, tick a few signals on **Live Data**, and open
+Start CANopener from the menu or the desktop icon. Tick **Connection → Show simulators**, pick
+**Simulator** in the top-left box and press **Connect**. Try **Full Scan** on the Fault Codes tab, tick a few signals on **Live Data**, and open
 the **📝 Log** panel.
 
 ## 4. Connect to a real machine

@@ -55,7 +55,8 @@ def adapter_status(kind: str, name: str, found: list | None = None, usb: list | 
     usb = interfaces.usb_adapters() if usb is None else usb
     if usb:
         return Status(WAIT, "Adapter not set up", "\n".join(a.hint() for a in usb))
-    return Status(BAD, "No adapter", "No CAN adapter found. Is it plugged into this computer?")
+    return Status(BAD, "No adapter", "No CAN adapter found. Is it plugged into this computer? A different kind "
+                  "of adapter (PEAK, Kvaser, Vector ...)? Try Find other adapters, under Connection.")
 
 
 def bus_status(session, now: float | None = None, quiet: float = QUIET_SECS, last_answer: float = 0.0,

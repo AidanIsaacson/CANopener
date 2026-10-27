@@ -65,6 +65,7 @@ def area(win, *widgets, pad=4):
 def window():
     w = MainWindow()
     w.resize(1180, 640)
+    w.show_simulators(True, save=False)          # the screenshots run against the simulators
     w.show()
     pump(0.3)
     return w

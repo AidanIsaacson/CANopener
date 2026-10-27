@@ -17,7 +17,7 @@ from ...j1939.addresses import sa_name
 from ...obd import describe_dtc, pids_for_dtc
 from .. import input as inp
 from .. import ui as icons
-from ..context import BITRATES, SOURCES, bitrate_label, source_label
+from ..context import BITRATES, bitrate_label, source_label
 from ..ui import ListView
 from .base import InfoDialog, Row, RowList, Screen, SoftKey, choose, confirm
 from .live import LivePage
@@ -53,7 +53,7 @@ class ConnectPage(Screen):
             choose(self.app, title, options, s.get(key), lambda v: s.set(key, v))
 
         rows.append(Row("Source", lambda: source_label(s.get("can.source")),
-                        select=lambda: pick("Source", "can.source", [(lb, k) for k, lb in SOURCES])))
+                        select=lambda: pick("Source", "can.source", [(lb, k) for k, lb in ctx.sources()])))
         if kind == SOCKETCAN:
             names = [i.name for i in interfaces.list_interfaces(details=False)]
             cur = s.get("can.iface")

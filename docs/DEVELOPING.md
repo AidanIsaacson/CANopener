@@ -63,8 +63,8 @@ the J1939 ones).
 **Recognising a machine:** a `"detect": {"addresses": [...], "min_match": 2}` section lists the
 module addresses that machine has. When the bus matches, a banner offers to switch profiles.
 
-**Simulating a profile:** pick the profile, choose **Simulate the selected profile** as the
-source, and Connect. Every signal is broadcast from its address with moving values, so you can
+**Simulating a profile:** pick the profile, tick **Connection → Show simulators**, choose **Simulate
+the selected profile** as the source, and Connect. Every signal is broadcast from its address with moving values, so you can
 check a new profile's decoding and layout without the machine (`canopener-cli --profile ID sim
 --iface vcan0` does the same on a SocketCAN bus).
 

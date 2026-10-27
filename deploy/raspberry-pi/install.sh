@@ -21,7 +21,7 @@ sudo "$REPO/deploy/linux/adapter-setup.sh"
 echo "== Python environment in $VENV"
 python3 -m venv "$VENV"
 "$VENV/bin/pip" install --upgrade pip
-"$VENV/bin/pip" install -e "${REPO}[gui,device]"
+"$VENV/bin/pip" install -e "${REPO}[gui,device,adapters]"
 # The Pi is the handheld: start the touch UI unless a UI was already chosen (switch either way
 # in the app: Settings > Handheld (Pi) screen / System > Desktop app instead).
 "$VENV/bin/python" -c 'from canopener.core.settings import Settings; s = Settings(); s.get("ui") or s.set("ui", "device")'

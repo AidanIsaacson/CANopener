@@ -19,6 +19,7 @@ from .widgets import STATUS_COLORS, RefreshComboBox, StatusLamp
 SOURCES = [("SocketCAN adapter", connection.SOCKETCAN), ("Simulator", connection.SIMULATOR),
            ("Simulate the selected profile", connection.PROFILE_SIM),
            ("OBD-II simulator (car)", connection.OBD_SIM), ("Replay log file", connection.REPLAY)]
+SIMULATORS = (connection.SIMULATOR, connection.PROFILE_SIM, connection.OBD_SIM)   # listed only when switched on
 AUTO_BITRATE = 0
 HISTORY = 8
 BIG = "font-size: 13pt; font-weight: bold; padding: 8px; border-radius: 6px; color: white;"
@@ -71,8 +72,8 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         box = QtWidgets.QGroupBox("Connection")
         form = QtWidgets.QFormLayout(box)
         self.source = QtWidgets.QComboBox()
-        for label, kind in SOURCES:
-            self.source.addItem(label, kind)
+        from ..core.settings import Settings
+        self.set_simulators(bool(Settings().get("show_simulators")))
         form.addRow("Source", self.source)
 
         # Lists only the interfaces that exist right now, re-checked each time the list opens.
@@ -162,6 +163,20 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         self.bus_lamp.set_status(bus.level, bus.text, bus.detail)
         bad = [s.detail for s in (adapter, bus) if s.level in (link.BAD, link.WAIT, link.IDLE)]
         self.status_detail.setText("\n".join(bad))
+
+    def set_simulators(self, on: bool):
+        """List the simulators under Source, or not (Connection > Show simulators). A simulator
+        that was picked falls back to the adapter; an open connection isn't touched."""
+        cur = self.source.currentData()
+        self.source.blockSignals(True)
+        self.source.clear()
+        for label, kind in SOURCES:
+            if on or kind not in SIMULATORS:
+                self.source.addItem(label, kind)
+        self.source.setCurrentIndex(max(0, self.source.findData(cur)))
+        self.source.blockSignals(False)
+        if self.source.currentData() != cur:
+            self.source.currentIndexChanged.emit(self.source.currentIndex())
 
     def cue(self, name: str, link_status: bool = False):
         """Play a sound cue on the speaker and/or buzzer (Settings > Sound cues), if that kind is on:
