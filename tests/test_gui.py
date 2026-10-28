@@ -508,8 +508,16 @@ def test_transmit_dialog_gating(app, tmp_path):
     w.close()
 
 
+# The smallest desktop screen the GUI targets (a 1366x768 laptop; the handheld UI scales itself).
+# Under the title bar and taskbar that leaves about 1366x698. The minimum width keeps ~60 px spare
+# for the window frame and a slightly wider desktop font (CI's fonts measure ~1205 empty).
+SCREEN_W, SCREEN_H = 1366, 768
+USABLE_W, USABLE_H = SCREEN_W, SCREEN_H - 70
+MIN_W, MIN_H = SCREEN_W - 60, USABLE_H - 50
+
+
 def test_window_fits_small_laptop(app, tmp_path):
-    """The window must stay narrow enough to fit (and so maximise / snap on) a 1366-wide laptop,
+    """The window must stay narrow enough to fit (and so maximise / snap on) a 1366x768 laptop,
     both empty AND once content has loaded. Two non-wrapping rows used to pin the minimum width
     wide: the Fault Codes controls (~1458 empty) and the per-ECU lamp strip (~1459 after a scan
     populated several ECUs' lamps). Both now wrap."""
@@ -522,7 +530,7 @@ def test_window_fits_small_laptop(app, tmp_path):
     w = MainWindow()
     w.show()
     app.processEvents()
-    assert w.minimumSizeHint().width() <= 1200           # empty
+    assert w.minimumSizeHint().width() <= MIN_W          # empty
 
     # Populate: connect to the sim, scan so lamps + codes fill, select a row so the detail loads.
     w.source.setCurrentIndex(w.source.findData(connection.SIMULATOR))
@@ -534,21 +542,21 @@ def test_window_fits_small_laptop(app, tmp_path):
         w.codes.table.selectRow(0)
     app.processEvents()
     assert w.lamps.minimumSizeHint().width() <= 700      # lamp strip wraps, no longer ~1068
-    assert w.minimumSizeHint().width() <= 1200           # still fits after content loaded
+    assert w.minimumSizeHint().width() <= MIN_W          # still fits after content loaded
 
     # It must actually accept a laptop-sized geometry (not get clamped back up by a minimum).
-    w.resize(1280, 720)
+    w.resize(USABLE_W, USABLE_H)
     app.processEvents()
-    assert w.width() <= 1280 and w.height() <= 720
+    assert w.width() <= USABLE_W and w.height() <= USABLE_H
 
-    # A 1280x720 screen leaves ~1280x650 under the taskbar and title bar. Every tab (plugin tabs
-    # too), with the Log panel open, must fit that with room for a bigger desktop font.
+    # Every tab (plugin tabs too), with the Log panel open, must fit the usable screen with room
+    # for a bigger desktop font.
     assert w.log_panel.isVisible()
     for i in range(w.tabs.count()):
         w.tabs.setCurrentIndex(i)
         app.processEvents()
         m = w.minimumSizeHint()
-        assert m.width() <= 1200 and m.height() <= 600, (w.tabs.tabText(i), m.width(), m.height())
+        assert m.width() <= MIN_W and m.height() <= MIN_H, (w.tabs.tabText(i), m.width(), m.height())
 
     # Dialogs too.
     from canopener.gui.export_dialog import ExportDialog
@@ -561,7 +569,7 @@ def test_window_fits_small_laptop(app, tmp_path):
         d.show()
         app.processEvents()
         m = d.minimumSizeHint()
-        assert d.width() <= 1280 and d.height() <= 650 and m.width() <= 1200 and m.height() <= 600, \
+        assert d.width() <= USABLE_W and d.height() <= USABLE_H and m.width() <= MIN_W and m.height() <= MIN_H, \
             (type(d).__name__, d.width(), d.height())
         d.close()
     w.disconnect()
