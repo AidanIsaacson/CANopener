@@ -293,7 +293,8 @@ copies this session's captures and reports onto the stick and ejects it.
 
 * **Reading** sends only standard requests (J1939, OBD-II, UDS and CANopen SDO reads). Tick **Listen-only** in
   the Connection panel to send nothing at all: J1939 codes (DM1) and live data still work,
-  because the machine broadcasts them.
+  because the machine broadcasts them. (Not on a CANable with slcan firmware, which can't do
+  listen-only: see [docs/install/linux-laptop.md](docs/install/linux-laptop.md).)
 * **Commands that change a vehicle** (clear codes, start an on-board test, reset a module, a
   CANopen NMT start / stop / reset) say what they change and wait for a Yes.
 * **Diagnostics → Transmit a frame** sends a frame you compose: off by default, it shows the

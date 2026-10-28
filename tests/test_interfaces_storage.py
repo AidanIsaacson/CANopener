@@ -65,7 +65,7 @@ class FakeBackend:
         return CanFrame(0x80, b"", error="bus error") if self.n % 2 else None
 
 
-def test_detect_bitrate_probes_listen_only():
+def test_detect_bitrate_probes_listen_only(tmp_path):
     calls = []
 
     def runner(steps):
@@ -73,17 +73,70 @@ def test_detect_bitrate_probes_listen_only():
         FakeBackend.current = int(steps[1][7])
         return True, "ok"
 
-    found, log = interfaces.detect_bitrate("can0", listen_secs=0.2, runner=runner, open_backend=FakeBackend)
+    found, log = interfaces.detect_bitrate("can0", listen_secs=0.2, runner=runner, open_backend=FakeBackend,
+                                           sys_net=str(tmp_path))
     assert found == 500000
     assert all(s[1][9] == "on" for s in calls)          # every probe in listen-only
     assert [int(s[1][7]) for s in calls] == [250000, 500000]
     assert "error frame" in log[0]
 
 
-def test_detect_bitrate_stops_without_listen_only():
+def test_detect_bitrate_stops_without_listen_only(tmp_path):
     found, log = interfaces.detect_bitrate("can0", runner=lambda steps: (False, "not supported"),
-                                           open_backend=FakeBackend)
+                                           open_backend=FakeBackend, sys_net=str(tmp_path))
     assert found is None and "listen-only" in log[0]
+
+
+def fake_sys_net(tmp_path, **ifaces):
+    """/sys/class/net with CAN interfaces: name=True for a parent device (gs_usb), False for none (slcan)."""
+    for name, has_device in ifaces.items():
+        d = tmp_path / name
+        d.mkdir()
+        (d / "type").write_text(f"{interfaces.ARPHRD_CAN}\n")
+        (d / "operstate").write_text("up\n")
+        (d / "flags").write_text("0x1\n")
+        if has_device:
+            (d / "device").mkdir()
+    return str(tmp_path)
+
+
+def test_slcan_is_a_can_interface_without_a_parent_device(tmp_path):
+    sys_net = fake_sys_net(tmp_path, can0=False, can1=True, vcan0=False)
+    assert interfaces.is_slcan("can0", sys_net)
+    assert not interfaces.is_slcan("can1", sys_net)       # gs_usb: has /sys/class/net/can1/device
+    assert not interfaces.is_slcan("vcan0", sys_net)
+    assert not interfaces.is_slcan("can9", sys_net)       # not there at all
+    found = {i.name: i.slcan for i in interfaces.list_interfaces(sys_net, details=False)}
+    assert found == {"can0": True, "can1": False, "vcan0": False}
+
+
+def test_slcan_refuses_listen_only(tmp_path, monkeypatch):
+    # In listen-only the CANable's slcan firmware never opens: refuse rather than come up deaf.
+    sys_net = fake_sys_net(tmp_path, can0=False)
+    ran = []
+    monkeypatch.setattr(interfaces, "run_privileged", lambda steps, **kw: (ran.append(steps) or (True, "ok")))
+    ok, msg = interfaces.bring_up("can0", 250000, listen_only=True, sys_net=sys_net)
+    assert not ok and "listen-only" in msg and "candleLight" in msg and ran == []
+    assert interfaces.bring_up("can0", 250000, listen_only=False, sys_net=sys_net) == (True, "ok")
+    assert ran[0][1][-2:] == ["listen-only", "off"]
+
+    found, log = interfaces.detect_bitrate("can0", runner=lambda steps: ran.append(steps) or (True, "ok"),
+                                           open_backend=FakeBackend, sys_net=sys_net)
+    assert found is None and "candleLight" in log[0] and len(ran) == 1   # nothing probed
+
+
+def test_needs_setup_when_down_or_set_differently():
+    up = interfaces.CanInterface
+    assert interfaces.needs_setup(up("can0", "down"), 250000, False)
+    # Left by a stopped signal finder: listen-only, at the bitrate it was trying.
+    assert interfaces.needs_setup(up("can0", "up", 1000000, True), 250000, False)
+    assert interfaces.needs_setup(up("can0", "up", 250000, True), 250000, False)
+    assert interfaces.needs_setup(up("can0", "up", 250000, False), 250000, True)
+    assert interfaces.needs_setup(up("can0", "up", 500000, False), 250000, False)
+    assert not interfaces.needs_setup(up("can0", "up", 250000, False), 250000, False)
+    assert not interfaces.needs_setup(up("can0", "up", 500000, False), None, False)   # Auto: any bitrate
+    assert not interfaces.needs_setup(up("can0", "up"), 250000, False)              # details unknown
+    assert not interfaces.needs_setup(up("vcan0", "down"), 250000, True)
 
 
 def test_removable_drives(tmp_path):

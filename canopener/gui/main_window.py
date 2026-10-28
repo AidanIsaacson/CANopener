@@ -686,7 +686,9 @@ class MainWindow(QtWidgets.QMainWindow):
                               if found else "No CAN adapter connected. Plug it in, then open this list "
                               "or press ⟳ to look again.")
         match = next((i for i in found if i.name == cur), None)
-        if sync_bitrate and match and match.bitrate:
+        # Not from a listen-only interface: that's usually a stopped signal finder's last guess, and
+        # Connect in normal mode would then reconfigure it at that (wrong) bitrate. A lock sets the box.
+        if sync_bitrate and match and match.bitrate and not match.listen_only:
             idx = self.bitrate.findData(match.bitrate)
             if idx >= 0:
                 self.bitrate.setCurrentIndex(idx)
@@ -783,9 +785,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         found, log = interfaces.detect_bitrate(name, progress=progress)
         if found is None:
+            tail = "" if interfaces.is_slcan(name) else \
+                "\n\nIs the key on and the harness connected? You can also pick a bitrate by hand."
             QtWidgets.QMessageBox.warning(
-                self, "Auto bitrate", "Couldn't detect the bitrate:\n\n" + "\n".join(log)
-                + "\n\nIs the key on and the harness connected? You can also pick a bitrate by hand.")
+                self, "Auto bitrate", "Couldn't detect the bitrate:\n\n" + "\n".join(log) + tail)
             return None
         idx = self.bitrate.findData(found)
         if idx >= 0:
@@ -825,23 +828,30 @@ class MainWindow(QtWidgets.QMainWindow):
         self.connect()
 
     def _ensure_up(self, name: str) -> bool:
-        """Bring a real SocketCAN interface up at the selected bitrate if it's down, so Connect
-        works in one click without a trip to the terminal. A USB adapter like the CANable comes
-        up 'down' on every plug-in; this configures it (using the passwordless rule if installed,
-        else one graphical prompt). Returns False only if bring-up was needed and failed."""
+        """Bring a real SocketCAN interface up at the selected bitrate and listen-only setting if
+        it's down or set differently, so Connect works in one click without a trip to the terminal.
+        A USB adapter like the CANable comes up 'down' on every plug-in, and a stopped signal finder
+        leaves it listen-only at whatever bitrate it was trying; this configures it (using the
+        passwordless rule if installed, else one graphical prompt). Returns False only if bring-up
+        was needed and failed."""
         if name.startswith("vcan"):
             return True
         info = next((i for i in interfaces.list_interfaces() if i.name == name), None)
-        if info is None or info.state == "up":
+        if info is None:
             return True                     # missing: let open_connection give the 'plugged in?' error
         bitrate = self.bitrate.currentData()
+        listen_only = self.listen_only.isChecked()
+        if not interfaces.needs_setup(info, None if bitrate == AUTO_BITRATE else bitrate, listen_only):
+            return True
         QtWidgets.QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            if bitrate == AUTO_BITRATE:
+            if bitrate == AUTO_BITRATE and info.state == "up" and info.bitrate:
+                bitrate = info.bitrate      # Auto and already up: keep its bitrate, fix listen-only
+            elif bitrate == AUTO_BITRATE:
                 bitrate = self._detect_bitrate(name)
                 if bitrate is None:
                     return False
-            ok, msg = interfaces.bring_up(name, bitrate, self.listen_only.isChecked())
+            ok, msg = interfaces.bring_up(name, bitrate, listen_only)
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
         if not ok:

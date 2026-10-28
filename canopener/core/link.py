@@ -193,11 +193,16 @@ class SignalFinder:
         failures = 0
         i = 0
         while not self._stop.is_set():
-            if not any(f.name == self.name for f in self.list_ifaces()):
+            iface = next((f for f in self.list_ifaces() if f.name == self.name), None)
+            if iface is None:
                 configured = None
                 self._emit("no_adapter", f"{self.name} not found. {self.hint()}")
                 self._stop.wait(1.0)
                 continue
+            if iface.slcan:          # it would search deaf forever (see interfaces.slcan_listen_only_hint)
+                hint = interfaces.slcan_listen_only_hint(self.name)
+                self._emit("failed", f"Find signal listens in listen-only. {hint}")
+                return
             br = None if self.virtual else self.bitrates[i % len(self.bitrates)]
             label = f"{br // 1000}k" if br else self.name
             if br is not None and configured != br:

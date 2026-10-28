@@ -203,10 +203,10 @@ class DeviceContext:
 
         def work():
             if kind == SOCKETCAN and bitrate and not name.startswith("vcan") and not python_can:
-                info = next((i for i in interfaces.list_interfaces(details=False) if i.name == name), None)
+                info = next((i for i in interfaces.list_interfaces() if i.name == name), None)
                 if info is None:
                     raise OSError(interfaces.no_adapter_hint().split("\n")[0])
-                if info.state != "up":
+                if interfaces.needs_setup(info, bitrate, listen_only):     # down, or left set differently
                     ok, msg = interfaces.bring_up(name, bitrate, listen_only)
                     if not ok:
                         raise OSError(f"couldn't bring {name} up: {msg}")

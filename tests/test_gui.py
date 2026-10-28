@@ -688,6 +688,35 @@ def test_connect_brings_up_a_down_interface(app, tmp_path, monkeypatch):
                         lambda *a, **k: [interfaces.CanInterface("can0", "up")])
     assert w._ensure_up("can0") is True and calls == []
 
+    # Up, but left by a stopped signal finder in listen-only at another bitrate: reconfigured.
+    w.listen_only.setChecked(False)
+    monkeypatch.setattr(interfaces, "list_interfaces",
+                        lambda *a, **k: [interfaces.CanInterface("can0", "up", 1000000, True)])
+    assert w._ensure_up("can0") is True and calls == [("can0", 250000, False)]
+
+    # Up at the picked bitrate and mode: left alone.
+    calls.clear()
+    monkeypatch.setattr(interfaces, "list_interfaces",
+                        lambda *a, **k: [interfaces.CanInterface("can0", "up", 250000, False)])
+    assert w._ensure_up("can0") is True and calls == []
+
+    # Auto and up in listen-only: keeps its bitrate, only listen-only is changed.
+    from canopener.gui.connection_panel import AUTO_BITRATE
+    w.bitrate.setCurrentIndex(w.bitrate.findData(AUTO_BITRATE))
+    monkeypatch.setattr(interfaces, "list_interfaces",
+                        lambda *a, **k: [interfaces.CanInterface("can0", "up", 500000, True)])
+    assert w._ensure_up("can0") is True and calls == [("can0", 500000, False)]
+
+    # The bitrate box isn't copied from a listen-only interface (a stopped finder's last guess):
+    # Connect in normal mode would reconfigure it at that wrong bitrate.
+    w.bitrate.setCurrentIndex(w.bitrate.findData(250000))
+    w._refresh_interfaces(preferred="can0")
+    assert w.bitrate.currentData() == 250000
+    monkeypatch.setattr(interfaces, "list_interfaces",
+                        lambda *a, **k: [interfaces.CanInterface("can0", "up", 500000, False)])
+    w._refresh_interfaces(preferred="can0")
+    assert w.bitrate.currentData() == 500000            # set up by hand in normal mode: still synced
+
     # vcan is never touched (the simulator manages it).
     assert w._ensure_up("vcan0") is True
     w.close()

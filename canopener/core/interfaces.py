@@ -20,6 +20,7 @@ class CanInterface:
     state: str          # "up" / "down" / "unknown"
     bitrate: int | None = None
     listen_only: bool | None = None
+    slcan: bool = False     # attached by slcand: can't do listen-only (see is_slcan)
 
     @property
     def virtual(self) -> bool:
@@ -58,7 +59,7 @@ def list_interfaces(sys_net: str = SYS_NET, details: bool = True) -> list[CanInt
                     state = "up" if state in ("up", "unknown") else state
         except (OSError, ValueError):
             pass
-        iface = CanInterface(name, state)
+        iface = CanInterface(name, state, slcan=is_slcan(name, sys_net))
         if details:
             _fill_details(iface)
         out.append(iface)
@@ -142,6 +143,40 @@ def no_adapter_hint(sys_usb: str = SYS_USB, sys_tty: str = SYS_TTY) -> str:
             "'Simulator' to try the app without hardware.")
 
 
+def is_slcan(name: str, sys_net: str = SYS_NET) -> bool:
+    """True for an interface attached by slcand (a CANable with slcan firmware, or another
+    serial-line adapter). Those are the only real CAN interfaces with no parent device in sysfs:
+    gs_usb, PEAK, Kvaser, MCP2515 ... all have /sys/class/net/canN/device."""
+    if name.startswith("vcan"):
+        return False
+    d = os.path.join(sys_net, name)
+    return os.path.isdir(d) and not os.path.exists(os.path.join(d, "device"))
+
+
+def slcan_listen_only_hint(name: str) -> str:
+    """Why listen-only is refused on an slcan interface. In listen-only Linux opens the adapter with
+    the slcan 'L' command, which the CANable's slcan firmware doesn't have (it uses a nonstandard
+    'M1'). Linux never reads the reply, so the interface shows up, listen-only and error-active,
+    while the adapter stays closed and hears nothing at any bitrate."""
+    return (f"{name} is a CANable-style adapter with slcan firmware, which can't do listen-only: in "
+            "listen-only it never opens and hears nothing. Untick Listen-only and pick the bitrate "
+            "(250k for most J1939 machines), or flash the adapter with candleLight firmware, which "
+            "does listen-only properly.")
+
+
+def needs_setup(iface: CanInterface, bitrate: int | None, listen_only: bool) -> bool:
+    """True if Connect has to (re)configure ``iface``: it's down, or it's up at a different bitrate
+    (``None`` = any) or listen-only setting than the one picked. The signal finder, for one,
+    leaves it in listen-only at whatever bitrate it was trying when it was stopped."""
+    if iface.virtual:
+        return False
+    if iface.state != "up":
+        return True
+    if iface.listen_only is not None and iface.listen_only != bool(listen_only):
+        return True
+    return bool(bitrate) and iface.bitrate is not None and iface.bitrate != bitrate
+
+
 def _fill_details(iface: CanInterface):
     ip = shutil.which("ip")
     if not ip or iface.virtual:
@@ -190,8 +225,12 @@ def restart_ms_step(name: str) -> list[str]:
     return [_ip(), "link", "set", name, "type", "can", "restart-ms", "100"]
 
 
-def bring_up(name: str, bitrate: int, listen_only: bool = False, timeout: float = 90) -> tuple[bool, str]:
-    """Configure and bring up an interface, setting restart-ms best-effort (see above)."""
+def bring_up(name: str, bitrate: int, listen_only: bool = False, timeout: float = 90,
+             sys_net: str = SYS_NET) -> tuple[bool, str]:
+    """Configure and bring up an interface, setting restart-ms best-effort (see above). Refuses
+    listen-only on slcan, where it would come up deaf (see slcan_listen_only_hint)."""
+    if listen_only and is_slcan(name, sys_net):
+        return False, slcan_listen_only_hint(name)
     steps = setup_steps(name, bitrate, listen_only)
     optional: set[int] = set()
     if not name.startswith("vcan"):
@@ -340,7 +379,8 @@ def count_traffic(backend, secs: float, enough: int | None = None, stop=None) ->
 
 
 def detect_bitrate(name: str, candidates=BITRATES, listen_secs: float = 1.5, min_frames: int = 3,
-                   runner=run_privileged, open_backend=None, progress=None) -> tuple[int | None, list[str]]:
+                   runner=run_privileged, open_backend=None, progress=None,
+                   sys_net: str = SYS_NET) -> tuple[int | None, list[str]]:
     """Find the bus bitrate by listening at each candidate rate. Returns (bitrate or None, log).
 
     Every attempt uses **listen-only** mode: a controller at the wrong bitrate in normal mode
@@ -349,6 +389,8 @@ def detect_bitrate(name: str, candidates=BITRATES, listen_secs: float = 1.5, min
     """
     from ..can.backends import SocketCanBackend
     open_backend = open_backend or SocketCanBackend
+    if is_slcan(name, sys_net):
+        return None, [slcan_listen_only_hint(name)]
     log = []
     for br in candidates:
         if progress:

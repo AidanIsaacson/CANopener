@@ -17,6 +17,7 @@ class Bus:
         self.configured = None
         self.contact = True
         self.present = True
+        self.slcan = False
         self.steps = []
 
     def runner(self, steps):
@@ -25,7 +26,7 @@ class Bus:
         return True, "ok"
 
     def ifaces(self):
-        return [interfaces.CanInterface("can0", "up")] if self.present else []
+        return [interfaces.CanInterface("can0", "up", slcan=self.slcan)] if self.present else []
 
     def backend(self, name):
         bus = self
@@ -106,6 +107,17 @@ def test_finder_retries_then_gives_up_when_it_cant_configure():
     f.run()
     assert [e.state for e in events] == ["error", "error", "failed"]
     assert "not permitted" in events[-1].text
+
+
+def test_finder_stops_at_once_on_slcan():
+    # The CANable's slcan firmware can't do listen-only, so the finder would search deaf forever.
+    bus, events = Bus(250000), []
+    bus.slcan = True
+    f = finder(bus, events)
+    f.run()
+    assert [e.state for e in events] == ["failed"] and f.result is None
+    assert "listen-only" in events[0].text and "candleLight" in events[0].text
+    assert bus.steps == []                        # never touched the bitrate
 
 
 def test_finder_switches_to_normal_mode_only_when_asked():

@@ -90,13 +90,20 @@ CANable boards are sold with one of two firmwares, and which one you get depends
 | Firmware | What Linux sees | What happens |
 |---|---|---|
 | **candleLight** (gs_usb) | a native CAN device, USB ID `1d50:606f` | Linux's `gs_usb` driver makes it `can0` immediately. |
-| **slcan** | a serial port `/dev/ttyACM0`, USB ID `16d0:117e` | The installer's plug-in rule attaches it with `slcand` so it becomes `can0` too, and stops ModemManager from probing it as a modem. Needs Linux 6.0 or newer (`uname -r`): Mint 22, Ubuntu 24.04 and Debian 12 have it. |
+| **slcan** | a serial port `/dev/ttyACM0`, USB ID `16d0:117e` | The installer's plug-in rule attaches it with `slcand` so it becomes `can0` too, and stops ModemManager from probing it as a modem. Needs Linux 6.0 or newer (`uname -r`): Mint 22, Ubuntu 24.04 and Debian 12 have it. **No listen-only** (see below). |
 
 To see which one you have, plug it in and run `lsusb`: `1d50:606f` is candleLight and `16d0:117e`
 is slcan. `~/CANopener/.venv/bin/canopener-cli interfaces` lists what CANopener sees, including an
 adapter that's plugged in but not set up, with the reason.
 
-**candleLight is the better firmware** (faster, no serial layer, works on any kernel). If yours
+**slcan firmware can't do listen-only.** Linux opens it in listen-only with a command the CANable's
+slcan firmware doesn't have, so the adapter stays closed and hears nothing at any bitrate, while
+`ip` still shows the interface up and healthy. CANopener refuses listen-only on it and says so:
+**Auto**, **Find signal** and the **Listen-only** box all need it. Pick the bitrate by hand
+(250k for most J1939 machines) with Listen-only unticked, or switch to candleLight.
+
+**candleLight is the better firmware** (faster, no serial layer, works on any kernel, real
+listen-only). If yours
 has slcan and you want to switch, open the CANable firmware updater (linked from canable.io) in
 Chrome or Edge. Set the adapter's **BOOT** jumper (or hold its boot button) while plugging it in,
 pick the candleLight build for your board (**CANable 2.0** for 2.0 / 2.0 Pro boards, unless your
@@ -159,6 +166,7 @@ appeared.
 | "is in firmware-update (DFU) mode" | Remove the BOOT jumper / don't hold the button, and replug. |
 | `this kernel has no driver for: gs_usb …` during install | Your kernel is a cut-down one. `sudo apt install linux-generic` (Ubuntu/Mint) or `linux-image-amd64` (Debian), reboot, re-run the installer. |
 | Connected but no traffic, or lots of errors in the status bar | Wrong bitrate. Use **Auto**, or try 500k. Check the key is on and CAN-H/CAN-L aren't swapped. |
+| "slcan firmware, which can't do listen-only" | The adapter has slcan firmware (above): untick **Listen-only** and pick the bitrate instead of **Auto**, or flash candleLight. To check by hand, `candump` hears nothing while `ip -details link show can0` says `LISTEN-ONLY`. |
 | Connect asks for a password | The passwordless rule isn't installed. Re-run the installer (or use **Settings → Set up passwordless CAN access…**). |
 
 Still stuck? Open an issue on GitHub with the output of `canopener-cli interfaces` and the error
