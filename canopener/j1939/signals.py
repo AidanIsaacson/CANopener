@@ -30,18 +30,28 @@ class Signal:
     group: str = ""
     low: float | None = None    # normal range, for highlighting out-of-range values
     high: float | None = None
+    can_id: int | None = None   # an 11-bit CAN ID (CANopen PDO, plain CAN) instead of a PGN
+    big_endian: bool = False    # whole-byte values only: high byte first (Motorola order)
 
     @property
     def key(self) -> str:
+        if self.can_id is not None:
+            return f"ID{self.can_id:03X}:{self.start}.{self.bit}:{self.name}"
         return f"{self.pgn:05X}:{self.start}.{self.bit}:{self.name}"
+
+    @property
+    def ref(self) -> str:
+        """Where it comes from, for display: 'FF10' (a PGN) or 'ID 181' (an 11-bit ID)."""
+        return f"ID {self.can_id:03X}" if self.can_id is not None else f"{self.pgn:04X}"
 
     @property
     def width_bits(self) -> int:
         return self.bits or self.length * 8
 
     @property
-    def location(self) -> tuple[int, int, int, int]:
-        return (self.pgn, self.start, self.bit, self.width_bits)
+    def location(self) -> tuple:
+        msg = self.pgn if self.can_id is None else ("id", self.can_id)
+        return (msg, self.start, self.bit, self.width_bits)
 
     def accepts(self, sa: int) -> bool:
         if self.sa is None:
@@ -49,6 +59,11 @@ class Signal:
         return sa in self.sa if isinstance(self.sa, tuple) else sa == self.sa
 
     def decode(self, data) -> float | None:
+        if self.big_endian and not self.bits:
+            if self.start + self.length > len(data):
+                return None
+            data = bytes(reversed(bytes(data[self.start:self.start + self.length])))
+            return Signal.decode(_replace_at0(self), data)
         if not self.bits and not self.bit and not self.signed:
             return fields.read(data, self.start, self.length, self.scale, self.offset, self.na_check)
         return fields.read_bits(data, self.start, self.bit, self.width_bits, self.scale, self.offset,
@@ -66,11 +81,22 @@ class Signal:
                                       or (self.high is not None and value > self.high))
 
     def encode_into(self, buf: bytearray, value) -> None:
+        if self.big_endian and not self.bits:
+            tmp = bytearray(self.length)
+            Signal.encode_into(_replace_at0(self), tmp, value)
+            buf[self.start:self.start + self.length] = bytes(reversed(tmp))
+            return
         if not self.bits and not self.bit and not self.signed:
             buf[self.start:self.start + self.length] = fields.encode(value, self.length, self.scale, self.offset)
         else:
             fields.encode_bits(buf, self.start, self.bit, self.width_bits, value, self.scale, self.offset,
                                self.signed)
+
+
+def _replace_at0(sig: Signal) -> Signal:
+    """The same field at byte 0, in little-endian order (for big-endian decode / encode)."""
+    from dataclasses import replace
+    return replace(sig, start=0, big_endian=False)
 
 
 S = Signal
@@ -150,9 +176,25 @@ _all_cache: list[Signal] | None = None
 
 
 def set_profile_signals(sigs: list[Signal]):
-    global _all_cache
+    global _all_cache, _by_id_cache
     PROFILE_SIGNALS[:] = sigs
     _all_cache = None
+    _by_id_cache = None
+
+
+_by_id_cache: dict[int, list[Signal]] | None = None
+
+
+def id_signals() -> dict[int, list[Signal]]:
+    """Signals on 11-bit CAN IDs (all from profiles), by ID."""
+    global _by_id_cache
+    if _by_id_cache is None:
+        out: dict[int, list[Signal]] = {}
+        for s in all_signals():
+            if s.can_id is not None:
+                out.setdefault(s.can_id, []).append(s)
+        _by_id_cache = out
+    return _by_id_cache
 
 
 def all_signals() -> list[Signal]:

@@ -1,4 +1,5 @@
-"""A J1939 session: one bus connection plus everything learned from it.
+"""A session: one bus connection plus everything learned from it (J1939 on 29-bit IDs, and
+11-bit traffic: CANopen through ``canopen.CanopenSniffer``, anything else by ID).
 
 The receive thread feeds frames into ``Session.feed``; the GUI or CLI reads the collected
 state (latest payload per PGN/source, DTC history, statistics, raw frames) under ``lock``.
@@ -8,7 +9,8 @@ READ-ONLY by design: the receive and scan code only ever transmits J1939 Request
 and transport-protocol flow control (CTS / end-of-message ACK). The one request that changes a
 machine, a DM11 / DM3 code clear, lives in ``core.j1939_clear`` and is sent only after the user
 confirms. ``send_frame()`` exists for the OBD-II / UDS clients and separately installed plugins
-(see ``canopener.plugins``); it obeys listen-only like everything else.
+(see ``canopener.plugins``); it obeys listen-only like everything else. CANopen reads (SDO) and
+the confirm-first NMT commands live in ``core.canopen``.
 """
 
 import itertools
@@ -20,6 +22,7 @@ from dataclasses import dataclass, field
 from ..can.backends import CanBackend
 from ..can.frame import CanFrame
 from ..can.logfile import LogWriter
+from ..canopen import CanopenSniffer
 from ..j1939.addresses import J1939Name
 from ..j1939.constants import (
     DTC_PGNS,
@@ -114,6 +117,10 @@ class Session:
         self.stats: dict[tuple[int, int], PgnStats] = {}              # (sa, pgn) -> stats
         self.dtc_hist: dict[tuple[int, int, int, int], DtcEntry] = {}  # (pgn, sa, spn, fmi)
         self.ecus: dict[int, EcuInfo] = {}
+        self.latest_std: dict[int, tuple[float, bytes]] = {}          # 11-bit ID -> (t, data)
+        self.std_stats: dict[int, PgnStats] = {}                      # 11-bit ID -> stats
+        self.canopen = CanopenSniffer()
+        self.j1939_frames = 0       # 29-bit frames received (is there J1939 on this bus?)
         self.acks: deque[Ack] = deque(maxlen=2000)
         self.raw: deque[CanFrame] = deque(maxlen=raw_maxlen)
         self.frame_count = 0        # total frames appended to ``raw`` (rx + tx)
@@ -257,9 +264,20 @@ class Session:
                 fn(frame)
             except Exception:           # a broken plugin must not stop the receive thread
                 pass
-        if not frame.extended:
-            return
         t, data = frame.timestamp, bytes(frame.data)
+        if not frame.extended:
+            with self.lock:
+                self.latest_std[frame.can_id] = (t, data)
+                st = self.std_stats.get(frame.can_id)
+                if st:
+                    st.count += 1
+                    st.last = t
+                    st.dlc = len(data)
+                else:
+                    self.std_stats[frame.can_id] = PgnStats(1, t, t, len(data))
+                self.canopen.feed(frame.can_id, data, t)
+            return
+        self.j1939_frames += 1
         jid = parse_id(frame.can_id)
         pgn, sa, da = jid.pgn, jid.sa, jid.da
         with self.lock:
@@ -369,6 +387,24 @@ class Session:
     def ecu_list(self) -> list[EcuInfo]:
         with self.lock:
             return sorted((EcuInfo(**vars(e)) for e in self.ecus.values()), key=lambda e: e.sa)
+
+    @property
+    def has_j1939(self) -> bool:
+        return self.j1939_frames > 0
+
+    @property
+    def has_canopen(self) -> bool:
+        with self.lock:
+            return bool(self.canopen.nodes)
+
+    def canopen_nodes(self) -> list:
+        """CANopen nodes heard (``canopen.NodeInfo`` copies), by node ID."""
+        with self.lock:
+            return self.canopen.node_list()
+
+    def std_stats_copy(self) -> dict[int, PgnStats]:
+        with self.lock:
+            return {k: PgnStats(v.count, v.first, v.last, v.dlc) for k, v in self.std_stats.items()}
 
     def stats_copy(self) -> dict[tuple[int, int], PgnStats]:
         with self.lock:

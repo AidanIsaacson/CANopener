@@ -55,6 +55,15 @@ edit it. The full format is documented at the top of
 * enumerated (`"enum": {"0": "Released", "1": "Applied"}`), grouped (`"group"`, used by the
   Live Data group filter), with a normal range (`"low"`, `"high"`: out-of-range values show red)
 * limited to one source address or a list (`"sa": ["0x00", "0x27"]`)
+* on an 11-bit CAN ID instead of a PGN (`"id": "0x181"`: a CANopen PDO, or any plain CAN message)
+* high byte first for 2- / 4-byte values (`"order": "big"`; the default is low byte first, as in
+  J1939 and CANopen)
+
+**CANopen machines:** `"nodes": {"0x01": "Traction controller"}` names node IDs (like `"sources"`
+for J1939 addresses), `"emcy": {"0xFF01": "..."}` describes a maker's own EMCY error codes, and
+`"detect": {"nodes": ["0x01", "0x02"]}` recognises the machine from the nodes heard (alongside or
+instead of `"addresses"`). [`sim-canopen.json`](../canopener/profiles/sim-canopen.json) is a
+worked example for the CANopen simulator.
 
 Each of those is also a field in the app's **Label…** dialog. A profile signal at the same place as a built-in one replaces it, so a profile can rename and
 regroup standard data too. `"protocol": "obd2"` makes a car profile (the OBD-II screens instead of
@@ -96,10 +105,11 @@ canopener/
   j1939/     protocol library: IDs, DTCs/DMx, transport protocol, signals, address names
   obd/       OBD-II (J1979) protocol: ISO-TP, PIDs, DTCs, readiness, Mode 06, passive decoder
   uds/       UDS (ISO 14229) protocol: services, NRCs, DTC status, request builders
+  canopen/   CANopen (CiA 301) protocol: COB-IDs, NMT, EMCY, SDO, standard objects, passive sniffer
   can/       bus backends (SocketCAN, python-can (optional), virtual, log replay) and candump log files
   core/      session engine, scans, live-data model, OBD/UDS clients, transmit, reports, profiles,
              units, link status + signal finder, sound cues, self-update
-  sim/       simulated machine (J1939) and OBD-II/UDS simulator
+  sim/       simulated machine (J1939), OBD-II/UDS car and CANopen battery truck
   gui/       desktop GUI (Qt) - a thin front-end over core/
   cli.py     command-line front-end
 deploy/      Linux installer + USB adapter plug-in rules; Raspberry Pi launcher, service, sudoers

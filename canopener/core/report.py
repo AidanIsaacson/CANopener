@@ -5,9 +5,9 @@ import datetime
 from ..j1939.addresses import sa_name
 from ..j1939.constants import is_proprietary, pgn_label
 from ..j1939.fields import hexs
-from ..j1939.signals import all_signals
+from ..j1939.signals import all_signals, id_signals
 from ..j1939.spn import spn_name
-from . import units
+from . import canopen, units
 from .scan import ScanResult
 from .session import Session
 
@@ -23,14 +23,56 @@ def code_table(result: ScanResult) -> list[str]:
                      f"OC {r.oc_text:<4} {r.spn_text} - {r.fmi_text}   [{r.lamps}]")
     for q in result.quiet:
         lines.append(f"{q.status:<13} {sa_name(q.sa):<26} no codes reported   [{q.lamps}]")
-    if not result.rows and not result.quiet:
+    if not result.rows and not result.quiet and not result.canopen:
         lines.append("(no DM responses received)")
+    return lines
+
+
+def canopen_codes(result: ScanResult) -> list[str]:
+    lines = []
+    for c in result.canopen:
+        reg = f"   register {c.register_text}" if c.register is not None else ""
+        extra = f"   extra {c.extra_text}" if c.extra.strip(b"\0") else ""
+        lines.append(f"{c.status:<13} {canopen.source_name(c.src):<26} EMCY {c.code:04X}  {c.text}{reg}{extra}")
+    for e in result.canopen_errors:
+        lines.append(f"  (no answer: {e})")
+    return lines
+
+
+def canopen_survey(session: Session) -> list[str]:
+    """Every CANopen node heard, what's known about it, and the other 11-bit IDs."""
+    lines = []
+    for info in session.canopen_nodes():
+        lines.append(f"  {canopen.source_name(canopen.node_src(info.node))}: {canopen.node_summary(info)}")
+        for label, text in canopen.node_details(info)[1:]:
+            lines.append(f"      {label:<34} {text}")
+    nodes = {n.node for n in session.canopen_nodes()}
+    other = [(cid, st) for cid, st in sorted(session.std_stats_copy().items())
+             if canopen.cob.node_of(cid) not in nodes and canopen.cob.classify(cid)[0] not in ("nmt", "sync")]
+    if other:
+        lines.append("  Other 11-bit IDs:")
+        for cid, st in other:
+            rate = f"{st.rate:.1f}/s" if st.rate else ""
+            lines.append(f"      ID {cid:03X}  x{st.count:<7} {rate:>8}  {canopen.cob.label(cid)}")
     return lines
 
 
 def live_snapshot(session: Session, system: str = units.METRIC, since: float = 0.0) -> list[str]:
     lines = []
+    with session.lock:
+        std = dict(session.latest_std)
+    for cid, sigs in id_signals().items():
+        got = std.get(cid)
+        if not got or got[0] < since:
+            continue
+        for sig in sigs:
+            v = sig.decode(got[1])
+            if v is not None:
+                lines.append(f"  {sig.name:<28} {units.fmt(v, sig.unit, sig.decimals, system):<14} "
+                             f"[{canopen.source_name(canopen.id_src(cid))}]")
     for sig in all_signals():
+        if sig.can_id is not None:
+            continue
         src = [s for s in session.latest_for(sig.pgn)
                if s[1] >= since and sig.accepts(s[0])]
         if not src:
@@ -72,11 +114,16 @@ def build_report(result: ScanResult, session: Session | None = None, *, full: bo
     L.append("")
 
     L += code_table(result)
+    if result.canopen or result.canopen_errors:
+        L += canopen_codes(result)
     L.append("")
 
-    L.append("-- Responses --")
-    for _, label, outcome in result.response_summary():
-        L.append(f"  {label:<42} {outcome}")
+    if result.j1939_skipped:
+        L.append("CANopen-only bus: no J1939 requests were sent.")
+    else:
+        L.append("-- Responses --")
+        for _, label, outcome in result.response_summary():
+            L.append(f"  {label:<42} {outcome}")
     L.append("")
 
     lamps = result.lamps()
@@ -121,9 +168,15 @@ def build_report(result: ScanResult, session: Session | None = None, *, full: bo
         L += snap or ["  (no standard live PGNs seen - key on / engine running?)"]
         L.append("")
 
-        L.append("-- Bus survey (source addresses and PGNs seen this session) --")
-        L += bus_survey(session)
-        L.append("")
+        if session.has_j1939 or not session.has_canopen:
+            L.append("-- Bus survey (source addresses and PGNs seen this session) --")
+            L += bus_survey(session)
+            L.append("")
+        co = canopen_survey(session)
+        if co:
+            L.append("-- CANopen nodes and 11-bit IDs --")
+            L += co
+            L.append("")
 
         prop = [(p, sa, d) for (p, sa), (t, d) in sorted(result.responses.items()) if is_proprietary(p)]
         if prop:

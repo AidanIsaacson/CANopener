@@ -1242,3 +1242,69 @@ def test_labeling_from_the_gui(app, tmp_path, monkeypatch):
     assert {s.name for s, _ in labeling.own_signals(profiles.active().id)} == {"Boom (mine)"}
     w.disconnect()
     w.close()
+
+
+def test_canopen_in_the_same_screens(app, monkeypatch):
+    """A CANopen truck in the J1939 screens: codes, network (node info, NMT), machine info, live
+    data, Bus Monitor and labeling an 11-bit PDO."""
+    from canopener.canopen import nmt
+    from canopener.core import connection, labeling, profiles
+    from canopener.core.canopen import CanopenCode, node_src
+    from canopener.gui.label_dialog import LabelDialog
+    from canopener.gui.main_window import MainWindow
+
+    Yes = qt.QtWidgets.QMessageBox.StandardButton.Yes
+    monkeypatch.setattr(qt.QtWidgets.QMessageBox, "warning", lambda *a, **k: Yes)
+    monkeypatch.setattr(qt.QtWidgets.QMessageBox, "information", lambda *a, **k: None)
+    monkeypatch.setattr(qt.QtWidgets.QInputDialog, "getText", lambda *a, **k: ("My truck", True))
+    w = MainWindow()
+    w.show()
+    w.profile.setCurrentIndex(w.profile.findData("generic"))
+    w.source.setCurrentIndex(w.source.findData(connection.CANOPEN_SIM))
+    w.connect()
+    assert profiles.active().id == "sim-canopen"           # a profile with node names, picked for the sim
+    pump(app, 2.5)
+    assert "CANopen node(s)" in w.traffic_label.text()
+
+    assert w.ctx.run_preset("full")
+    pump(app, 4.0)
+    assert w.ctx.result is not None and not w.ctx.busy and w.ctx.result.j1939_skipped
+    co_rows = [r for r in w.codes._items if isinstance(r, CanopenCode)]
+    assert ("Active", 0x01, 0x4200) in {(c.status, c.node, c.code) for c in co_rows}
+    t = w.codes.table                      # (selectRow would toggle if an earlier test left Ctrl "held")
+    flags = qt.QtCore.QItemSelectionModel.SelectionFlag
+    t.selectionModel().select(t.model().index(w.codes._items.index(co_rows[0]), 0),
+                              flags.ClearAndSelect | flags.Rows)
+    assert "CANopen EMCY" in w.codes.detail.toPlainText()
+    w.codes.ecu.setCurrentIndex(w.codes.ecu.findData(node_src(0x01)))
+    assert {c.node for c in w.codes.co_rows} == {0x01} and not w.codes.rows
+    w.codes.ecu.setCurrentIndex(0)
+
+    titles = [w.info.tree.topLevelItem(i).text(0) for i in range(w.info.tree.topLevelItemCount())]
+    assert any("Traction controller (sim)  (CANopen)" in t for t in titles)
+
+    w.network.refresh(force=True)
+    w.network.tree.setCurrentItem(w.network.items[("node", 0x02)])
+    assert w.network.selected_node() == 0x02 and w.network.info_btn.isEnabled()
+    w.network.send_nmt(nmt.STOP)
+    pump(app, 0.8)
+    assert w.ctx.connection.simulator.nmt_log[-1] == (nmt.STOP, 0x02)
+    w.network.send_nmt(nmt.START, every=True)
+    w.network.read_node_info()
+    pump(app, 1.5)
+
+    w.live.sample()
+    assert any(r.sig.name == "Motor speed" for r in w.live.rows.values())
+    w.monitor.refresh()
+    labels = {w.monitor.by_id.data(w.monitor.by_id.index(i, 2)) for i in range(len(w.monitor.by_id.order))}
+    assert "TPDO1 node 01" in labels
+
+    pid = w.ctx.label_target()                      # sim-canopen is built in: a profile of our own
+    dlg = LabelDialog(w.ctx, pid, {"id": 0x182, "start": 0, "length": 2})
+    dlg.name.setText("Pump (mine)")
+    pump(app, 0.5)
+    assert not dlg.error.text() and dlg.value_label.text()
+    dlg.accept()
+    assert labeling.own_signals(pid)[0][1]["id"] == "0x182"
+    w.disconnect()
+    w.close()

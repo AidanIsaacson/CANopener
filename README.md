@@ -17,6 +17,9 @@ record what happens while you work the machine.
 * **Equipment and trucks (J1939):** forklifts, telehandlers, loaders, generators, on-highway
   trucks. Active and stored codes with warning lamps, ~35 live engine and chassis values, every
   module on the bus.
+* **Battery trucks and controllers (CANopen):** traction, pump and battery controllers (Curtis,
+  ZAPI and others): every node and its state, errors as they happen and the stored error
+  history, the controller's name, versions and serial number, in the same screens as J1939.
 * **Cars and light trucks (OBD-II):** codes from every module, live sensor data, freeze frame,
   readiness for inspection, and clearing codes, like a good generic scan tool.
 
@@ -164,8 +167,8 @@ profiles…** hides ones you don't use and sets the order. Making your own: [doc
 
 Most forklift and equipment traffic is the maker's own. You can label it yourself and keep it:
 
-* **Name a module:** in **Network**, pick an address and press **Name this module…** (e.g.
-  "Traction controller"). The name shows everywhere that address does.
+* **Name a module:** in **Network**, pick an address (or CANopen node) and press **Name this
+  module…** (e.g. "Traction controller"). The name shows everywhere that module does.
 * **Find the data that moves:** in **Bus Monitor**, press **Find changes…**. Hold the pedal (or
   switch, or lever) one way and press **Mark now** on A, the other way and **Mark now** on B. The
   bytes that changed are listed, the likeliest first (rolling counters are left out). You can also
@@ -180,8 +183,32 @@ reach truck"), built on the profile you had picked, so nothing built in is chang
 machine: **Profiles → Save profile as…** copies the one in use under a new name.
 **Profiles → My labels…** lists them to edit or remove, and has **Recognise this machine** (next
 time it offers this profile when it sees these modules), **Export…** (to a USB stick, say) and
-**Delete profile…**. **Profiles → Import profile…** loads one someone exported. Labeling covers
-29-bit J1939 messages; 11-bit IDs (CANopen) show up in Find changes but can't be labeled yet.
+**Delete profile…**. **Profiles → Import profile…** loads one someone exported. It works the same
+on CANopen messages, and the label dialog has **high byte first** for makers that send numbers
+that way (try it if a value jumps about).
+
+### CANopen (battery trucks, motor controllers)
+
+Many electric forklifts and their motor, pump and battery controllers talk **CANopen** instead of
+J1939 (often at 125k or 250k: **Auto** bitrate finds it). There's no switch to flip: the same
+screens show it, and a machine with both on one bus shows both.
+
+* **Fault Codes:** errors a controller reports (CANopen "EMCY") are **Active**; **Read Stored**
+  also reads each controller's error history (**Stored**). The code's meaning is the standard
+  class (e.g. *Device temperature*); a maker's own codes can be named in a profile. **Clear Codes →
+  Clear CANopen error history…** empties a controller's history (asks first).
+* **Network:** every node with its state (*Operational*, *Pre-operational*, *Stopped*), heartbeat,
+  restarts and each message it sends. **Name this module…** names a node. **Read node info** reads
+  its name, versions, product and serial number (also in **Machine Info**, and in a **Full Scan**).
+  **Find CANopen nodes** asks every node number, for controllers that don't send a heartbeat.
+  **NMT…** starts, stops or resets a node: these change the machine, so they say so and ask first.
+  Only do it parked and safe.
+* **Live Data, Bus Monitor, Find changes and Label…** work on CANopen messages (11-bit IDs) just
+  like J1939: what each message means (e.g. *TPDO1 node 01*) is shown, and you can label the
+  values in them. A maker's message layout isn't published, so labeling is how you name them.
+* On a CANopen-only truck, scans don't send any J1939 requests.
+
+Try it: **Connection → Show simulators**, then **CANopen simulator (battery truck)**.
 
 **Modules beyond the engine** (ABS, transmission, body): **Diagnostics → Read a module (UDS)**
 reads their codes, and can clear them or reset the module.
@@ -262,11 +289,11 @@ copies this session's captures and reports onto the stick and ejects it.
 
 ## What it sends
 
-* **Reading** sends only standard requests (J1939, OBD-II and UDS reads). Tick **Listen-only** in
+* **Reading** sends only standard requests (J1939, OBD-II, UDS and CANopen SDO reads). Tick **Listen-only** in
   the Connection panel to send nothing at all: J1939 codes (DM1) and live data still work,
   because the machine broadcasts them.
-* **Commands that change a vehicle** (clear codes, start an on-board test, reset a module) say
-  what they change and wait for a Yes.
+* **Commands that change a vehicle** (clear codes, start an on-board test, reset a module, a
+  CANopen NMT start / stop / reset) say what they change and wait for a Yes.
 * **Diagnostics → Transmit a frame** sends a frame you compose: off by default, it shows the
   exact bytes and asks before every send.
 
@@ -279,6 +306,7 @@ canopener-cli find --iface can0 --sound             # signal finder: wait for tr
 canopener-cli scan --iface can0 --full --units imperial
 canopener-cli obd --iface can0 --all                # car: codes, readiness, freeze frame, live data
 canopener-cli obd --iface can0 --clear              # car: clear codes (asks first)
+canopener-cli canopen --iface can0 --info --errors  # CANopen: nodes, state, errors, identity
 canopener-cli decode capture.log --csv frames.csv   # decode a saved log
 canopener-cli capture FOLDER --trim 5 2            # trim a capture: 5 min before, 2 min after its timestamps
 canopener-cli update                                # check for and install updates

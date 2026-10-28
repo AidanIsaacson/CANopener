@@ -3,7 +3,8 @@ its source address with values that move, so a profile can be exercised without 
 
 * One simulated ECU per source address (signals with no ``sa`` come from address 00). Each
   claims its address and broadcasts DM1.
-* Each PGN is broadcast every 100 ms (1 s for multi-packet ones, sent as BAM).
+* Each PGN is broadcast every 100 ms (1 s for multi-packet ones, sent as BAM). Signals on an
+  11-bit ID (CANopen PDOs, plain CAN) go out as 11-bit frames every 100 ms.
 * Values: enum signals step through their states, 1-bit flags toggle, signals with a normal
   range swing slowly inside it (occasionally just outside, so out-of-range highlighting shows),
   anything else wanders over the lower part of its raw range.
@@ -75,7 +76,12 @@ class ProfileSimulator:
         self.active_codes = list(active_codes or [])
         self.ecus: dict[int, SimEcu] = {}
         self._layout: dict[tuple[int, int], list[tuple[Signal, _Value]]] = {}
+        self._ids: dict[int, list[tuple[Signal, _Value]]] = {}
+        self._next_id = 0.0
         for sig in profile.signals:
+            if sig.can_id is not None:
+                self._ids.setdefault(sig.can_id, []).append((sig, _Value(sig, self.rng)))
+                continue
             sa = sig.sa[0] if isinstance(sig.sa, tuple) else (0x00 if sig.sa is None else sig.sa)
             self._layout.setdefault((sa, sig.pgn), []).append((sig, _Value(sig, self.rng)))
         for (sa, pgn), sigs in self._layout.items():
@@ -147,11 +153,29 @@ class ProfileSimulator:
     def running(self) -> bool:
         return self._running
 
+    def _id_frames(self, now: float):
+        t = now - self.t0
+        for can_id, sigs in self._ids.items():
+            buf = bytearray(max(8, max(s.start + (s.bit + s.width_bits + 7) // 8 for s, _ in sigs)))
+            for sig, gen in sigs:
+                try:
+                    sig.encode_into(buf, gen(t))
+                except (ValueError, OverflowError):
+                    pass
+            try:
+                self.backend.send(CanFrame(can_id, bytes(buf[:8]), False, now))
+            except OSError:
+                pass
+
     def _tx_loop(self):
         while self._running:
             now = time.time()
             for ecu in list(self.ecus.values()):
                 ecu.tick(now)
+            if self._ids and now >= self._next_id:
+                self._next_id = now + FAST
+                with self._send_lock:
+                    self._id_frames(now)
             time.sleep(0.005)
 
     def _rx_loop(self):

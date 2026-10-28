@@ -1,10 +1,12 @@
-"""Fault Codes tab: read DM1/DM2/... and inspect each code."""
+"""Fault Codes tab: read DM1/DM2/... and inspect each code. CANopen errors share the table: EMCY
+errors a node broadcasts are Active, its error history (object 1003) is Stored."""
 
 import datetime
 import html
 import time
 
-from ..core import j1939_clear, scan, units
+from ..core import canopen, j1939_clear, scan, units
+from ..core.canopen import CanopenCode
 from ..core.scan import DtcRow, ScanResult
 from ..j1939.addresses import sa_name
 from ..j1939.constants import STATUS_ORDER, pgn_label
@@ -14,9 +16,9 @@ from .flow import FlowLayout
 from .qt import Qt, QtGui, QtWidgets
 from .widgets import item, setup_table
 
-COLS = ["Status", "Source", "SPN", "Description", "FMI", "FMI meaning", "Count", "Lamps", "Last seen"]
+COLS = ["Status", "Source", "SPN / code", "Description", "FMI / reg.", "Meaning", "Count", "Lamps", "Last seen"]
 STATUS_COLORS = {"Active": "#ffd6d6", "Pending": "#ffe8cc", "Emis. active": "#ffd6d6",
-                 "Stored": "#fff3bf", "Emis. stored": "#fff3bf"}
+                 "Stored": "#fff3bf", "Emis. stored": "#fff3bf", "Cleared": "#e9ecef"}
 
 
 def _clock(t: float) -> str:
@@ -30,6 +32,7 @@ class CodesTab(QtWidgets.QWidget):
         super().__init__(parent)
         self.ctx = ctx
         self.rows: list[DtcRow] = []
+        self.co_rows: list[CanopenCode] = []
         self._last_hist_n = None
         lay = QtWidgets.QVBoxLayout(self)
 
@@ -49,13 +52,15 @@ class CodesTab(QtWidgets.QWidget):
         self.clear_btn.setText("Clear Codes…")
         self.clear_btn.setMinimumHeight(44)
         self.clear_btn.setToolTip("Clear J1939 fault codes (DM11 active / DM3 stored) on every module, or only "
-                                  "the one picked under ECU. Asks first.")
+                                  "the one picked under ECU, or a CANopen node's error history. Asks first.")
         self.clear_btn.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QtWidgets.QMenu(self.clear_btn)
         for which, label in ((j1939_clear.ACTIVE, "Clear active codes (DM11)…"),
                              (j1939_clear.STORED, "Clear stored codes (DM3)…"),
                              (j1939_clear.BOTH, "Clear active and stored codes…")):
             menu.addAction(label, lambda w=which: self.clear_codes(w))
+        menu.addSeparator()
+        menu.addAction("Clear CANopen error history…", self.clear_canopen)
         self.clear_btn.setMenu(menu)
         bar.addWidget(self.clear_btn)
         self.buttons.append(self.clear_btn)
@@ -128,6 +133,10 @@ class CodesTab(QtWidgets.QWidget):
                                               "transmit. Turn listen-only off in Connection first.")
             return
         da = self.ecu.currentData()
+        if da is not None and da > 0xFF:
+            QtWidgets.QMessageBox.information(self, "Clear codes", "That's a CANopen node: use Clear CANopen "
+                                              "error history… instead (or pick All ECUs).")
+            return
         da = j1939_clear.GLOBAL_SA if da is None else da
         r = QtWidgets.QMessageBox.warning(self, "Clear codes", j1939_clear.warning(which, da),
                                           QtWidgets.QMessageBox.StandardButton.Yes
@@ -150,6 +159,56 @@ class CodesTab(QtWidgets.QWidget):
             box(self, "Clear codes", "\n".join(result.lines()))
         ctx.run_task("Clearing codes…", work, done)
 
+    def clear_canopen(self):
+        """Clear the error history (object 1003) of the node picked under ECU, or of every node
+        with stored errors; asks first (default No), then reads the history again."""
+        ctx = self.ctx
+        s = ctx.session
+        if not ctx.live or ctx.busy:
+            return
+        if s.listen_only:
+            QtWidgets.QMessageBox.information(self, "Clear CANopen errors", "Listen-only is on: clearing has to "
+                                              "transmit. Turn listen-only off in Connection first.")
+            return
+        pick = self.ecu.currentData()
+        if pick is not None and canopen.is_node(pick):
+            nodes = [pick - canopen.NODE_SRC]
+        else:
+            nodes = sorted({c.node for c in canopen.codes(s) if c.status == "Stored"})
+        if not nodes:
+            QtWidgets.QMessageBox.information(self, "Clear CANopen errors", "No CANopen error history read yet: "
+                                              "press Read Stored first, or pick a node under ECU.")
+            return
+        text = "\n\n".join(canopen.warning_clear(n) for n in nodes[:1])
+        if len(nodes) > 1:
+            text += f"\n\n(The same for {len(nodes)} nodes: " + ", ".join(f"{n:02X}" for n in nodes) + ".)"
+        r = QtWidgets.QMessageBox.warning(self, "Clear CANopen errors", text,
+                                          QtWidgets.QMessageBox.StandardButton.Yes
+                                          | QtWidgets.QMessageBox.StandardButton.No,
+                                          QtWidgets.QMessageBox.StandardButton.No)
+        if r != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+
+        def work():
+            client = canopen.CanopenClient(s)
+            done = []
+            try:
+                for n in nodes:
+                    try:
+                        client.clear_error_history(n)
+                        done.append(f"node {n:02X}: cleared")
+                    except canopen.SdoError as e:
+                        done.append(f"node {n:02X}: {e}")
+            finally:
+                client.close()
+            return done, scan.run_scan(s, scan.STORED, 0.5, title="Codes after clearing")
+
+        def finished(value):
+            lines, after = value
+            ctx.result_ready.emit(after)
+            QtWidgets.QMessageBox.information(self, "Clear CANopen errors", "\n".join(lines))
+        ctx.run_task("Clearing CANopen error history…", work, finished)
+
     def _session_rows(self) -> list[DtcRow]:
         s = self.ctx.session
         if s is None:
@@ -163,20 +222,27 @@ class CodesTab(QtWidgets.QWidget):
         res: ScanResult | None = self.ctx.result
         rows = list(res.rows) if res else []
         quiet = list(res.quiet) if res else []
+        co = list(res.canopen) if res else []
         if self.history.isChecked():
             have = {(r.pgn, r.sa, r.spn, r.fmi) for r in rows}
             extra = [r for r in self._session_rows() if (r.pgn, r.sa, r.spn, r.fmi) not in have]
             rows += extra
             quiet = [q for q in quiet if not any(r.pgn == q.pgn and r.sa == q.sa for r in extra)]
             rows.sort(key=lambda r: (STATUS_ORDER.get(r.status, 9), r.sa, r.spn, r.fmi))
-        self._sync_ecu_choices({r.sa for r in rows} | {q.sa for q in quiet})
+            if self.ctx.session is not None:
+                have_co = {(c.status, c.node, c.code) for c in co}
+                co += [c for c in canopen.codes(self.ctx.session, history=True)
+                       if c.status != "Stored" and (c.status, c.node, c.code) not in have_co]
+        self._sync_ecu_choices({r.sa for r in rows} | {q.sa for q in quiet} | {c.src for c in co})
         only = self.ecu.currentData()
         if only is not None:
             rows = [r for r in rows if r.sa == only]
             quiet = [q for q in quiet if q.sa == only]
+            co = [c for c in co if c.src == only]
         prev = self.selected()
-        prev_key = (prev.pgn, prev.sa, prev.spn, prev.fmi) if prev else None
-        self.rows = rows
+        prev_key = self._key(prev) if prev else None
+        self.rows, self.co_rows = rows, co
+        self._items = list(rows) + list(co)
 
         t = self.table
         t.setSortingEnabled(False)
@@ -184,36 +250,52 @@ class CodesTab(QtWidgets.QWidget):
         for r in rows:
             i = t.rowCount()
             t.insertRow(i)
-            vals = [r.status, sa_name(r.sa), r.spn_label, r.spn_text, r.fmi, r.fmi_text, r.oc_text,
-                    str(r.lamps), _clock(r.last)]
-            bg = QtGui.QColor(STATUS_COLORS.get(r.status, "#ffffff"))
-            for c, v in enumerate(vals):
-                it = item(v, c in (2, 4, 6), data=i if c == 0 else None)
-                it.setBackground(bg)
-                it.setForeground(QtGui.QColor("#212529"))
-                t.setItem(i, c, it)
+            self._fill(i, [r.status, sa_name(r.sa), r.spn_label, r.spn_text, r.fmi, r.fmi_text, r.oc_text,
+                           str(r.lamps), _clock(r.last)], r.status)
+        for c in co:
+            i = t.rowCount()
+            t.insertRow(i)
+            reg = "" if c.register is None else f"{c.register:02X}"
+            meaning = c.register_text.split(" ", 1)[1].strip("()") if c.register is not None else ""
+            self._fill(i, [c.status, canopen.source_name(c.src), f"EMCY {c.code:04X}", c.text, reg, meaning,
+                           str(c.seen) if c.last else "", "", _clock(c.last) if c.last else ""], c.status)
         for q in quiet:
             i = t.rowCount()
             t.insertRow(i)
-            for c, v in enumerate([q.status, sa_name(q.sa), "-", "No codes reported", "", "", "",
-                                   str(q.lamps), ""]):
+            for col, v in enumerate([q.status, sa_name(q.sa), "-", "No codes reported", "", "", "",
+                                     str(q.lamps), ""]):
                 it = item(v)
                 it.setForeground(QtGui.QColor("gray"))
-                t.setItem(i, c, it)
+                t.setItem(i, col, it)
         if res is None:
             self.summary.setText("Connect, then read codes." if not self.ctx.session else "No scan yet.")
         else:
-            n_act = sum(1 for r in rows if r.status in ("Active", "Emis. active"))
-            self.summary.setText(f"{res.title}: {len(rows)} code(s), {n_act} active"
+            n_act = sum(1 for r in rows if r.status in ("Active", "Emis. active")) + \
+                sum(1 for c in co if c.status == "Active")
+            self.summary.setText(f"{res.title}: {len(rows) + len(co)} code(s), {n_act} active"
                                  + ("  (listen-only)" if res.listen_only and not res.offline else ""))
-        if not rows and not quiet and res is not None:
+        if not rows and not quiet and not co and res is not None:
             t.insertRow(0)
-            t.setItem(0, 3, item("No DM responses received"))
-        for i, r in enumerate(rows):            # keep the user's selection across refreshes
-            if (r.pgn, r.sa, r.spn, r.fmi) == prev_key:
+            t.setItem(0, 3, item("No codes received" if res.j1939_skipped else "No DM responses received"))
+        for i, r in enumerate(self._items):            # keep the user's selection across refreshes
+            if self._key(r) == prev_key:
                 t.selectRow(i)
                 break
         self.show_detail()
+
+    def _fill(self, i: int, vals: list, status: str):
+        bg = QtGui.QColor(STATUS_COLORS.get(status, "#ffffff"))
+        for c, v in enumerate(vals):
+            it = item(v, c in (2, 4, 6), data=i if c == 0 else None)
+            it.setBackground(bg)
+            it.setForeground(QtGui.QColor("#212529"))
+            self.table.setItem(i, c, it)
+
+    @staticmethod
+    def _key(r):
+        if isinstance(r, CanopenCode):
+            return ("co", r.status, r.node, r.code)
+        return (r.pgn, r.sa, r.spn, r.fmi)
 
     def _sync_ecu_choices(self, sas: set[int]):
         """Offer every ECU that reported (or reported nothing), keeping the current choice."""
@@ -227,17 +309,18 @@ class CodesTab(QtWidgets.QWidget):
         while self.ecu.count() > 1:
             self.ecu.removeItem(1)
         for sa in sorted(sas):
-            self.ecu.addItem(sa_name(sa), sa)
+            self.ecu.addItem(canopen.source_name(sa), sa)
         self.ecu.setCurrentIndex(max(self.ecu.findData(current), 0))
         self.ecu.blockSignals(False)
 
-    def selected(self) -> DtcRow | None:
+    def selected(self) -> DtcRow | CanopenCode | None:
         sel = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
         if not sel:
             return None
         it = self.table.item(sel[0].row(), 0)
         idx = it.data(Qt.ItemDataRole.UserRole) if it else None
-        return self.rows[idx] if idx is not None and idx < len(self.rows) else None
+        items = getattr(self, "_items", self.rows)
+        return items[idx] if idx is not None and idx < len(items) else None
 
     def _signal_for(self, spn: int):
         return next((s for s in all_signals() if s.spn == spn), None)
@@ -247,6 +330,9 @@ class CodesTab(QtWidgets.QWidget):
         if r is None:
             self.live_btn.setEnabled(False)
             self.detail.setHtml("<p style='color:gray'>Select a code to see details.</p>")
+            return
+        if isinstance(r, CanopenCode):
+            self._canopen_detail(r)
             return
         e = html.escape
         parts = [f"<h3>SPN {r.spn} / FMI {r.fmi} &mdash; {e(r.spn_text)}</h3>",
@@ -283,14 +369,38 @@ class CodesTab(QtWidgets.QWidget):
         self.live_btn.setText(f"Show {sig.name} in Live Data" if sig else "No live parameter for this SPN")
         self.detail.setHtml("".join(parts))
 
+    def _canopen_detail(self, c: CanopenCode):
+        e = html.escape
+        what = {"Active": "Active: the node reported it (EMCY) and hasn't reported it cleared",
+                "Stored": "Stored: in the node's error history (object 1003)",
+                "Cleared": "Seen this session (EMCY), cleared since"}[c.status]
+        info = [("Status", what), ("Source", canopen.source_name(c.src)), ("Error code", f"{c.code:04X}")]
+        if c.register is not None:
+            info.append(("Error register", c.register_text))
+        if c.extra.strip(b"\0"):
+            info.append(("Manufacturer data", c.extra_text + "  (meaning is the controller maker's)"))
+        if c.last:
+            info.append(("First / last seen", f"{_clock(c.first)} / {_clock(c.last)}  ({c.seen} message(s))"))
+        if c.code >= 0xFF00 or (c.code & 0xF000) == 0xF000:
+            info.append(("Note", "Device-specific code: look it up in the controller maker's list, or name it "
+                                 "in a profile (\"emcy\") so it's described next time."))
+        parts = [f"<h3>CANopen EMCY {c.code:04X} &mdash; {e(c.text)}</h3><table cellspacing=4>"]
+        parts += [f"<tr><td><b>{e(k)}</b></td><td>{e(v)}</td></tr>" for k, v in info]
+        parts.append("</table>")
+        self.live_btn.setEnabled(False)
+        self.live_btn.setText("No live parameter for this code")
+        self.detail.setHtml("".join(parts))
+
     def _open_live(self):
         r = self.selected()
-        if r:
+        if r and not isinstance(r, CanopenCode):
             self.ctx.show_signal.emit(r.spn)
 
     def refresh(self):
         if self.history.isChecked() and self.ctx.live:
-            n = len(self._session_rows())
+            with self.ctx.session.lock:
+                n_co = len(self.ctx.session.canopen.emcy_log)
+            n = (len(self._session_rows()), n_co)
             if n != self._last_hist_n:
                 self._last_hist_n = n
                 self.rebuild()

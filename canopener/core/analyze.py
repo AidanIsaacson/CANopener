@@ -28,7 +28,8 @@ class Candidate:
     can_id: int
     extended: bool
     start: int              # byte
-    length: int = 1         # bytes (1 or 2; 2 = little-endian / J1939 order)
+    length: int = 1         # bytes (1 or 2)
+    big_endian: bool = False    # a 2-byte value with its high byte first
     bit: int = 0
     bits: int = 0           # 1 = a single bit (a switch)
     score: float = 0.0
@@ -48,7 +49,7 @@ class Candidate:
         if self.bits:
             return f"byte {self.start} bit {self.bit}"
         if self.length == 2:
-            return f"bytes {self.start}-{self.start + 1}"
+            return f"bytes {self.start}-{self.start + 1}" + (" (high first)" if self.big_endian else "")
         return f"byte {self.start}"
 
     @property
@@ -57,11 +58,14 @@ class Candidate:
 
     def signal_draft(self) -> dict:
         """Starting values for the label dialog."""
-        d = {"pgn": self.pgn, "sa": self.sa, "start": self.start}
+        d = {"pgn": self.pgn, "sa": self.sa} if self.extended else {"id": self.can_id}
+        d["start"] = self.start
         if self.bits:
             d.update(bit=self.bit, bits=self.bits)
         else:
             d["length"] = self.length
+            if self.big_endian:
+                d["order"] = "big"
         return d
 
 
@@ -152,15 +156,20 @@ def find_changes(frames, window_a: tuple[float, float], window_b: tuple[float, f
                     if len(ba) == 1 and len(bb) == 1 and ba != bb:
                         out.append(Candidate(cid, ext, i, bit=k, bits=1, score=HIDDEN_BIT,
                                              before=str(min(ba)), after=str(min(bb))))
-            # 16-bit value (J1939 / Intel order) when both bytes move: a low byte that wraps
-            # makes each byte look noisy on its own while the pair moves smoothly.
+            # 16-bit value when both bytes move: a low byte that wraps makes each byte look
+            # noisy on its own while the pair moves smoothly. Both byte orders are tried (J1939
+            # and CANopen are low byte first; some OEM data is high byte first): the better wins.
             if i + 1 < n and not _is_counter([d[i + 1] for d in a], [d[i + 1] for d in b]) \
                     and len({d[i + 1] for d in a + b}) > 1 and len(set(va + vb)) > 1:
-                wa = [d[i] | d[i + 1] << 8 for d in a]
-                wb = [d[i] | d[i + 1] << 8 for d in b]
-                s2 = _separation(wa, wb)
-                if s2 >= MIN_SCORE:
-                    out.append(Candidate(cid, ext, i, length=2, score=s2 + 0.5,
-                                         before=_span(wa, 2), after=_span(wb, 2)))
+                best = None
+                for big in (False, True):
+                    wa = [(d[i] << 8 | d[i + 1]) if big else (d[i] | d[i + 1] << 8) for d in a]
+                    wb = [(d[i] << 8 | d[i + 1]) if big else (d[i] | d[i + 1] << 8) for d in b]
+                    s2 = _separation(wa, wb)
+                    if s2 >= MIN_SCORE and (best is None or s2 > best.score - 0.5):
+                        best = Candidate(cid, ext, i, length=2, big_endian=big, score=s2 + 0.5,
+                                         before=_span(wa, 2), after=_span(wb, 2))
+                if best is not None:
+                    out.append(best)
     out.sort(key=lambda c: (-c.score, not c.extended, c.can_id, c.start, c.bit))
     return out[:limit]

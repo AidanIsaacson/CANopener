@@ -15,9 +15,9 @@ from collections import deque
 from dataclasses import dataclass
 
 from .. import obd
-from ..j1939.addresses import sa_name
 from ..j1939.ids import parse_id
-from ..j1939.signals import Signal, all_signals
+from ..j1939.signals import Signal, all_signals, id_signals
+from .canopen import id_src, source_name
 
 HISTORY_SECONDS = 600
 SAMPLES_PER_SECOND = 10         # history depth: HISTORY_SECONDS at up to this rate
@@ -45,7 +45,7 @@ class LiveRow:
 
 class LiveData:
     source_header = "Source"
-    id_headers = ("PGN", "SPN")
+    id_headers = ("PGN / ID", "SPN")
 
     def __init__(self):
         self.rows: dict[tuple, LiveRow] = {}
@@ -74,12 +74,21 @@ class LiveData:
         with session.lock:
             for (pgn, sa), (t, d) in session.latest.items():
                 by_pgn.setdefault(pgn, []).append((sa, t, d))
+            std = {cid: session.latest_std[cid] for cid in id_signals() if cid in session.latest_std}
         for sig in all_signals():
+            if sig.can_id is not None:
+                continue
             for sa, t, d in by_pgn.get(sig.pgn, ()):
                 if not sig.accepts(sa):
                     continue
                 v = sig.decode(d)
                 row = self._row(sig, sa, v)
+                if row is not None and t != row.t:
+                    row._update(t, v)
+        for cid, (t, d) in std.items():         # 11-bit IDs (CANopen PDOs, plain CAN)
+            for sig in id_signals()[cid]:
+                v = sig.decode(d)
+                row = self._row(sig, id_src(cid), v)
                 if row is not None and t != row.t:
                     row._update(t, v)
         return len(self.order) != n
@@ -91,8 +100,16 @@ class LiveData:
             by_pgn.setdefault(sig.pgn, []).append(sig)
         with session.lock:
             frames = list(session.raw)
+        by_id = id_signals()
         for fr in frames:
-            if not fr.extended or fr.error:
+            if fr.error:
+                continue
+            if not fr.extended:
+                for sig in by_id.get(fr.can_id, ()):
+                    v = sig.decode(fr.data)
+                    row = self._row(sig, id_src(fr.can_id), v)
+                    if row is not None:
+                        row._update(fr.timestamp, v)
                 continue
             jid = parse_id(fr.can_id)
             for sig in by_pgn.get(jid.pgn, ()):
@@ -126,16 +143,17 @@ class LiveData:
             return False
         q = query.strip().lower()
         if q:
-            hay = f"{r.sig.name} {r.sig.spn or ''} {r.sig.pgn:04x} {sa_name(r.sa)} {r.sig.group}".lower()
+            hay = f"{r.sig.name} {r.sig.spn or ''} {r.sig.ref} {source_name(r.sa)} {r.sig.group}".lower()
             return q in hay
         return True
 
     def source_label(self, sa: int) -> str:
-        return sa_name(sa)
+        """A J1939 address, or a CANopen node / 11-bit ID (``core.canopen.source_name``)."""
+        return source_name(sa)
 
     def ids(self, row: "LiveRow") -> tuple[str, str]:
-        """The two reference columns for a row (PGN and SPN for J1939)."""
-        return f"{row.sig.pgn:04X}", "" if row.sig.spn is None else str(row.sig.spn)
+        """The two reference columns for a row (PGN, or 'ID 181' for 11-bit; and the SPN)."""
+        return row.sig.ref, "" if row.sig.spn is None else str(row.sig.spn)
 
     def find_spn(self, spn: int):
         """The first row for an SPN (fault code -> live value), or None."""

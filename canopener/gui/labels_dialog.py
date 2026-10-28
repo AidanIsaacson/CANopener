@@ -4,7 +4,7 @@ Edit or remove them, rename the profile, teach it to recognise this machine from
 it (to a USB stick, say) or delete it. Saving goes through ``core.labeling``.
 """
 
-from ..core import labeling, profiles
+from ..core import canopen, labeling, profiles
 from ..j1939.addresses import sa_name
 from .qt import Qt, QtWidgets
 from .widgets import item, setup_table
@@ -38,7 +38,7 @@ class LabelsDialog(QtWidgets.QDialog):
 
         lay.addWidget(QtWidgets.QLabel("<b>Signals</b>"))
         self.signals = QtWidgets.QTableWidget()
-        setup_table(self.signals, ["Name", "PGN", "From", "Where", "Scale", "Unit", "Group"])
+        setup_table(self.signals, ["Name", "PGN / ID", "From", "Where", "Scale", "Unit", "Group"])
         self.signals.itemDoubleClicked.connect(lambda *_: self._edit_signal())
         lay.addWidget(self.signals, 2)
         srow = QtWidgets.QHBoxLayout()
@@ -99,7 +99,8 @@ class LabelsDialog(QtWidgets.QDialog):
         for sa, name in sorted(mods.items()):
             r = self.modules.rowCount()
             self.modules.insertRow(r)
-            self.modules.setItem(r, 0, item(f"{sa:02X}  ({sa})", data=sa))
+            label = f"Node {sa - canopen.NODE_SRC:02X} (CANopen)" if canopen.is_node(sa) else f"{sa:02X}  ({sa})"
+            self.modules.setItem(r, 0, item(label, data=sa))
             self.modules.setItem(r, 1, item(name))
         self._sigs = sigs
         self.signals.setRowCount(0)
@@ -108,15 +109,20 @@ class LabelsDialog(QtWidgets.QDialog):
             self.signals.insertRow(r)
             where = f"byte {sig.start}" + (f" bit {sig.bit}, {sig.bits} bit(s)" if sig.bits else
                                            f", {sig.length} byte(s)")
-            src = "any" if sig.sa is None else (", ".join(f"{a:02X}" for a in sig.sa)
-                                                if isinstance(sig.sa, tuple) else sa_name(sig.sa))
-            for c, v in enumerate((sig.name, f"{sig.pgn:04X}", src, where, f"{sig.scale:g}", sig.unit, sig.group)):
+            if sig.can_id is not None:
+                src = canopen.source_name(canopen.id_src(sig.can_id))
+            else:
+                src = "any" if sig.sa is None else (", ".join(f"{a:02X}" for a in sig.sa)
+                                                    if isinstance(sig.sa, tuple) else sa_name(sig.sa))
+            if sig.big_endian:
+                where += ", high byte first"
+            for c, v in enumerate((sig.name, sig.ref, src, where, f"{sig.scale:g}", sig.unit, sig.group)):
                 self.signals.setItem(r, c, item(v))
         for b in (self.mod_edit, self.mod_del, self.sig_edit, self.sig_del, self.rename_btn, self.export_btn,
                   self.delete_btn):
             b.setEnabled(pid is not None)
         self.detect_btn.setEnabled(pid is not None and self.ctx.session is not None
-                                   and bool(self.ctx.session.known_ecus()))
+                                   and bool(self.ctx.session.known_ecus() or self.ctx.session.has_canopen))
 
     def _saved(self):
         self.ctx.labels_saved.emit(self.pid or "")
@@ -129,7 +135,7 @@ class LabelsDialog(QtWidgets.QDialog):
         sa = self._module()
         if sa is None:
             return
-        name, ok = QtWidgets.QInputDialog.getText(self, "Rename module", f"Name for address {sa:02X}:",
+        name, ok = QtWidgets.QInputDialog.getText(self, "Rename module", f"Name for {canopen.source_name(sa)}:",
                                                   text=labeling.module_names(self.pid).get(sa, ""))
         if ok:
             labeling.set_module_name(self.pid, sa, name)
@@ -165,10 +171,11 @@ class LabelsDialog(QtWidgets.QDialog):
             self._saved()
 
     def _detect(self):
-        found = labeling.set_detect(self.pid, self.ctx.session.known_ecus())
+        s = self.ctx.session
+        found = labeling.set_detect(self.pid, s.known_ecus(), [n.node for n in s.canopen_nodes()])
         QtWidgets.QMessageBox.information(
             self, "Recognise this machine",
-            f"Saved {len(found)} module address(es): " + ", ".join(f"{a:02X}" for a in found)
+            f"Saved {len(found)} module(s): " + ", ".join(canopen.source_name(a) for a in found)
             + ". Next time CANopener sees them it offers this profile.")
         self._saved()
 

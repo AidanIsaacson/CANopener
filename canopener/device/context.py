@@ -19,14 +19,15 @@ from ..can import pythoncan
 from ..core import capture as cap
 from ..core import config, interfaces, link, meters, profiles, scan, sound, units
 from ..core.capture import Capture
-from ..core.connection import OBD_SIM, PROFILE_SIM, SIMULATOR, SOCKETCAN, open_connection
+from ..core.connection import CANOPEN_SIM, OBD_SIM, PROFILE_SIM, SIMULATOR, SOCKETCAN, open_connection
 from ..core.live import LiveData, ObdLiveData
 from ..core.measure import MeasurementHub, MeasurementLiveData
 from ..core.settings import Settings
 
 SOURCES = [(SOCKETCAN, "CAN adapter"), (SIMULATOR, "Simulator (J1939 machine)"),
-           (OBD_SIM, "Simulator (OBD-II car)"), (PROFILE_SIM, "Simulate the profile")]
-SIMULATORS = (SIMULATOR, OBD_SIM, PROFILE_SIM)     # listed only with System > Show simulators
+           (OBD_SIM, "Simulator (OBD-II car)"), (CANOPEN_SIM, "Simulator (CANopen truck)"),
+           (PROFILE_SIM, "Simulate the profile")]
+SIMULATORS = (SIMULATOR, OBD_SIM, CANOPEN_SIM, PROFILE_SIM)     # listed only with System > Show simulators
 BITRATES = [0] + interfaces.BITRATES        # 0 = auto (signal finder)
 SAMPLE_EVERY = 0.2                          # live models: 5 samples a second, like the desktop
 LINK_CHECK_SECS = 1.0
@@ -196,6 +197,8 @@ class DeviceContext:
             self.apply_profile("obd2")
         elif kind in (SIMULATOR, PROFILE_SIM) and self.protocol == profiles.OBD2:
             self.apply_profile("generic")
+        elif kind == CANOPEN_SIM and not (profiles.active() and profiles.active().nodes):
+            self.apply_profile("sim-canopen")
 
         def work():
             if kind == SOCKETCAN and bitrate and not name.startswith("vcan") and not python_can:

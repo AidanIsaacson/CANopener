@@ -420,11 +420,13 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self._last_detect = now
         current = self.profile.currentData() or ""
-        matches = [m for m in profiles.detect(session.known_ecus(), self._profiles, profiles.present_pgns(session))
+        nodes = [n.node for n in session.canopen_nodes()]
+        matches = [m for m in profiles.detect(session.known_ecus(), self._profiles, profiles.present_pgns(session),
+                                              nodes)
                    if m.profile.id != current and m.profile.id not in self._detect_dismissed]
         active = profiles.active()
-        if active is not None and active.detect_addresses and matches \
-                and matches[0].matched <= len(active.detect_addresses & set(session.known_ecus())):
+        if active is not None and (active.detect_addresses or active.detect_nodes) and matches \
+                and matches[0].matched <= profiles.matched_modules(active, session.known_ecus(), nodes):
             matches = []                # the chosen profile fits at least as well: leave it alone
         if not matches:
             self.detect_bar.hide()
@@ -526,6 +528,15 @@ class MainWindow(QtWidgets.QMainWindow):
         pid = labeling.create(name, active)
         self._load_profiles(preferred=pid, quiet=True)
         return pid
+
+    @staticmethod
+    def _module_count(s) -> str:
+        """'2 ECU(s)', '3 CANopen node(s)' or both."""
+        nodes = len(s.canopen.nodes)
+        parts = [f"{len(s.ecus)} ECU(s)"] if s.ecus or not nodes else []
+        if nodes:
+            parts.append(f"{nodes} CANopen node(s)")
+        return ", ".join(parts)
 
     def _labels_saved(self, pid: str):
         self._load_profiles(preferred=pid or None, quiet=True)
@@ -830,6 +841,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self._use_protocol(profiles.OBD2)
         elif kind in (connection.SIMULATOR, connection.PROFILE_SIM):
             self._use_protocol(profiles.J1939)
+        elif kind == connection.CANOPEN_SIM:
+            self._use_protocol(profiles.J1939)
+            if not (profiles.active() and profiles.active().nodes) and self.profile.findData("sim-canopen") >= 0:
+                self.profile.setCurrentIndex(self.profile.findData("sim-canopen"))
         if kind == connection.SOCKETCAN:
             if channel not in [i.name for i in interfaces.list_interfaces()]:
                 self._refresh_interfaces()          # plugged in since the list was filled?
@@ -1059,13 +1074,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._fps = dn / (now - t0)
                 self._last_counts = (now, s.rx_count, s.bytes_count)
             who = f"{len(self.obd.model.sniffer.modules())} module(s)" if self._protocol == profiles.OBD2 \
-                else f"{len(s.ecus)} ECU(s)"
+                else self._module_count(s)
             self.traffic_label.setText(f"{getattr(self, '_fps', 0):.0f} frames/s  ~{self._bus_load:.0f}% load  {who}")
             backend = s.backend
             if getattr(backend, "finished", False):
                 self.traffic_label.setText("Replay finished")
         else:
-            self.traffic_label.setText(f"{s.rx_count} frames  {len(s.ecus)} ECU(s)")
+            self.traffic_label.setText(f"{s.rx_count} frames  {self._module_count(s)}")
         h = s.health
         recent = h.last_error if h.last_error and time.time() - h.last_error_t < 10 else None
         err = h.link_error or h.tx_error or recent

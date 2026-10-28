@@ -1,4 +1,11 @@
-"""Diagnostic reads: send requests, wait for answers, and collect a ``ScanResult``."""
+"""Diagnostic reads: send requests, wait for answers, and collect a ``ScanResult``.
+
+A scan covers whatever the bus speaks. J1939: DM requests (skipped on a bus that has CANopen
+nodes and no 29-bit traffic, so nothing sends extended frames to controllers that don't expect
+them). CANopen: active errors come from the EMCY messages the nodes broadcast; reading stored
+codes also reads each node's error history (object 0x1003) and machine info reads their identity
+over SDO (``core.canopen``; not in listen-only).
+"""
 
 import time
 from dataclasses import dataclass, field
@@ -22,6 +29,8 @@ from ..j1939.constants import (
 from ..j1939.dtc import FreezeFrame, Lamps, Readiness, decode_dm, decode_dm4, decode_dm5, fmi_text
 from ..j1939.info import describe as describe_info
 from ..j1939.spn import spn_name
+from . import canopen
+from .canopen import CanopenClient, CanopenCode, SdoError
 from .session import Ack, Session
 
 ACTIVE = [DM1]
@@ -109,10 +118,13 @@ class ScanResult:
     tx_error: str | None = None
     source: str = ""
     retried: list[int] = field(default_factory=list)
+    canopen: list[CanopenCode] = field(default_factory=list)     # CANopen errors (active / stored)
+    canopen_errors: list[str] = field(default_factory=list)      # nodes that didn't answer a read
+    j1939_skipped: bool = False     # a CANopen-only bus: no J1939 requests were sent
 
     @property
     def code_count(self) -> int:
-        return len(self.rows)
+        return len(self.rows) + len(self.canopen)
 
     def responders(self, pgn: int) -> list[int]:
         return sorted(sa for (p, sa) in self.responses if p == pgn)
@@ -121,8 +133,10 @@ class ScanResult:
         return [a for a in self.acks if a.pgn == pgn and a.control != 0]
 
     def response_summary(self) -> list[tuple[int, str, str]]:
-        """(pgn, label, outcome) for every requested PGN."""
+        """(pgn, label, outcome) for every requested PGN (none if J1939 was skipped)."""
         out = []
+        if self.j1939_skipped:
+            return out
         for p in self.requested:
             sas = self.responders(p)
             if sas:
@@ -170,12 +184,36 @@ def collect(session: Session, requested: list[int], since: float, *, title: str 
              if p in DTC_PGNS and p in requested and (p, sa) not in with_codes]
     quiet.sort(key=lambda q: (STATUS_ORDER.get(q.status, 9), q.sa))
 
+    wanted = ({"Active"} if DM1 in requested else set()) | ({"Stored"} if DM2 in requested else set())
     return ScanResult(
         title=title, started=since if started is None else started, finished=time.time(),
         requested=list(requested), responses=got, rows=rows, quiet=quiet,
         acks=session.acks_since(since), listen_only=session.listen_only, offline=session.offline,
         tx_error=session.health.tx_error, source=session.describe(),
+        canopen=[c for c in canopen.codes(session) if c.status in wanted],
     )
+
+
+def read_canopen(session: Session, pgns: list[int]) -> list[str]:
+    """The CANopen part of a scan: each node's error history (with DM2, stored codes) and identity
+    (with machine info). Answers land in ``session.canopen`` as they arrive. Returns problems."""
+    nodes = [n.node for n in session.canopen_nodes()]
+    if not nodes or session.listen_only:
+        return []
+    client = CanopenClient(session, timeout=0.5)
+    problems = []
+    try:
+        for node in nodes:
+            try:
+                if DM2 in pgns:
+                    client.error_history(node)
+                if PGN_ADDRESS_CLAIM in pgns:
+                    client.node_info(node)
+            except SdoError as e:
+                problems.append(f"{canopen.source_name(canopen.node_src(node))}: {e}")
+    finally:
+        client.close()
+    return problems
 
 
 def run_scan(session: Session, pgns: list[int], listen: float = 2.5, *, title: str = "Scan",
@@ -187,10 +225,12 @@ def run_scan(session: Session, pgns: list[int], listen: float = 2.5, *, title: s
     """
     t0 = time.time()
     sent = False
-    for p in pgns:
+    j1939 = session.has_j1939 or not session.has_canopen
+    for p in pgns if j1939 else ():
         sent |= session.request(p, GLOBAL_SA)
         sleep(0.05)
-    sleep(listen)
+    problems = read_canopen(session, pgns)
+    sleep(listen if j1939 else min(listen, 1.0))
     retried = []
     if sent:
         got = session.snapshot_since(t0)
@@ -206,6 +246,8 @@ def run_scan(session: Session, pgns: list[int], listen: float = 2.5, *, title: s
             sleep(retry_wait)
     result = collect(session, pgns, t0, title=title)
     result.retried = retried
+    result.canopen_errors = problems
+    result.j1939_skipped = not j1939
     return result
 
 

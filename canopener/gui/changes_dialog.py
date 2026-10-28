@@ -7,13 +7,14 @@ two time ranges. Then Label… a result to name it.
 
 import time
 
-from ..core import analyze
+from ..canopen import cob
+from ..core import analyze, canopen
 from ..j1939.addresses import sa_name
 from ..j1939.constants import pgn_label
 from .qt import QtWidgets
 from .widgets import item, mono_font, setup_table
 
-HEAD = ["ID", "PGN", "Module", "Where", "A", "B", "Score"]
+HEAD = ["ID", "PGN / message", "Module", "Where", "A", "B", "Score"]
 
 
 class _Window(QtWidgets.QWidget):
@@ -162,8 +163,12 @@ class ChangesDialog(QtWidgets.QDialog):
             r = self.table.rowCount()
             self.table.insertRow(r)
             pgn = c.pgn
-            vals = [c.id_str, "" if pgn is None else f"{pgn:04X} {pgn_label(pgn)}",
-                    "" if c.sa is None else sa_name(c.sa), c.where, c.before, c.after, f"{c.score:.0f}"]
+            if c.extended:
+                what, who = f"{pgn:04X} {pgn_label(pgn)}", sa_name(c.sa)
+            else:
+                node = cob.node_of(c.can_id)
+                what, who = cob.label(c.can_id), canopen.source_name(canopen.node_src(node)) if node else ""
+            vals = [c.id_str, what, who, c.where, c.before, c.after, f"{c.score:.0f}"]
             for col, v in enumerate(vals):
                 self.table.setItem(r, col, item(v, align_right=col == 6))
         self.summary.setText(f"{len(self.results)} candidate(s)" if self.results else
@@ -178,11 +183,9 @@ class ChangesDialog(QtWidgets.QDialog):
 
     def _selection(self):
         c = self.selected()
-        self.label_btn.setEnabled(c is not None and c.extended)
-        self.label_btn.setToolTip("" if c is None or c.extended else
-                                  "11-bit IDs (CANopen and others) can't be labeled yet")
+        self.label_btn.setEnabled(c is not None)
 
     def label_selected(self):
         c = self.selected()
-        if c is not None and c.extended:
+        if c is not None:
             self.label_cb(c.signal_draft())

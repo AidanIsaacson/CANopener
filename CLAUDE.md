@@ -1,6 +1,6 @@
 # CANopener: notes for Claude Code
 
-J1939 / OBD-II / CAN diagnostics. Python 3.10+. See README.md (usage, written for mechanics: keep it
+J1939 / CANopen / OBD-II / CAN diagnostics. Python 3.10+. See README.md (usage, written for mechanics: keep it
 plain), docs/DEVELOPING.md (dev setup, profile format, plugins), docs/DESIGN.md (the hardware device
 this is for) and docs/ARCHITECTURE.md (software structure).
 
@@ -13,6 +13,7 @@ pytest                           # full suite, incl. headless GUI tests (QT_QPA_
 ruff check .                     # lint (config in pyproject.toml)
 canopener --sim                  # GUI against the simulator
 canopener-cli scan --sim --full  # CLI against the simulator
+canopener-cli canopen --sim --info --errors   # CANopen CLI against the CANopen simulator
 canopener-device --sim           # the handheld UI (Pygame) against the simulator + a simulated meter
 ```
 
@@ -25,7 +26,8 @@ Headless or minimal Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-
   documented** commands are welcome in this repo: OBD-II Mode 04 (clear codes) and Mode 08
   (on-board tests) in `core/obd.py`, J1939 DM11 / DM3 code clears in `core/j1939_clear.py` (shared
   warning text: `j1939_clear.warning()`), UDS ClearDiagnosticInformation / ECUReset in `core/uds.py`,
-  and the composable frames in `core/transmit.py`. Every front-end confirms with the user before
+  CANopen NMT commands and the error-history clear (0x1003 sub 0 = 0) in `core/canopen.py`
+  (warning text: `warning_nmt` / `warning_clear`), and the composable frames in `core/transmit.py`. Every front-end confirms with the user before
   sending one (state what it changes, default No), and nothing transmits in listen-only. The
   Transmit window (`gui/transmit_dialog.py`) stays off by default and confirms each frame.
   **OEM/proprietary** commands (routines, I/O controls, DIDs from dealer tools) still belong in the
@@ -34,7 +36,8 @@ Headless or minimal Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-
 * **This repo is public: no OEM dealer-tool data** (extracted fault tables, PID dictionaries,
   node maps, OEM text). It lives in the private plugin repo or `~/.config/canopener/profiles/`.
   `tests/test_repo_hygiene.py` enforces file names and markers; keep its lists current.
-* **Layering.** `j1939/` and `can/` must not import `core/`, `gui/` or `sim/`. `core/` must not import
+* **Layering.** `j1939/`, `canopen/` and `can/` must not import `core/`, `gui/` or `sim/` (a test checks
+  `canopen/`). `core/` must not import
   Qt or Pygame. Front-ends: the desktop GUI (`gui/`, Qt), the CLI, and the handheld UI (`device/`,
   Pygame; docs/DEVICE.md). In `device/`, only `app.py`, `ui.py` and `screens/` import Pygame:
   `context.py` and `input.py` stay Pygame-free (a test checks). Logic both UIs need goes in `core/`.
@@ -56,7 +59,11 @@ Headless or minimal Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-
   never describe manufacturer-specific codes (P1xxx, B/C/U1xxx ...).
 * **License: GPL-2.0-or-later.** Anything copied in must be GPL-2.0-compatible; keep attribution
   (README "License" and the copied file's header).
-* The simulator's fault codes are asserted by tests. Change both together.
+* The simulators' fault codes (J1939 `sim/machine.py`, CANopen `sim/canopen.py`) are asserted by
+  tests. Change both together.
+* CANopen shares the J1939 screens (no separate mode): row sources are `core.canopen.source_name`
+  ints (J1939 address, `node_src`, `id_src`). EMCY text is the CiA 301 class; OEM text only via a
+  profile's `"emcy"`.
 * `legacy/` is frozen reference code. Don't import it, and don't copy J1939 tables from
   `legacy/can_opener_v0.1`: they're wrong (see legacy/README.md).
 * Anything that runs as root goes through `core.interfaces.run_privileged` as explicit argv

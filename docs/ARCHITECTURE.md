@@ -30,7 +30,7 @@ navigation encoder, a fullscreen Pygame UI, and Pico / ESP32 subsystems), descri
 
 Rules that keep it reusable:
 
-* **`j1939/`, `obd/`, `uds/` and `can/` never import from `core/`, `gui/` or `sim/`.** They are
+* **`j1939/`, `obd/`, `uds/`, `canopen/` and `can/` never import from `core/`, `gui/` or `sim/`.** They are
   plain protocol libraries with no state beyond lookup tables (`obd/` = OBD-II J1979 + ISO-TP,
   `uds/` = UDS ISO 14229; both reuse the ISO-TP reassembler and carry no OEM identifiers). Their
   live clients — `core/obd.py`, `core/uds.py` — drive a `Session` the same way `scan.py` does.
@@ -224,6 +224,15 @@ How well this app drops into the handheld as one system, checked against [DESIGN
   `can.backends.CanBackend` (`open`, `close`, `send`, `recv`) and add it to `core/connection.py`.
   First check whether python-can already covers it: `can/pythoncan.py` opens any adapter python-can
   supports (optional `adapters` extra), named `interface:channel` in the same Interface box as can0.
+* **CANopen** shares the J1939 screens rather than having its own mode. `canopen/` is the pure
+  protocol (COB-IDs, NMT, EMCY, SDO, objects, `CanopenSniffer`); `Session.feed` keeps every 11-bit
+  ID's latest payload (`latest_std`) and feeds the sniffer, so nodes, states, EMCY and anything read
+  over SDO (by us or another tool) are followed passively. `core/canopen.py` has the client (SDO
+  reads, node discovery, and the confirm-first NMT command and error-history clear), the
+  fault-code rows (`codes`) and `source_name`, which front-ends use for any row source: a J1939
+  address (0-255), a node (`node_src`) or an 11-bit ID (`id_src`). Scans read CANopen too and skip
+  J1939 requests on a bus with CANopen nodes and no 29-bit traffic. Signals with an `id` (11-bit)
+  decode from `latest_std`, so Live Data, reports, captures and labeling cover both.
 * **Labels made in the app:** `core/labeling.py` edits user profile JSON (atomic writes, unknown
   keys kept, `extends` the profile in use); front-ends then reload profiles, so labels apply live
   with no reconnect. `core/analyze.py` ("Find what changed") ranks the bytes / bits / 16-bit
@@ -236,8 +245,7 @@ How well this app drops into the handheld as one system, checked against [DESIGN
 * CAN FD frames in the SocketCAN backend (MCP2518FD supports them; J1939-22 uses them).
 * Dropout / missing-ECU alerts in the Network view (expected SAs per profile).
 * DM1 history timeline (when each code went active / inactive).
-* Labeling 11-bit IDs (CANopen PDOs) and big-endian values; a passive CANopen decoder (heartbeat,
-  NMT state, EMCY as fault codes).
+* CANopen: reading PDO mappings (0x1A00..) to suggest signal layouts; the handheld's CANopen screens.
 * More transmit actions on the confirm-first path (saved frame replay); machine-changing OEM
   commands stay in private plugins.
 * Export to CSV for the live-data history.

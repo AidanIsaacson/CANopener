@@ -1,8 +1,11 @@
-"""Bus Monitor tab: raw frames, scrolling or one row per ID with changed bytes highlighted."""
+"""Bus Monitor tab: raw frames, scrolling or one row per ID with changed bytes highlighted. 11-bit
+IDs show their CANopen meaning (TPDO1 node 05, Heartbeat ...)."""
 
 import time
 
 from ..can.frame import CanFrame
+from ..canopen import cob
+from ..core import canopen
 from ..j1939.addresses import sa_name
 from ..j1939.constants import pgn_label
 from ..j1939.ids import parse_id
@@ -21,6 +24,14 @@ def _decode(fr: CanFrame):
         return None, None, None, None
     j = parse_id(fr.can_id)
     return j.priority, j.pgn, j.sa, j.da
+
+
+def _labels(fr: CanFrame, pgn, sa) -> tuple[str, str]:
+    """(Label, Src) columns: J1939 PGN / address names, or the CANopen meaning of an 11-bit ID."""
+    if fr.extended:
+        return ("" if pgn is None else pgn_label(pgn)), ("" if sa is None else sa_name(sa))
+    node = cob.node_of(fr.can_id)
+    return cob.label(fr.can_id), (canopen.source_name(canopen.node_src(node)) if node else "")
 
 
 class ScrollModel(QtCore.QAbstractTableModel):
@@ -65,10 +76,10 @@ class ScrollModel(QtCore.QAbstractTableModel):
                 new.append((f"{fr.timestamp - self.t0:10.4f}", "ERR", "", "", "", fr.error, "", "", "",
                             fr.data.hex(" ").upper(), ""))
                 continue
+            label, src = _labels(fr, pgn, sa)
             new.append((
                 f"{fr.timestamp - self.t0:10.4f}", "TX" if fr.tx else "RX", fr.id_str(),
-                "" if pri is None else str(pri), "" if pgn is None else f"{pgn:05X}",
-                "" if pgn is None else pgn_label(pgn), "" if sa is None else sa_name(sa),
+                "" if pri is None else str(pri), "" if pgn is None else f"{pgn:05X}", label, src,
                 "" if da is None or da == 0xFF else f"{da:02X}", str(fr.dlc), fr.data.hex(" ").upper(),
                 "".join(chr(b) if 32 <= b < 127 else "." for b in fr.data),
             ))
@@ -132,9 +143,9 @@ class ByIdModel(QtCore.QAbstractTableModel):
                 b = c - self.BYTE0
                 return f"{fr.data[b]:02X}" if b < fr.dlc else ""
             pri, pgn, sa, da = _decode(fr)
+            label, src = _labels(fr, pgn, sa)
             return [
-                fr.id_str(), "" if pgn is None else f"{pgn:05X}", "" if pgn is None else pgn_label(pgn),
-                "" if sa is None else sa_name(sa), str(st.count),
+                fr.id_str(), "" if pgn is None else f"{pgn:05X}", label, src, str(st.count),
                 f"{st.period * 1000:.0f} ms" if st.period else "", str(fr.dlc),
             ][c] if c < self.BYTE0 else "".join(chr(b) if 32 <= b < 127 else "." for b in fr.data)
         if role == Qt.ItemDataRole.BackgroundRole and self.BYTE0 <= c < self.BYTE0 + 8:
@@ -291,16 +302,15 @@ class MonitorTab(QtWidgets.QWidget):
         if fr is None:
             QtWidgets.QMessageBox.information(self, "Label this data", "Select a message (a row) first.")
             return
-        if not fr.extended:
-            QtWidgets.QMessageBox.information(
-                self, "Label this data", "This is an 11-bit ID (CANopen or a plain CAN message). Labeling "
-                "covers 29-bit J1939 messages for now.")
-            return
-        j = parse_id(fr.can_id)
-        st = self.by_id.ids.get((fr.can_id, True))
+        st = self.by_id.ids.get((fr.can_id, fr.extended))
         start = max(range(min(8, fr.dlc)), key=lambda i: st.changed[i]) if st and fr.dlc else 0
+        if fr.extended:
+            j = parse_id(fr.can_id)
+            draft = {"pgn": j.pgn, "sa": j.sa, "start": start, "length": 1}
+        else:                       # 11-bit: a CANopen PDO or a plain CAN message
+            draft = {"id": fr.can_id, "start": start, "length": 1}
         from .label_dialog import open_label_dialog
-        open_label_dialog(self.ctx, {"pgn": j.pgn, "sa": j.sa, "start": start, "length": 1}, self)
+        open_label_dialog(self.ctx, draft, self)
 
     def find_changes(self):
         from .changes_dialog import ChangesDialog

@@ -8,7 +8,8 @@ profile ``ctx.label_target()`` picked (``core.labeling``); the signal shows up i
 import time
 from collections import deque
 
-from ..core import labeling, profiles, units
+from ..canopen import cob
+from ..core import canopen, labeling, profiles, units
 from ..j1939.addresses import sa_name
 from ..j1939.constants import pgn_label
 from .qt import Qt, QtCore, QtWidgets
@@ -51,8 +52,10 @@ class LabelDialog(QtWidgets.QDialog):
         self.ctx, self.pid, self.replace_key = ctx, pid, replace_key
         self.saved = None
         d = dict(draft)
-        self.pgn = profiles._int(d["pgn"])
-        sa = d.get("sa")
+        # A J1939 message (PGN + source address) or an 11-bit CAN ID (CANopen PDO, plain CAN).
+        self.can_id = profiles._int(d["id"]) if d.get("id") is not None and d.get("pgn") is None else None
+        self.pgn = -1 if self.can_id is not None else profiles._int(d["pgn"])
+        sa = None if self.can_id is not None else d.get("sa")
         if isinstance(sa, (list, tuple)):
             self.sa_value = tuple(profiles._int(x) for x in sa)
             self.src = self.sa_value[0] if self.sa_value else None
@@ -63,9 +66,14 @@ class LabelDialog(QtWidgets.QDialog):
         self.resize(640, 640)
         lay = QtWidgets.QVBoxLayout(self)
 
-        where = f"PGN {self.pgn:04X}  {pgn_label(self.pgn)}"
-        if self.src is not None:
-            where += f"\nfrom {sa_name(self.src)}"
+        if self.can_id is not None:
+            where = f"CAN ID {self.can_id:03X} (11-bit)  {cob.label(self.can_id)}"
+            if cob.node_of(self.can_id):
+                where += f"\nfrom {canopen.source_name(canopen.id_src(self.can_id))}"
+        else:
+            where = f"PGN {self.pgn:04X}  {pgn_label(self.pgn)}"
+            if self.src is not None:
+                where += f"\nfrom {sa_name(self.src)}"
         head = QtWidgets.QLabel(where)
         head.setWordWrap(True)
         lay.addWidget(head)
@@ -101,6 +109,13 @@ class LabelDialog(QtWidgets.QDialog):
         self.bits.setSuffix(" bit(s)")
         pos.addWidget(self.bit)
         pos.addWidget(self.bits)
+        self.order = QtWidgets.QComboBox()
+        self.order.addItem("low byte first", "little")
+        self.order.addItem("high byte first", "big")
+        self.order.setToolTip("Byte order of a 2- or 4-byte value. J1939 and CANopen send the low byte first; "
+                              "some makers' own data is high byte first (try it if the number jumps about).")
+        self.order.setCurrentIndex(max(self.order.findData(str(d.get("order", "little"))), 0))
+        pos.addWidget(self.order)
         self.signed = QtWidgets.QCheckBox("signed")
         self.signed.setChecked(bool(d.get("signed", False)))
         pos.addWidget(self.signed)
@@ -148,6 +163,7 @@ class LabelDialog(QtWidgets.QDialog):
         self.only = QtWidgets.QCheckBox(only)
         self.only.setChecked(self.sa_value is not None)
         self.only.setEnabled(self.sa_value is not None)
+        self.only.setVisible(self.can_id is None)          # an 11-bit ID is already one sender
         form.addRow("", self.only)
         lay.addLayout(form)
 
@@ -183,6 +199,7 @@ class LabelDialog(QtWidgets.QDialog):
         for w in (self.start, self.bit, self.bits, self.decimals):
             w.valueChanged.connect(self._changed)
         self.size.currentIndexChanged.connect(self._changed)
+        self.order.currentIndexChanged.connect(self._changed)
         self.signed.toggled.connect(self._changed)
         for w in (self.scale, self.offset, self.name, self.low, self.high):
             w.textChanged.connect(self._changed)
@@ -198,14 +215,20 @@ class LabelDialog(QtWidgets.QDialog):
     def draft(self) -> dict:
         """The signal as it would be saved. Raises ValueError with a plain message."""
         n = self.size.currentData()
-        d = {"name": self.name.text().strip(), "pgn": self.pgn, "start": self.start.value(),
+        d = {"name": self.name.text().strip(), "start": self.start.value(),
              "scale": _num(self.scale.text(), 1.0), "offset": _num(self.offset.text(), 0.0),
              "unit": units.normalize_unit(self.unit.currentText().strip()), "decimals": self.decimals.value(),
              "signed": self.signed.isChecked(), "group": self.group.text().strip(),
              "low": _num(self.low.text()), "high": _num(self.high.text()),
              "enum": parse_enum(self.enum.toPlainText())}
+        if self.can_id is not None:
+            d["id"] = self.can_id
+        else:
+            d["pgn"] = self.pgn
         if n:
             d["length"] = n
+            if n > 1:
+                d["order"] = self.order.currentData()
         else:
             d.update(bit=self.bit.value(), bits=self.bits.value())
         if self.only.isChecked() and self.sa_value is not None:
@@ -216,6 +239,7 @@ class LabelDialog(QtWidgets.QDialog):
         bits = self.size.currentData() == 0
         self.bit.setVisible(bits)
         self.bits.setVisible(bits)
+        self.order.setVisible((self.size.currentData() or 0) > 1)
         self.points.clear()
         self._last_t = None
         self.tick(force=True)
@@ -225,6 +249,8 @@ class LabelDialog(QtWidgets.QDialog):
         if s is None:
             return None
         with s.lock:
+            if self.can_id is not None:
+                return s.latest_std.get(self.can_id)
             if self.src is not None:
                 return s.latest.get((self.pgn, self.src))
             got = [v for (pgn, _sa), v in s.latest.items() if pgn == self.pgn]
@@ -292,14 +318,20 @@ def open_label_dialog(ctx, draft: dict, parent=None, pid: str | None = None,
 
 
 def name_module(ctx, sa: int, parent=None) -> bool:
-    """'Name this module…': a name for a source address, saved in the user profile."""
+    """'Name this module…': a name for a J1939 source address or a CANopen node (given as
+    ``canopen.node_src``), saved in the user profile."""
     pid = ctx.label_target()
     if not pid:
         return False
+    if canopen.is_node(sa):
+        n = sa - canopen.NODE_SRC
+        what, current = f"CANopen node {n:02X} ({n})", canopen.source_name(sa, with_hex=False)
+        current = "" if current == f"Node {n:02X}" else current
+    else:
+        what, current = f"the module at address {sa:02X} ({sa})", sa_name(sa, with_hex=False)
     name, ok = QtWidgets.QInputDialog.getText(
         parent, "Name this module",
-        f"Name for the module at address {sa:02X} ({sa}).\nLeave empty to go back to the standard name.",
-        text=sa_name(sa, with_hex=False))
+        f"Name for {what}.\nLeave empty to go back to the standard name.", text=current)
     if not ok:
         return False
     labeling.set_module_name(pid, sa, name)

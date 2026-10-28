@@ -1,5 +1,7 @@
-"""Machine Info tab: component / software / ECU IDs, VIN, hours, fuel, readiness."""
+"""Machine Info tab: component / software / ECU IDs, VIN, hours, fuel, readiness, and each
+CANopen node's identity (device type, name, versions, vendor / product / serial)."""
 
+from ..core import canopen
 from ..j1939.addresses import sa_name
 from .qt import QtWidgets
 
@@ -35,7 +37,9 @@ class InfoTab(QtWidgets.QWidget):
         info = result.info()
         claims = {sa: d for (p, sa), (t, d) in result.responses.items() if p == 0xEE00}
         readiness = result.readiness()
-        if not info and not claims and not readiness:
+        session = self.ctx.session
+        nodes = [n for n in session.canopen_nodes() if n.od] if session is not None else []
+        if not info and not claims and not readiness and not nodes:
             return          # e.g. a codes-only read: keep what we had
         self.tree.clear()
         groups = {}
@@ -52,7 +56,6 @@ class InfoTab(QtWidgets.QWidget):
             QtWidgets.QTreeWidgetItem(group(sa), ["Readiness (DM5)",
                                                   f"{r.active} active, {r.previously_active} previously "
                                                   f"active, OBD: {r.obd_text}"])
-        session = self.ctx.session
         if session is not None:
             for e in session.ecu_list():
                 if e.sa in claims and e.name:
@@ -60,6 +63,13 @@ class InfoTab(QtWidgets.QWidget):
                                                             f"{e.name.summary()} (0x{e.name.raw:016X})"])
         for sa in sorted(groups):
             self.tree.addTopLevelItem(groups[sa])
+        for n in nodes:
+            title = canopen.source_name(canopen.node_src(n.node)) + "  (CANopen)"
+            g = QtWidgets.QTreeWidgetItem(self.tree, [title, ""])
+            g.setExpanded(True)
+            for label, text in canopen.node_details(n):
+                QtWidgets.QTreeWidgetItem(g, [label, text])
         missing = [label for _, label, outcome in result.response_summary()
                    if outcome.startswith(("no response", "not in log"))]
-        self.note.setText(("Not answered: " + ", ".join(missing)) if missing else "All requests answered.")
+        problems = missing + list(result.canopen_errors)
+        self.note.setText(("Not answered: " + ", ".join(problems)) if problems else "All requests answered.")

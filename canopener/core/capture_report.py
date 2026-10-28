@@ -28,9 +28,9 @@ from ..j1939.addresses import sa_name
 from ..j1939.constants import DM1
 from ..j1939.dtc import decode_dm, fmi_text
 from ..j1939.ids import parse_id
-from ..j1939.signals import all_signals
+from ..j1939.signals import all_signals, id_signals
 from ..j1939.spn import spn_name
-from . import units
+from . import canopen, units
 from .capture import LIVE_CSV, SUMMARY_TXT, Capture, fmt_elapsed
 from .measure import ChannelSeries, read_measurements, value_at
 from .session import Session
@@ -117,20 +117,25 @@ class _Analysis:
 
     def _sample(self, t: float):
         values = {}
+        found = []
         for sig in all_signals():
-            for sa, _, d in self.session.latest_for(sig.pgn):
-                if not sig.accepts(sa):
-                    continue
-                v = sig.decode(d)
-                if v is None:
-                    continue
-                key = (sig.key, sa)
-                if key not in self.columns:
-                    self.columns[key] = len(self.col_titles)
-                    unit = units.display_unit(sig.unit, self.system)
-                    who = "" if sa == 0x00 else f" ({sa_name(sa, with_hex=False)})"
-                    self.col_titles.append(f"{sig.name}{who} [{unit}]" if unit else f"{sig.name}{who}")
-                values[self.columns[key]] = units.convert(v, sig.unit, self.system)[0]
+            if sig.can_id is None:
+                found += [(sig, sa, d) for sa, _, d in self.session.latest_for(sig.pgn) if sig.accepts(sa)]
+        for cid, sigs in id_signals().items():
+            got = self.session.latest_std.get(cid)
+            if got:
+                found += [(sig, canopen.id_src(cid), got[1]) for sig in sigs]
+        for sig, sa, d in found:
+            v = sig.decode(d)
+            if v is None:
+                continue
+            key = (sig.key, sa)
+            if key not in self.columns:
+                self.columns[key] = len(self.col_titles)
+                unit = units.display_unit(sig.unit, self.system)
+                who = "" if sa == 0x00 else f" ({canopen.source_name(sa, with_hex=False)})"
+                self.col_titles.append(f"{sig.name}{who} [{unit}]" if unit else f"{sig.name}{who}")
+            values[self.columns[key]] = units.convert(v, sig.unit, self.system)[0]
         for (ecu, pid, name), r in self.obd.values.items():
             if not isinstance(r.value, (int, float)):
                 continue
@@ -147,6 +152,16 @@ class _Analysis:
         if self.next_sample is not None:
             self._sample(self.next_sample)
         self._check_silence(t_end)      # only ECUs that were already quiet before the end
+        sn = self.session.canopen       # CANopen: errors, restarts, state changes, NMT commands
+        for e in sn.emcy_log:
+            who = canopen.source_name(canopen.node_src(e.node))
+            if e.emcy.reset:
+                self.events.append((e.t, f"{who}: CANopen errors cleared (EMCY 0000)"))
+            else:
+                self.events.append((e.t, f"{who}: EMCY {e.emcy.code:04X} {e.emcy.text}"
+                                         f" (register {e.emcy.register_text})"))
+        for t, text in sn.events:
+            self.events.append((t, "CANopen " + text))
 
 
 def analyze(capture: Capture, system: str = units.METRIC, progress=None) -> _Analysis:

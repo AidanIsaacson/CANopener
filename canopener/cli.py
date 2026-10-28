@@ -239,6 +239,80 @@ def cmd_uds(a) -> int:
     return 0
 
 
+def cmd_canopen(a) -> int:
+    from .canopen import nmt as nmtlib
+    from .core import canopen as co
+    kind = connection.CANOPEN_SIM if a.sim else connection.SOCKETCAN
+    try:
+        conn = connection.open_connection(kind, a.iface, listen_only=a.listen_only, bitrate=a.bitrate)
+    except OSError as e:
+        print(f"Could not open {a.iface}: {e}", file=sys.stderr)
+        return 2
+    s = conn.session
+    client = co.CanopenClient(s)
+    commands = {"start": nmtlib.START, "stop": nmtlib.STOP, "preop": nmtlib.ENTER_PREOP,
+                "reset": nmtlib.RESET_NODE, "reset-comm": nmtlib.RESET_COMM}
+    try:
+        time.sleep(a.listen)
+        if a.nmt or a.clear_errors:
+            if s.listen_only:
+                print("Commands have to transmit: not in listen-only.", file=sys.stderr)
+                return 2
+            node = int(a.node, 16) if a.node else nmtlib.ALL_NODES
+            if a.nmt:
+                if not _confirm(co.warning_nmt(commands[a.nmt], node).replace("\n\n", "\n"), a.yes):
+                    return 1
+                client.nmt(commands[a.nmt], node)
+                print(f"Sent NMT {nmtlib.COMMANDS[commands[a.nmt]][0]}.")
+                time.sleep(1.0)
+            if a.clear_errors:
+                if not node:
+                    print("--clear-errors needs --node.", file=sys.stderr)
+                    return 2
+                if not _confirm(co.warning_clear(node).replace("\n\n", "\n"), a.yes):
+                    return 1
+                client.clear_error_history(node)
+                print(f"Cleared node {node:02X}'s error history.")
+        if a.find and not s.listen_only:
+            found = client.find_nodes()
+            print("Nodes answering: " + (", ".join(f"{n:02X}" for n in found) or "none"))
+        nodes = s.canopen_nodes()
+        if not nodes:
+            print("No CANopen nodes heard (wrong bitrate? try --find, or 125000 / 500000).")
+            return 0
+        targets = [int(a.node, 16)] if a.node else [n.node for n in nodes]
+        if not s.listen_only and (a.info or a.errors):
+            for n in targets:
+                try:
+                    if a.info:
+                        client.node_info(n)
+                    if a.errors:
+                        client.error_history(n)
+                except co.SdoError as e:
+                    print(f"  node {n:02X}: {e}")
+        print("CANopen nodes:")
+        for info in s.canopen_nodes():
+            print(f"  {co.source_name(co.node_src(info.node))}: {co.node_summary(info)}")
+            if a.info:
+                for label, text in co.node_details(info)[1:]:
+                    print(f"      {label:<34} {text}")
+        codes = co.codes(s, history=True)
+        print("Errors:" if codes else "Errors: none reported")
+        for c in codes:
+            reg = f"  register {c.register_text}" if c.register is not None else ""
+            print(f"  {c.status:<8} {co.source_name(c.src):<34} EMCY {c.code:04X}  {c.text}{reg}")
+        with s.lock:
+            events = list(s.canopen.events)
+        if events and a.events:
+            print("Events:")
+            for t, text in events:
+                print(f"  {time.strftime('%H:%M:%S', time.localtime(t))}  {text}")
+    finally:
+        client.close()
+        conn.close()
+    return 0
+
+
 def cmd_allow_setup(a) -> int:
     if interfaces.sudoers_installed():
         print("Already set up: bringing up a CAN interface won't ask for a password.")
@@ -400,7 +474,7 @@ BITRATE_HELP = "bits/s for a python-can adapter (a Linux interface keeps the bit
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="canopener-cli", description="CANopener J1939 diagnostics")
+    ap = argparse.ArgumentParser(prog="canopener-cli", description="CANopener: J1939, CANopen and OBD-II diagnostics")
     ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     ap.add_argument("--units", choices=list(units.SYSTEMS), default=units.METRIC)
     for q, (_, options) in units.QUANTITIES.items():
@@ -485,6 +559,24 @@ def main(argv=None) -> int:
     ud.add_argument("--module", default="7E0", help="module request CAN ID in hex (default 7E0)")
     ud.add_argument("--did", help="also read this data identifier (hex, e.g. F190)")
     ud.set_defaults(fn=cmd_uds)
+
+    co = sub.add_parser("canopen", help="CANopen nodes: who's on the bus, state, errors (EMCY and error "
+                                        "history), identity; --nmt / --clear-errors send commands")
+    co.add_argument("--iface", default="can0", help=IFACE_HELP)
+    co.add_argument("--bitrate", type=int, default=250000, help=BITRATE_HELP)
+    co.add_argument("--sim", action="store_true", help="use the built-in CANopen simulator instead")
+    co.add_argument("--listen-only", action="store_true", help="send nothing: heartbeats, EMCY and PDOs only")
+    co.add_argument("--listen", type=float, default=2.0, metavar="SECONDS", help="listen this long first")
+    co.add_argument("--find", action="store_true", help="ask every node ID 1-127 (finds nodes with no heartbeat)")
+    co.add_argument("--info", action="store_true", help="read each node's identity, name and versions (SDO)")
+    co.add_argument("--errors", action="store_true", help="read each node's error history (object 1003)")
+    co.add_argument("--events", action="store_true", help="also list boot-ups, state changes and NMT commands")
+    co.add_argument("--node", help="only this node ID, in hex (e.g. 01)")
+    co.add_argument("--nmt", choices=["start", "stop", "preop", "reset", "reset-comm"],
+                    help="send an NMT command to --node (default every node; asks first)")
+    co.add_argument("--clear-errors", action="store_true", help="clear --node's error history (asks first)")
+    co.add_argument("--yes", action="store_true", help="don't ask before --nmt / --clear-errors")
+    co.set_defaults(fn=cmd_canopen)
 
     sub.add_parser("allow-setup", help="install a sudoers rule so bringing up a CAN interface "
                    "needs no password (only 'ip link set canN ...', no stored password)"

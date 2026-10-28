@@ -18,7 +18,7 @@ import re
 import shutil
 
 from ..j1939.signals import Signal
-from . import config, profiles
+from . import canopen, config, profiles
 from .profiles import Profile, ProfileError
 
 
@@ -121,33 +121,46 @@ def _drop_key(d: dict, value: int):
 
 
 def set_module_name(pid: str, sa: int, name: str):
-    """Name a source address in this profile; an empty name removes it (the base's / built-in
-    name shows again)."""
+    """Name a J1939 source address, or a CANopen node given as ``canopen.node_src(node)``, in
+    this profile; an empty name removes it (the base's / built-in name shows again)."""
     doc = read_doc(pid)
-    sources = doc.setdefault("sources", {})
-    _drop_key(sources, sa)
+    if canopen.is_node(sa):
+        table, key = doc.setdefault("nodes", {}), sa - canopen.NODE_SRC
+    else:
+        table, key = doc.setdefault("sources", {}), sa
+    _drop_key(table, key)
     if name.strip():
-        sources[f"0x{sa:02X}"] = name.strip()
+        table[f"0x{key:02X}"] = name.strip()
     write_doc(pid, doc)
 
 
 def module_names(pid: str) -> dict[int, str]:
-    """The module names this profile itself sets (not inherited ones)."""
-    return profiles._num_map(read_doc(pid).get("sources"), "sources")
-
-
-def set_detect(pid: str, addresses) -> list[int]:
-    """'This bus is this machine': recognise it from these source addresses next time."""
-    found = sorted(set(addresses))
+    """The module names this profile itself sets (not inherited ones): J1939 addresses, and
+    CANopen nodes as ``canopen.node_src(node)``."""
     doc = read_doc(pid)
-    doc["detect"] = {"addresses": [f"0x{a:02X}" for a in found], "min_match": min(2, len(found))}
+    out = profiles._num_map(doc.get("sources"), "sources")
+    out.update({canopen.node_src(n): v for n, v in profiles._num_map(doc.get("nodes"), "nodes").items()})
+    return out
+
+
+def set_detect(pid: str, addresses, nodes=()) -> list[int]:
+    """'This bus is this machine': recognise it from these J1939 source addresses and CANopen
+    nodes next time. Returns what was saved (addresses, then nodes as ``node_src``)."""
+    found, found_nodes = sorted(set(addresses)), sorted(set(nodes))
+    doc = read_doc(pid)
+    det: dict = {"min_match": min(2, len(found) + len(found_nodes))}
+    if found:
+        det["addresses"] = [f"0x{a:02X}" for a in found]
+    if found_nodes:
+        det["nodes"] = [f"0x{n:02X}" for n in found_nodes]
+    doc["detect"] = det
     write_doc(pid, doc)
-    return found
+    return found + [canopen.node_src(n) for n in found_nodes]
 
 
 # --- signals ----------------------------------------------------------------------------------
 
-DEFAULTS = {"scale": 1, "offset": 0, "signed": False, "unit": "", "group": ""}
+DEFAULTS = {"scale": 1, "offset": 0, "signed": False, "unit": "", "group": "", "order": "little"}
 
 
 def clean_signal(d: dict) -> dict:
@@ -158,7 +171,11 @@ def clean_signal(d: dict) -> dict:
         if v is None or v == "" or (k in DEFAULTS and v == DEFAULTS[k]) or (k == "enum" and not v):
             continue
         out[k] = v
-    if "pgn" in out:
+    if out.get("id") is not None:
+        out.pop("pgn", None)
+        out["id"] = f"0x{profiles._int(out['id']):03X}"
+    elif "pgn" in out:
+        out.pop("id", None)
         out["pgn"] = f"0x{profiles._int(out['pgn']):04X}"
     sa = out.get("sa")
     if isinstance(sa, (list, tuple)):
@@ -167,6 +184,7 @@ def clean_signal(d: dict) -> dict:
         out["sa"] = f"0x{profiles._int(sa):02X}"
     if out.get("bits"):
         out.pop("length", None)
+        out.pop("order", None)
     else:
         out.pop("bits", None)
         out.pop("bit", None)

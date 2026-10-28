@@ -1,0 +1,40 @@
+{
+  "name": "Simulated battery truck (CANopen)",
+  "description": "Matches the CANopen simulator (Connection > Show simulators > CANopen simulator). A worked example of a CANopen profile: node names, PDO signals on 11-bit IDs, manufacturer EMCY text. The message layout is made up for the simulator and describes no real controller. It has no 'detect' section on purpose: real trucks use nodes 01 and 02 too.",
+  "nodes": {
+    "0x01": "Traction controller (sim)",
+    "0x02": "Pump controller (sim)",
+    "0x20": "Battery module (sim)"
+  },
+  "emcy": {
+    "0x4200": "Controller hot (sim example of OEM text)"
+  },
+  "signals": [
+    {"name": "Motor speed", "id": "0x181", "start": 0, "length": 2, "signed": true, "unit": "rpm",
+     "decimals": 0, "group": "Traction (sim)", "low": -3000, "high": 3000},
+    {"name": "Motor current", "id": "0x181", "start": 2, "length": 2, "scale": 0.1, "unit": "A",
+     "group": "Traction (sim)", "low": 0, "high": 400},
+    {"name": "Battery voltage (traction)", "id": "0x181", "start": 4, "length": 2, "scale": 0.01, "unit": "V",
+     "decimals": 2, "group": "Battery (sim)", "low": 40, "high": 54},
+    {"name": "Throttle", "id": "0x181", "start": 6, "length": 1, "unit": "%", "decimals": 0,
+     "group": "Traction (sim)"},
+    {"name": "Forward switch", "id": "0x181", "start": 7, "bit": 0, "bits": 1,
+     "enum": {"0": "Off", "1": "On"}, "group": "Operator (sim)"},
+    {"name": "Reverse switch", "id": "0x181", "start": 7, "bit": 1, "bits": 1,
+     "enum": {"0": "Off", "1": "On"}, "group": "Operator (sim)"},
+    {"name": "Seat switch", "id": "0x181", "start": 7, "bit": 2, "bits": 1,
+     "enum": {"0": "Empty", "1": "Occupied"}, "group": "Operator (sim)"},
+    {"name": "Controller temperature", "id": "0x281", "start": 0, "length": 1, "signed": true, "unit": "°C",
+     "decimals": 0, "group": "Traction (sim)", "high": 85},
+    {"name": "Motor temperature", "id": "0x281", "start": 1, "length": 1, "signed": true, "unit": "°C",
+     "decimals": 0, "group": "Traction (sim)", "high": 120},
+    {"name": "Pump speed", "id": "0x182", "start": 0, "length": 2, "unit": "rpm", "decimals": 0,
+     "group": "Hydraulics (sim)"},
+    {"name": "Lift pressure", "id": "0x182", "start": 2, "length": 2, "unit": "bar", "decimals": 0,
+     "group": "Hydraulics (sim)", "high": 220},
+    {"name": "State of charge", "id": "0x1A0", "start": 0, "length": 1, "unit": "%", "decimals": 0,
+     "group": "Battery (sim)", "low": 20},
+    {"name": "Battery voltage", "id": "0x1A0", "start": 1, "length": 2, "scale": 0.1, "unit": "V",
+     "group": "Battery (sim)", "low": 40, "high": 54}
+  ]
+}

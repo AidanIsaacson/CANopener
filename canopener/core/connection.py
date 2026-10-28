@@ -15,6 +15,7 @@ SOCKETCAN = "socketcan"
 SIMULATOR = "sim"
 PROFILE_SIM = "profile-sim"
 OBD_SIM = "obd-sim"
+CANOPEN_SIM = "canopen-sim"
 REPLAY = "replay"
 
 
@@ -36,6 +37,8 @@ class Connection:
             return f"Profile simulator: {self.simulator.profile.name}"
         if self.kind == OBD_SIM:
             return "OBD-II simulator (virtual car)"
+        if self.kind == CANOPEN_SIM:
+            return "CANopen simulator (virtual battery truck)"
         if self.kind == REPLAY:
             return f"Replay: {self.session.backend.channel}"
         if self.session.backend.kind == pythoncan.PythonCanBackend.kind:
@@ -74,6 +77,12 @@ def open_connection(kind: str, channel: str = "can0", *, listen_only: bool = Fal
         from ..sim.obd import ObdSimulator
         bus = VirtualBus()
         sim = ObdSimulator(VirtualBackend(bus, "obd-ecu"), seed=sim_seed)
+        sim.start()
+        backend = VirtualBackend(bus, "sim")
+    elif kind == CANOPEN_SIM:
+        from ..sim.canopen import CanopenSimulator
+        bus = VirtualBus()
+        sim = CanopenSimulator(VirtualBackend(bus, "canopen-nodes"), seed=sim_seed)
         sim.start()
         backend = VirtualBackend(bus, "sim")
     elif kind == REPLAY:

@@ -18,8 +18,10 @@ from .widgets import STATUS_COLORS, RefreshComboBox, StatusLamp
 
 SOURCES = [("SocketCAN adapter", connection.SOCKETCAN), ("Simulator", connection.SIMULATOR),
            ("Simulate the selected profile", connection.PROFILE_SIM),
-           ("OBD-II simulator (car)", connection.OBD_SIM), ("Replay log file", connection.REPLAY)]
-SIMULATORS = (connection.SIMULATOR, connection.PROFILE_SIM, connection.OBD_SIM)   # listed only when switched on
+           ("OBD-II simulator (car)", connection.OBD_SIM),
+           ("CANopen simulator (battery truck)", connection.CANOPEN_SIM), ("Replay log file", connection.REPLAY)]
+SIMULATORS = (connection.SIMULATOR, connection.PROFILE_SIM, connection.OBD_SIM,
+              connection.CANOPEN_SIM)                                              # listed only when switched on
 AUTO_BITRATE = 0
 HISTORY = 8
 BIG = "font-size: 13pt; font-weight: bold; padding: 8px; border-radius: 6px; color: white;"

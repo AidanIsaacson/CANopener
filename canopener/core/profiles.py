@@ -20,7 +20,7 @@ so OEM data never has to live in this repository). Numbers may be decimal or "0x
       ]
     }
 
-Signal keys: ``name``, ``pgn``, ``start`` (0-based byte) are required. Optional:
+Signal keys: ``name``, ``pgn`` (or ``id``, below), ``start`` (0-based byte) are required. Optional:
 
 * ``length`` (bytes: 1, 2, 4) for whole-byte values, or ``bit`` (0 = LSB of ``start``) and
   ``bits`` (width) for bit fields, which may span bytes (J1939 / Intel order)
@@ -29,7 +29,18 @@ Signal keys: ``name``, ``pgn``, ``start`` (0-based byte) are required. Optional:
   (normal range; values outside it are highlighted)
 * ``sa``: only decode from this source address, or a list of addresses
 * ``na_check``: treat all-ones / J1939 error values as "not available" (default true for
-  standard PGNs, false for proprietary ones)
+  standard PGNs, false for proprietary ones and 11-bit IDs)
+* ``id`` instead of ``pgn``: an 11-bit CAN ID, e.g. a CANopen PDO (``"0x181"`` = TPDO1 of node 1)
+* ``"order": "big"``: a 2- or 4-byte value with its high byte first (default little-endian)
+
+CANopen (11-bit) machines, alongside or instead of J1939::
+
+      "nodes": {"0x01": "Traction controller", "0x02": "Pump controller"},
+      "emcy":  {"0xFF01": "OEM text for a manufacturer EMCY code"},
+      "detect": {"nodes": ["0x01", "0x02"]}
+
+``nodes`` names CANopen node IDs (like ``sources`` for J1939 addresses), ``emcy`` describes
+manufacturer EMCY error codes, and ``detect.nodes`` recognises the machine from the nodes heard.
 
 ``protocol`` is what the machine speaks: ``"j1939"`` (the default: fault codes, live data,
 network, machine info) or ``"obd2"`` (a car / light truck: the OBD-II reader instead). Front-ends
@@ -53,6 +64,8 @@ import json
 import os
 from dataclasses import dataclass, field
 
+from .. import canopen
+from ..canopen import emcy as canopen_emcy
 from ..j1939 import addresses, constants, signals, spn
 from ..j1939.signals import Signal
 from . import config, units
@@ -81,6 +94,9 @@ class Profile:
     builtin: bool = False
     protocol: str = J1939
     extends: str = ""           # id of the profile this one builds on ("" = standalone)
+    nodes: dict[int, str] = field(default_factory=dict)        # CANopen node ID -> name
+    emcy: dict[int, str] = field(default_factory=dict)         # CANopen EMCY code -> text
+    detect_nodes: frozenset[int] = frozenset()
 
 
 class ProfileError(ValueError):
@@ -105,7 +121,17 @@ def _opt_float(v):
 
 
 def parse_signal(s: dict) -> Signal:
-    pgn = _int(s["pgn"])
+    can_id = None
+    if s.get("id") is not None and s.get("pgn") is None:
+        can_id = _int(s["id"])
+        if not 0 <= can_id <= 0x7FF:
+            raise ValueError("id must be an 11-bit CAN ID (0x000-0x7FF)")
+        pgn = -1
+    else:
+        pgn = _int(s["pgn"])
+    order = str(s.get("order", "little")).lower()
+    if order not in ("little", "big"):
+        raise ValueError("order must be 'little' or 'big'")
     bits = int(s.get("bits", 0))
     bit = int(s.get("bit", 0))
     length = int(s.get("length", 1))
@@ -115,6 +141,8 @@ def parse_signal(s: dict) -> Signal:
         length = (bit + bits + 7) // 8
     elif length not in (1, 2, 4):
         raise ValueError("length must be 1, 2 or 4 (or use bit / bits)")
+    if order == "big" and bits:
+        raise ValueError("big-endian ('order': 'big') works for whole bytes (length 2 or 4), not bit fields")
     sa = s.get("sa")
     if isinstance(sa, list):
         sa = tuple(_int(x) for x in sa) or None
@@ -128,9 +156,10 @@ def parse_signal(s: dict) -> Signal:
         spn=_int(s["spn"]) if s.get("spn") is not None else None,
         decimals=int(s.get("decimals", 0 if (enum or bits == 1) else 1)), sa=sa,
         # Proprietary payloads don't follow the J1939 'not available' convention.
-        na_check=bool(s.get("na_check", not constants.is_proprietary(pgn))),
+        na_check=bool(s.get("na_check", can_id is None and not constants.is_proprietary(pgn))),
         bit=bit, bits=bits, signed=bool(s.get("signed", False)), enum=enum,
         group=str(s.get("group", "")), low=_opt_float(s.get("low")), high=_opt_float(s.get("high")),
+        can_id=can_id, big_endian=order == "big" and length > 1,
     )
 
 
@@ -147,7 +176,8 @@ def parse_profile(doc: dict, pid: str = "custom", path: str = "") -> Profile:
     det = doc.get("detect") or {}
     try:
         det_addr = frozenset(_int(a) for a in det.get("addresses", []))
-        det_min = int(det.get("min_match", min(2, len(det_addr))))
+        det_nodes = frozenset(_int(a) for a in det.get("nodes", []))
+        det_min = int(det.get("min_match", min(2, len(det_addr) or len(det_nodes))))
     except (ValueError, TypeError) as e:
         raise ProfileError(f"bad detect section: {e}") from None
     extends = str(doc.get("extends") or "").strip()
@@ -160,6 +190,8 @@ def parse_profile(doc: dict, pid: str = "custom", path: str = "") -> Profile:
         sources=_num_map(doc.get("sources"), "sources"), spns=_num_map(doc.get("spns"), "spns"),
         pgns=_num_map(doc.get("pgns"), "pgns"), signals=sigs,
         detect_addresses=det_addr, detect_min=det_min, path=path, extends=extends,
+        nodes=_num_map(doc.get("nodes"), "nodes"), emcy=_num_map(doc.get("emcy"), "emcy"),
+        detect_nodes=det_nodes,
     )
 
 
@@ -172,8 +204,10 @@ def merged(base: "Profile", own: "Profile") -> "Profile":
         pgns={**base.pgns, **own.pgns},
         signals=[s for s in base.signals if s.location not in taken] + list(own.signals),
         detect_addresses=own.detect_addresses or base.detect_addresses,
-        detect_min=own.detect_min if own.detect_addresses else base.detect_min,
+        detect_min=own.detect_min if (own.detect_addresses or own.detect_nodes) else base.detect_min,
         path=own.path, builtin=own.builtin, protocol=own.protocol or base.protocol, extends=own.extends,
+        nodes={**base.nodes, **own.nodes}, emcy={**base.emcy, **own.emcy},
+        detect_nodes=own.detect_nodes or base.detect_nodes,
     )
 
 
@@ -253,39 +287,55 @@ class Match:
         return f"{self.profile.name} ({self.matched} of {self.total} expected modules seen{sig})"
 
 
-def signal_coverage(profile: Profile, present: dict[int, set[int]]) -> int:
-    """How many of the profile's signals have their PGN on the bus from an address they accept."""
-    return sum(1 for sig in profile.signals if any(sig.accepts(sa) for sa in present.get(sig.pgn, ())))
+def signal_coverage(profile: Profile, present: dict) -> int:
+    """How many of the profile's signals are on the bus: their PGN from an address they accept,
+    or their 11-bit ID (``present`` as ``present_pgns`` builds it)."""
+    n = 0
+    for sig in profile.signals:
+        if sig.can_id is not None:
+            n += ("id", sig.can_id) in present
+        else:
+            n += any(sig.accepts(sa) for sa in present.get(sig.pgn, ()))
+    return n
 
 
-def detect(seen_addresses, candidates: list[Profile], present: dict[int, set[int]] | None = None) -> list[Match]:
-    """Profiles whose ``detect`` addresses are present on the bus, best match first.
+def matched_modules(profile: Profile, seen_addresses, seen_nodes=()) -> int:
+    """How many of the profile's ``detect`` J1939 addresses and CANopen nodes are on the bus."""
+    return len(profile.detect_addresses & set(seen_addresses)) + len(profile.detect_nodes & set(seen_nodes))
 
-    A profile matches when at least ``min_match`` of its addresses are seen. With ``present``
-    (PGN -> source addresses seen), matches are ranked by how many of their signals are actually
+
+def detect(seen_addresses, candidates: list[Profile], present: dict | None = None, seen_nodes=()) -> list[Match]:
+    """Profiles whose ``detect`` addresses (J1939) and nodes (CANopen) are on the bus, best first.
+
+    A profile matches when at least ``min_match`` of them are seen. With ``present``
+    (from ``present_pgns``), matches are ranked by how many of their signals are actually
     on the bus: real machines often have only some of a family's optional modules, and the
     decodable data tells families apart better than the module list does. Without it, ranking
-    is by addresses matched, then by the fraction matched.
+    is by modules matched, then by the fraction matched.
     """
-    seen = set(seen_addresses)
     out = []
     for p in candidates:
-        if not p.detect_addresses:
+        total = len(p.detect_addresses) + len(p.detect_nodes)
+        if not total:
             continue
-        n = len(p.detect_addresses & seen)
+        n = matched_modules(p, seen_addresses, seen_nodes)
         if n >= max(1, p.detect_min):
-            out.append(Match(p, n, len(p.detect_addresses), signal_coverage(p, present) if present else 0))
+            out.append(Match(p, n, total, signal_coverage(p, present) if present else 0))
     out.sort(key=lambda m: (-m.signals, -m.matched, -m.score, m.profile.name.lower()))
     return out
 
 
-def present_pgns(session) -> dict[int, set[int]]:
-    """PGN -> source addresses, from a Session's latest messages (for ``detect``)."""
+def present_pgns(session) -> dict:
+    """PGN -> source addresses from a Session's latest messages, plus ("id", can_id) -> {can_id}
+    for the 11-bit IDs heard (for ``detect``)."""
     with session.lock:
         keys = list(session.latest)
-    out: dict[int, set[int]] = {}
+        ids = list(session.latest_std)
+    out: dict = {}
     for pgn, sa in keys:
         out.setdefault(pgn, set()).add(sa)
+    for can_id in ids:
+        out[("id", can_id)] = {can_id}
     return out
 
 
@@ -311,6 +361,8 @@ def apply(profile: Profile | None, *, spn_csv: str | None = None):
     _replace(addresses.SA_OVERRIDES, profile.sources if profile else {})
     _replace(constants.PGN_OVERRIDES, profile.pgns if profile else {})
     _replace(spn.SPN_OVERRIDES, profile.spns if profile else {})
+    _replace(canopen.NODE_OVERRIDES, profile.nodes if profile else {})
+    _replace(canopen_emcy.EMCY_OVERRIDES, profile.emcy if profile else {})
     spn.load_spn_csv(spn_csv if spn_csv is not None else config.spn_csv_path())
 
 
