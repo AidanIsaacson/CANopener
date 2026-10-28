@@ -7,7 +7,7 @@ from ..j1939.constants import is_proprietary, pgn_label
 from ..j1939.fields import hexs
 from ..j1939.signals import all_signals, id_signals
 from ..j1939.spn import spn_name
-from . import canopen, units
+from . import canopen, profiles, units
 from .scan import ScanResult
 from .session import Session
 
@@ -23,7 +23,7 @@ def code_table(result: ScanResult) -> list[str]:
                      f"OC {r.oc_text:<4} {r.spn_text} - {r.fmi_text}   [{r.lamps}]")
     for q in result.quiet:
         lines.append(f"{q.status:<13} {sa_name(q.sa):<26} no codes reported   [{q.lamps}]")
-    if not result.rows and not result.quiet and not result.canopen:
+    if not result.rows and not result.quiet and profiles.speaks_j1939() and not result.j1939_skipped:
         lines.append("(no DM responses received)")
     return lines
 
@@ -114,12 +114,13 @@ def build_report(result: ScanResult, session: Session | None = None, *, full: bo
     L.append("")
 
     L += code_table(result)
-    if result.canopen or result.canopen_errors:
-        L += canopen_codes(result)
+    if profiles.speaks_canopen():
+        L += canopen_codes(result) or ["(no CANopen errors reported)"]
     L.append("")
 
     if result.j1939_skipped:
-        L.append("CANopen-only bus: no J1939 requests were sent.")
+        if profiles.speaks_j1939():
+            L.append("No J1939 traffic on this bus (only CANopen): no J1939 requests were sent.")
     else:
         L.append("-- Responses --")
         for _, label, outcome in result.response_summary():
@@ -168,11 +169,11 @@ def build_report(result: ScanResult, session: Session | None = None, *, full: bo
         L += snap or ["  (no standard live PGNs seen - key on / engine running?)"]
         L.append("")
 
-        if session.has_j1939 or not session.has_canopen:
+        if profiles.speaks_j1939() and (session.has_j1939 or not session.has_canopen):
             L.append("-- Bus survey (source addresses and PGNs seen this session) --")
             L += bus_survey(session)
             L.append("")
-        co = canopen_survey(session)
+        co = canopen_survey(session) if profiles.speaks_canopen() else []
         if co:
             L.append("-- CANopen nodes and 11-bit IDs --")
             L += co

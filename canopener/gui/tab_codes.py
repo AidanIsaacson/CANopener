@@ -1,11 +1,12 @@
-"""Fault Codes tab: read DM1/DM2/... and inspect each code. CANopen errors share the table: EMCY
-errors a node broadcasts are Active, its error history (object 1003) is Stored."""
+"""Fault Codes tab: read DM1/DM2/... and inspect each code. On a CANopen profile the same table
+lists CANopen errors instead: EMCY errors a node broadcasts are Active, its error history (object
+1003) is Stored. A "j1939+canopen" profile lists both."""
 
 import datetime
 import html
 import time
 
-from ..core import canopen, j1939_clear, scan, units
+from ..core import canopen, j1939_clear, profiles, scan, units
 from ..core.canopen import CanopenCode
 from ..core.scan import DtcRow, ScanResult
 from ..j1939.addresses import sa_name
@@ -40,6 +41,7 @@ class CodesTab(QtWidgets.QWidget):
         # of pinning the window's minimum width wide (see gui/flow.py).
         bar = FlowLayout(spacing=8)
         self.buttons = []
+        self.preset_buttons = {}
         for preset, label in (("active", "Read Active"), ("stored", "Read Stored"),
                               ("emissions", "Pending / Emissions"), ("full", "Full Scan")):
             b = QtWidgets.QPushButton(label)
@@ -48,6 +50,7 @@ class CodesTab(QtWidgets.QWidget):
             b.clicked.connect(lambda _=False, p=preset: ctx.run_preset(p))
             bar.addWidget(b)
             self.buttons.append(b)
+            self.preset_buttons[preset] = b
         self.clear_btn = QtWidgets.QToolButton()
         self.clear_btn.setText("Clear Codes…")
         self.clear_btn.setMinimumHeight(44)
@@ -55,12 +58,13 @@ class CodesTab(QtWidgets.QWidget):
                                   "the one picked under ECU, or a CANopen node's error history. Asks first.")
         self.clear_btn.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QtWidgets.QMenu(self.clear_btn)
-        for which, label in ((j1939_clear.ACTIVE, "Clear active codes (DM11)…"),
-                             (j1939_clear.STORED, "Clear stored codes (DM3)…"),
-                             (j1939_clear.BOTH, "Clear active and stored codes…")):
+        self.j1939_clear_actions = [
             menu.addAction(label, lambda w=which: self.clear_codes(w))
-        menu.addSeparator()
-        menu.addAction("Clear CANopen error history…", self.clear_canopen)
+            for which, label in ((j1939_clear.ACTIVE, "Clear active codes (DM11)…"),
+                                 (j1939_clear.STORED, "Clear stored codes (DM3)…"),
+                                 (j1939_clear.BOTH, "Clear active and stored codes…"))]
+        self.clear_sep = menu.addSeparator()
+        self.canopen_clear_action = menu.addAction("Clear CANopen error history…", self.clear_canopen)
         self.clear_btn.setMenu(menu)
         bar.addWidget(self.clear_btn)
         self.buttons.append(self.clear_btn)
@@ -106,8 +110,31 @@ class CodesTab(QtWidgets.QWidget):
         ctx.busy_changed.connect(self._busy)
         ctx.session_changed.connect(self._session_changed)
         ctx.units_changed.connect(lambda _: self.show_detail())
-        ctx.profile_changed.connect(self.rebuild)
+        ctx.profile_changed.connect(self._apply_protocol)
+        self._apply_protocol()
         self._session_changed(None)
+
+    def _apply_protocol(self):
+        """J1939, CANopen or both, as the profile says: which reads, clears and columns there are."""
+        j1939, co = profiles.speaks_j1939(), profiles.speaks_canopen()
+        self.preset_buttons["emissions"].setVisible(j1939)
+        self.preset_buttons["active"].setToolTip("" if j1939 else "Errors the CANopen nodes report (EMCY)")
+        self.preset_buttons["stored"].setToolTip("" if j1939 else "Each CANopen node's error history (object 1003)")
+        for a in self.j1939_clear_actions:
+            a.setVisible(j1939)
+        self.clear_sep.setVisible(j1939 and co)
+        self.canopen_clear_action.setVisible(co)
+        self.clear_btn.setToolTip(
+            "Clear J1939 fault codes (DM11 active / DM3 stored) on every module, or only the one picked under "
+            "ECU. Asks first." if not co else "Clear a CANopen node's error history (the one picked under ECU, "
+            "or every node with one). Asks first." if not j1939 else self.clear_btn.toolTip())
+        heads = list(COLS) if j1939 else ["Status", "Source", "Code", "Description", "Register", "Meaning",
+                                          "Count", "Lamps", "Last seen"]
+        self.table.setHorizontalHeaderLabels(heads)
+        self.table.setColumnHidden(7, not j1939)            # warning lamps are J1939
+        self.history.setToolTip("Catches intermittent faults: any code reported since you connected stays "
+                                "listed, even if it has since cleared.")
+        self.rebuild()
 
     def _session_changed(self, session):
         enabled = self.ctx.live and not self.ctx.busy
@@ -223,13 +250,14 @@ class CodesTab(QtWidgets.QWidget):
         rows = list(res.rows) if res else []
         quiet = list(res.quiet) if res else []
         co = list(res.canopen) if res else []
+        j1939, speaks_co = profiles.speaks_j1939(), profiles.speaks_canopen()
         if self.history.isChecked():
             have = {(r.pgn, r.sa, r.spn, r.fmi) for r in rows}
-            extra = [r for r in self._session_rows() if (r.pgn, r.sa, r.spn, r.fmi) not in have]
+            extra = [r for r in self._session_rows() if (r.pgn, r.sa, r.spn, r.fmi) not in have] if j1939 else []
             rows += extra
             quiet = [q for q in quiet if not any(r.pgn == q.pgn and r.sa == q.sa for r in extra)]
             rows.sort(key=lambda r: (STATUS_ORDER.get(r.status, 9), r.sa, r.spn, r.fmi))
-            if self.ctx.session is not None:
+            if self.ctx.session is not None and speaks_co:
                 have_co = {(c.status, c.node, c.code) for c in co}
                 co += [c for c in canopen.codes(self.ctx.session, history=True)
                        if c.status != "Stored" and (c.status, c.node, c.code) not in have_co]
@@ -276,7 +304,8 @@ class CodesTab(QtWidgets.QWidget):
                                  + ("  (listen-only)" if res.listen_only and not res.offline else ""))
         if not rows and not quiet and not co and res is not None:
             t.insertRow(0)
-            t.setItem(0, 3, item("No codes received" if res.j1939_skipped else "No DM responses received"))
+            t.setItem(0, 3, item("No DM responses received" if j1939 and not res.j1939_skipped else
+                                 "No errors reported"))
         for i, r in enumerate(self._items):            # keep the user's selection across refreshes
             if self._key(r) == prev_key:
                 t.selectRow(i)

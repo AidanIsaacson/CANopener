@@ -287,10 +287,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._action(lg, "Change save folder...", self.log_panel._change_folder)
         self._action(lg, "Keyboard shortcuts...", self.edit_keys)
         d = m.addMenu("&Diagnostics")
-        self._j1939_actions = [self._action(d, title, lambda _=False, p=preset: self._run(p))
-                               for preset, (title, _, _) in scan.PRESETS.items()]
+        self._preset_actions = {preset: self._action(d, title, lambda _=False, p=preset: self._run(p))
+                                for preset, (title, _, _) in scan.PRESETS.items()}
+        self._j1939_actions = list(self._preset_actions.values())
         d.addSeparator()
-        self._action(d, "Request a PGN...", lambda: RequestDialog(self.ctx, self).exec())
+        self._pgn_action = self._action(d, "Request a PGN...", lambda: RequestDialog(self.ctx, self).exec())
         self._action(d, "Read a module (UDS)...", self._open_uds)
         self._action(d, "Transmit a frame...", self._open_transmit)
         v = m.addMenu("&View")
@@ -428,14 +429,38 @@ class MainWindow(QtWidgets.QMainWindow):
         if active is not None and (active.detect_addresses or active.detect_nodes) and matches \
                 and matches[0].matched <= profiles.matched_modules(active, session.known_ecus(), nodes):
             matches = []                # the chosen profile fits at least as well: leave it alone
+        text = matches[0].describe() if matches else None
+        if not matches:
+            matches, text = self._protocol_hint(session, current)
         if not matches:
             self.detect_bar.hide()
             self._detected = None
             return
         self._detected = matches[0].profile
-        self.detect_label.setText(f"<b>Looks like:</b> {matches[0].describe()}")
+        self.detect_label.setText(f"<b>Looks like:</b> {text}")
         self.detect_bar.show()
         QtCore.QTimer.singleShot(0, self._fit_to_screen)
+
+    def _protocol_hint(self, session, current: str):
+        """When no machine profile matches: is the bus speaking another protocol than the profile's
+        (CANopen nodes on a J1939 profile, say)? Offer that generic profile; nothing switches unless
+        the user says so."""
+        if session.offline or time.time() - session.started_at < 3.0:
+            return [], None
+        nodes, j1939 = len(session.canopen.nodes), session.has_j1939
+        proto = profiles.protocol()
+        want = None
+        if nodes and not profiles.speaks_canopen(proto):
+            want = profiles.J1939_CANOPEN if j1939 else profiles.CANOPEN
+            why = f"a CANopen bus ({nodes} node(s){', and J1939' if j1939 else ''})"
+        elif j1939 and nodes and proto == profiles.CANOPEN:
+            want, why = profiles.J1939_CANOPEN, "J1939 and CANopen on one bus"
+        if want is None or proto == profiles.OBD2:
+            return [], None
+        p = next((x for x in self._profiles if x.id == profiles.GENERIC[want]), None)
+        if p is None or p.id == current or p.id in self._detect_dismissed:
+            return [], None
+        return [profiles.Match(p, 0, 0)], f"{why} - use the {p.name} profile?"
 
     def _use_detected(self):
         if self._detected is not None:
@@ -531,11 +556,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @staticmethod
     def _module_count(s) -> str:
-        """'2 ECU(s)', '3 CANopen node(s)' or both."""
-        nodes = len(s.canopen.nodes)
-        parts = [f"{len(s.ecus)} ECU(s)"] if s.ecus or not nodes else []
-        if nodes:
-            parts.append(f"{nodes} CANopen node(s)")
+        """'2 ECU(s)', '3 CANopen node(s)' or both, as the profile's protocol has it."""
+        parts = []
+        if profiles.speaks_j1939():
+            parts.append(f"{len(s.ecus)} ECU(s)")
+        if profiles.speaks_canopen():
+            parts.append(f"{len(s.canopen.nodes)} CANopen node(s)")
         return ", ".join(parts)
 
     def _labels_saved(self, pid: str):
@@ -580,7 +606,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _show_protocol(self, protocol: str):
         """Only the screens for the profile's protocol: the OBD-II reader for a car, the J1939
-        tabs, lamp strip and scans for everything else. Bus Monitor (and plugin tabs) always."""
+        tabs, lamp strip and scans for everything else (for CANopen the same tabs show nodes and
+        their errors instead: no lamps, no J1939-only reads). Bus Monitor (and plugin tabs) always."""
         obd = protocol == profiles.OBD2
         self._place_monitor(inside_obd=obd)
         j1939_only = (self.codes, self.live, self.network, self.info, self.report)
@@ -590,9 +617,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.tabs.setTabVisible(self.tabs.indexOf(t), visible)
             if t in self._view_actions:
                 self._view_actions[t].setEnabled(visible)
-        for a in self._j1939_actions:
-            a.setEnabled(not obd)
-        self.lamps.setVisible(not obd)
+        j1939 = profiles.speaks_j1939(protocol)
+        for preset, a in self._preset_actions.items():
+            a.setEnabled(not obd and (j1939 or preset != "emissions"))
+        self._pgn_action.setEnabled(j1939)
+        self.lamps.setVisible(j1939)
         if protocol != self._protocol or not self.tabs.isTabVisible(self.tabs.currentIndex()):
             self.tabs.setCurrentWidget(self.obd if obd else self.codes)     # the new protocol's main screen
         # One visible tab (the OBD-II scan tool, with its own page row): no top row of tabs at all.
@@ -621,8 +650,7 @@ class MainWindow(QtWidgets.QMainWindow):
         OBD-II simulator picked while on a J1939 profile)."""
         if profiles.protocol() == protocol:
             return
-        pid = "obd2" if protocol == profiles.OBD2 else "generic"
-        idx = self.profile.findData(pid)
+        idx = self.profile.findData(profiles.GENERIC[protocol])
         if idx >= 0:
             self.profile.setCurrentIndex(idx)
 
@@ -839,12 +867,12 @@ class MainWindow(QtWidgets.QMainWindow):
             channel = self._replay_path
         if kind == connection.OBD_SIM:
             self._use_protocol(profiles.OBD2)
-        elif kind in (connection.SIMULATOR, connection.PROFILE_SIM):
+        elif kind == connection.SIMULATOR and not profiles.speaks_j1939():
             self._use_protocol(profiles.J1939)
-        elif kind == connection.CANOPEN_SIM:
+        elif kind == connection.PROFILE_SIM and profiles.protocol() == profiles.OBD2:
             self._use_protocol(profiles.J1939)
-            if not (profiles.active() and profiles.active().nodes) and self.profile.findData("sim-canopen") >= 0:
-                self.profile.setCurrentIndex(self.profile.findData("sim-canopen"))
+        elif kind == connection.CANOPEN_SIM and not profiles.speaks_canopen():
+            self.profile.setCurrentIndex(max(self.profile.findData("sim-canopen"), 0))
         if kind == connection.SOCKETCAN:
             if channel not in [i.name for i in interfaces.list_interfaces()]:
                 self._refresh_interfaces()          # plugged in since the list was filled?

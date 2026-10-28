@@ -1,0 +1,5 @@
+{
+  "name": "Generic CANopen",
+  "protocol": "canopen",
+  "description": "CANopen (CiA 301) machines, e.g. battery forklifts and their traction, pump and battery controllers: every node and its state, EMCY errors and the error history, node identity, NMT commands. Standard labels only; nothing J1939 is shown or sent. Copy this file to ~/.config/canopener/profiles/ to make a profile for a specific machine."
+}

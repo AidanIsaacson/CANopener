@@ -19,7 +19,7 @@ record what happens while you work the machine.
   module on the bus.
 * **Battery trucks and controllers (CANopen):** traction, pump and battery controllers (Curtis,
   ZAPI and others): every node and its state, errors as they happen and the stored error
-  history, the controller's name, versions and serial number, in the same screens as J1939.
+  history, the controller's name, versions and serial number.
 * **Cars and light trucks (OBD-II):** codes from every module, live sensor data, freeze frame,
   readiness for inspection, and clearing codes, like a good generic scan tool.
 
@@ -190,8 +190,12 @@ that way (try it if a value jumps about).
 ### CANopen (battery trucks, motor controllers)
 
 Many electric forklifts and their motor, pump and battery controllers talk **CANopen** instead of
-J1939 (often at 125k or 250k: **Auto** bitrate finds it). There's no switch to flip: the same
-screens show it, and a machine with both on one bus shows both.
+J1939 (often at 125k or 250k: **Auto** bitrate finds it). Pick the **Generic CANopen** profile (top
+right) and the screens switch to CANopen, the way **OBD-II vehicle** switches them to a car: no
+warning lamps or J1939 reads, and nothing J1939 is sent. For the rare machine with both on one bus
+(a J1939 engine and CANopen controllers, say), **Generic J1939 + CANopen** shows both. On a J1939
+profile, CANopener notices CANopen nodes and offers the right profile; nothing changes unless you
+say so.
 
 * **Fault Codes:** errors a controller reports (CANopen "EMCY") are **Active**; **Read Stored**
   also reads each controller's error history (**Stored**). The code's meaning is the standard
@@ -206,8 +210,6 @@ screens show it, and a machine with both on one bus shows both.
 * **Live Data, Bus Monitor, Find changes and Label…** work on CANopen messages (11-bit IDs) just
   like J1939: what each message means (e.g. *TPDO1 node 01*) is shown, and you can label the
   values in them. A maker's message layout isn't published, so labeling is how you name them.
-* On a CANopen-only truck, scans don't send any J1939 requests.
-
 Try it: **Connection → Show simulators**, then **CANopen simulator (battery truck)**.
 
 **Modules beyond the engine** (ABS, transmission, body): **Diagnostics → Read a module (UDS)**

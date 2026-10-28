@@ -195,9 +195,10 @@ class DeviceContext:
         self.disconnect()
         if kind == OBD_SIM and self.protocol != profiles.OBD2:
             self.apply_profile("obd2")
-        elif kind in (SIMULATOR, PROFILE_SIM) and self.protocol == profiles.OBD2:
+        elif (kind == SIMULATOR and not profiles.speaks_j1939()) or \
+                (kind == PROFILE_SIM and self.protocol == profiles.OBD2):
             self.apply_profile("generic")
-        elif kind == CANOPEN_SIM and not (profiles.active() and profiles.active().nodes):
+        elif kind == CANOPEN_SIM and not profiles.speaks_canopen():
             self.apply_profile("sim-canopen")
 
         def work():

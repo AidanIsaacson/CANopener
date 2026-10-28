@@ -66,8 +66,10 @@ instead of `"addresses"`). [`sim-canopen.json`](../canopener/profiles/sim-canope
 worked example for the CANopen simulator.
 
 Each of those is also a field in the app's **Label…** dialog. A profile signal at the same place as a built-in one replaces it, so a profile can rename and
-regroup standard data too. `"protocol": "obd2"` makes a car profile (the OBD-II screens instead of
-the J1939 ones).
+regroup standard data too. `"protocol"` picks the screens: `"j1939"` (the default), `"canopen"`
+(the same tabs for CANopen nodes: EMCY errors and history, node states, NMT; nothing J1939),
+`"j1939+canopen"` (both, for a bus that mixes them; `generic-j1939-canopen.json`), or `"obd2"`,
+which makes a car profile (the OBD-II screens instead of the J1939 ones).
 
 **Building on another profile:** `"extends": "generic"` (a profile id) starts from that profile:
 its module names, SPN / PGN names, signals, detect section and protocol carry over, and this file

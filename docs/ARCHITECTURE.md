@@ -224,7 +224,11 @@ How well this app drops into the handheld as one system, checked against [DESIGN
   `can.backends.CanBackend` (`open`, `close`, `send`, `recv`) and add it to `core/connection.py`.
   First check whether python-can already covers it: `can/pythoncan.py` opens any adapter python-can
   supports (optional `adapters` extra), named `interface:channel` in the same Interface box as can0.
-* **CANopen** shares the J1939 screens rather than having its own mode. `canopen/` is the pure
+* **CANopen** is a profile protocol like OBD-II: `"canopen"` turns the J1939 tabs into CANopen
+  ones (Fault Codes = EMCY + error history, Network = nodes + NMT, no lamps, no J1939 sent),
+  `"j1939+canopen"` shows both, and `"j1939"` shows none of it. Front-ends and the core
+  (scans, reports, captures) ask `profiles.speaks_j1939()` / `speaks_canopen()`; the main
+  window offers the matching `profiles.GENERIC` profile when the bus speaks something else. `canopen/` is the pure
   protocol (COB-IDs, NMT, EMCY, SDO, objects, `CanopenSniffer`); `Session.feed` keeps every 11-bit
   ID's latest payload (`latest_std`) and feeds the sniffer, so nodes, states, EMCY and anything read
   over SDO (by us or another tool) are followed passively. `core/canopen.py` has the client (SDO

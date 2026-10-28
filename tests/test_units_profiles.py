@@ -60,8 +60,9 @@ def test_bad_profile_reports_error():
 def test_profile_protocol():
     assert profiles.parse_profile({"name": "x"}).protocol == profiles.J1939
     assert profiles.parse_profile({"name": "car", "protocol": "OBD2"}).protocol == profiles.OBD2
+    assert profiles.parse_profile({"name": "x", "protocol": "canopen"}).protocol == profiles.CANOPEN
     with pytest.raises(profiles.ProfileError):
-        profiles.parse_profile({"name": "x", "protocol": "canopen"})
+        profiles.parse_profile({"name": "x", "protocol": "devicenet"})
     car = profiles.find("obd2")
     assert car is not None and car.builtin and car.protocol == profiles.OBD2
     try:

@@ -1262,9 +1262,10 @@ def test_canopen_in_the_same_screens(app, monkeypatch):
     w.profile.setCurrentIndex(w.profile.findData("generic"))
     w.source.setCurrentIndex(w.source.findData(connection.CANOPEN_SIM))
     w.connect()
-    assert profiles.active().id == "sim-canopen"           # a profile with node names, picked for the sim
+    assert profiles.active().id == "sim-canopen"           # a CANopen profile, picked for the sim
     pump(app, 2.5)
-    assert "CANopen node(s)" in w.traffic_label.text()
+    assert w.traffic_label.text().endswith("3 CANopen node(s)") and not w.lamps.isVisible()
+    assert not w.codes.preset_buttons["emissions"].isVisible() and not w.network.claim_btn.isVisible()
 
     assert w.ctx.run_preset("full")
     pump(app, 4.0)
@@ -1299,7 +1300,17 @@ def test_canopen_in_the_same_screens(app, monkeypatch):
     labels = {w.monitor.by_id.data(w.monitor.by_id.index(i, 2)) for i in range(len(w.monitor.by_id.order))}
     assert "TPDO1 node 01" in labels
 
-    pid = w.ctx.label_target()                      # sim-canopen is built in: a profile of our own
+    w.profile.setCurrentIndex(w.profile.findData("generic"))       # a J1939 profile: no CANopen anywhere
+    w.network.refresh(force=True)
+    assert not any(isinstance(k, tuple) and k[0] == "node" for k in w.network.items)
+    assert not w.network.nmt_btn.isVisible() and w.lamps.isVisible()
+    w._last_detect = 0
+    w._check_detection(w.ctx.session)               # ... but it notices, and offers Generic CANopen
+    assert w._detected.id == "generic-canopen" and "CANopen bus (3 node(s))" in w.detect_label.text()
+    w._use_detected()
+    assert profiles.active().id == "generic-canopen"
+
+    pid = w.ctx.label_target()                      # generic-canopen is built in: a profile of our own
     dlg = LabelDialog(w.ctx, pid, {"id": 0x182, "start": 0, "length": 2})
     dlg.name.setText("Pump (mine)")
     pump(app, 0.5)

@@ -1,10 +1,11 @@
 """Diagnostic reads: send requests, wait for answers, and collect a ``ScanResult``.
 
-A scan covers whatever the bus speaks. J1939: DM requests (skipped on a bus that has CANopen
-nodes and no 29-bit traffic, so nothing sends extended frames to controllers that don't expect
-them). CANopen: active errors come from the EMCY messages the nodes broadcast; reading stored
-codes also reads each node's error history (object 0x1003) and machine info reads their identity
-over SDO (``core.canopen``; not in listen-only).
+A scan covers what the active profile's protocol includes (``profiles.speaks_j1939`` /
+``speaks_canopen``). J1939: DM requests. CANopen: active errors come from the EMCY messages the
+nodes broadcast; reading stored codes also reads each node's error history (object 0x1003) and
+machine info reads their identity over SDO (``core.canopen``; not in listen-only). With both
+("j1939+canopen"), J1939 requests are skipped on a bus that has CANopen nodes and no 29-bit
+traffic, so nothing sends extended frames to controllers that don't expect them.
 """
 
 import time
@@ -29,7 +30,7 @@ from ..j1939.constants import (
 from ..j1939.dtc import FreezeFrame, Lamps, Readiness, decode_dm, decode_dm4, decode_dm5, fmi_text
 from ..j1939.info import describe as describe_info
 from ..j1939.spn import spn_name
-from . import canopen
+from . import canopen, profiles
 from .canopen import CanopenClient, CanopenCode, SdoError
 from .session import Ack, Session
 
@@ -120,7 +121,7 @@ class ScanResult:
     retried: list[int] = field(default_factory=list)
     canopen: list[CanopenCode] = field(default_factory=list)     # CANopen errors (active / stored)
     canopen_errors: list[str] = field(default_factory=list)      # nodes that didn't answer a read
-    j1939_skipped: bool = False     # a CANopen-only bus: no J1939 requests were sent
+    j1939_skipped: bool = False     # no J1939 requests were sent (a CANopen profile, or no J1939 on the bus)
 
     @property
     def code_count(self) -> int:
@@ -190,7 +191,8 @@ def collect(session: Session, requested: list[int], since: float, *, title: str 
         requested=list(requested), responses=got, rows=rows, quiet=quiet,
         acks=session.acks_since(since), listen_only=session.listen_only, offline=session.offline,
         tx_error=session.health.tx_error, source=session.describe(),
-        canopen=[c for c in canopen.codes(session) if c.status in wanted],
+        canopen=[c for c in canopen.codes(session) if c.status in wanted] if profiles.speaks_canopen() else [],
+        j1939_skipped=not profiles.speaks_j1939(),
     )
 
 
@@ -225,11 +227,13 @@ def run_scan(session: Session, pgns: list[int], listen: float = 2.5, *, title: s
     """
     t0 = time.time()
     sent = False
-    j1939 = session.has_j1939 or not session.has_canopen
+    proto = profiles.protocol()
+    j1939 = profiles.speaks_j1939(proto) and (proto == profiles.J1939 or session.has_j1939
+                                               or not session.has_canopen)
     for p in pgns if j1939 else ():
         sent |= session.request(p, GLOBAL_SA)
         sleep(0.05)
-    problems = read_canopen(session, pgns)
+    problems = read_canopen(session, pgns) if profiles.speaks_canopen(proto) else []
     sleep(listen if j1939 else min(listen, 1.0))
     retried = []
     if sent:

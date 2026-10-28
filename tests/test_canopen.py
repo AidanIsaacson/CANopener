@@ -173,6 +173,10 @@ def test_scans_cover_both_on_a_mixed_bus():
     try:
         time.sleep(1.5)
         assert s.has_j1939 and s.has_canopen
+        res = scan.run_preset(s, "stored")                  # no profile = J1939: nothing CANopen
+        assert res.rows and not res.canopen
+        assert "CANopen" not in report.build_report(res, s, full=True)
+        profiles.apply(profiles.find("generic-j1939-canopen"))
         res = scan.run_preset(s, "stored")
         assert res.rows and not res.j1939_skipped                       # J1939 DM2 codes
         assert {c.code for c in res.canopen if c.node == TRACTION} >= {0x3220, 0x8130}
@@ -184,16 +188,31 @@ def test_scans_cover_both_on_a_mixed_bus():
         cano.stop()
 
 
-def test_canopen_only_bus_gets_no_29bit_requests(canopen_bus):
+@pytest.mark.parametrize("pid", ["generic-canopen", "generic-j1939-canopen"])
+def test_canopen_only_bus_gets_no_29bit_requests(canopen_bus, pid):
     s, _ = canopen_bus
+    profiles.apply(profiles.find(pid))
     res = scan.run_preset(s, "full")
     assert res.j1939_skipped and res.response_summary() == []
     with s.lock:
         sent = [f for f in s.raw if f.tx]
     assert sent and not any(f.extended for f in sent)
     text = report.build_report(res, s, full=True)
-    assert "CANopen-only bus" in text and "(no DM responses received)" not in text
+    assert "(no DM responses received)" not in text and "Bus survey" not in text
+    assert ("No J1939 traffic on this bus" in text) == (pid == "generic-j1939-canopen")
     assert "SIM PUMP CONTROLLER" in text                     # identity read by the info part
+
+
+def test_protocols():
+    for proto, pid in profiles.GENERIC.items():
+        assert profiles.find(pid).protocol == proto
+    assert profiles.speaks_j1939("j1939") and not profiles.speaks_canopen("j1939")
+    assert profiles.speaks_canopen("canopen") and not profiles.speaks_j1939("canopen")
+    assert profiles.speaks_j1939("j1939+canopen") and profiles.speaks_canopen("j1939+canopen")
+    assert not profiles.speaks_j1939("obd2") and not profiles.speaks_canopen("obd2")
+    assert profiles.find("sim-canopen").protocol == "canopen"
+    mine = labeling.create("My forklift", profiles.find("generic-canopen"))
+    assert profiles.find(mine).protocol == "canopen"          # a user profile inherits it
 
 
 def test_profile_ids_nodes_and_big_endian():

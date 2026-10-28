@@ -30,7 +30,7 @@ from ..j1939.dtc import decode_dm, fmi_text
 from ..j1939.ids import parse_id
 from ..j1939.signals import all_signals, id_signals
 from ..j1939.spn import spn_name
-from . import canopen, units
+from . import canopen, profiles, units
 from .capture import LIVE_CSV, SUMMARY_TXT, Capture, fmt_elapsed
 from .measure import ChannelSeries, read_measurements, value_at
 from .session import Session
@@ -153,6 +153,8 @@ class _Analysis:
             self._sample(self.next_sample)
         self._check_silence(t_end)      # only ECUs that were already quiet before the end
         sn = self.session.canopen       # CANopen: errors, restarts, state changes, NMT commands
+        if not profiles.speaks_canopen():
+            return
         for e in sn.emcy_log:
             who = canopen.source_name(canopen.node_src(e.node))
             if e.emcy.reset:

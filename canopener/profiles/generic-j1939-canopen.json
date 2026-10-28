@@ -1,0 +1,5 @@
+{
+  "name": "Generic J1939 + CANopen",
+  "protocol": "j1939+canopen",
+  "description": "A bus carrying both, e.g. a J1939 engine and CANopen controllers on one wire: the J1939 screens list CANopen nodes and errors too. Pick Generic J1939 or Generic CANopen for a bus with only one of them."
+}

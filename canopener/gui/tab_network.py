@@ -1,11 +1,12 @@
-"""Network tab: every module on the bus. J1939 ECUs with their address-claim NAME and the PGNs they
-send; CANopen nodes with their state, heartbeat and messages (and, for a node, reading its
-identity and the confirm-first NMT commands); any other 11-bit IDs."""
+"""Network tab: every module on the bus, as the profile's protocol has it. J1939: ECUs with their
+address-claim NAME and the PGNs they send. CANopen: nodes with their state, heartbeat and messages
+(reading a node's identity, finding silent nodes, the confirm-first NMT commands) and any other
+11-bit IDs. A "j1939+canopen" profile lists both."""
 
 import time
 
 from ..canopen import cob, nmt
-from ..core import canopen
+from ..core import canopen, profiles
 from ..j1939.addresses import sa_name
 from ..j1939.constants import PGN_ADDRESS_CLAIM, pgn_label
 from ..j1939.fields import hexs
@@ -101,6 +102,12 @@ class NetworkTab(QtWidgets.QWidget):
         s = self.ctx.session
         return bool(self.ctx.live and not s.listen_only and not self.ctx.busy)
 
+    def _apply_protocol(self):
+        j1939, co = profiles.speaks_j1939(), profiles.speaks_canopen()
+        self.claim_btn.setVisible(j1939)
+        for w in (self.find_btn, self.info_btn, self.nmt_btn):
+            w.setVisible(co)
+
     def _selection(self):
         self.name_btn.setEnabled(self.selected_sa() is not None)
         node = self.selected_node() is not None
@@ -183,6 +190,7 @@ class NetworkTab(QtWidgets.QWidget):
 
     # --- the tree --------------------------------------------------------------------------------------
     def _session_changed(self, session):
+        self._apply_protocol()
         self.tree.clear()
         self.items.clear()
         self.claim_btn.setEnabled(bool(self.ctx.live and not session.listen_only))
@@ -216,7 +224,8 @@ class NetworkTab(QtWidgets.QWidget):
         with s.lock:
             latest = dict(s.latest)
             latest_std = dict(s.latest_std)
-        for e in s.ecu_list():
+        j1939, co = profiles.speaks_j1939(), profiles.speaks_canopen()
+        for e in s.ecu_list() if j1939 else ():
             top = self._top(e.sa, e.sa)
             top.setText(0, f"{e.sa:02X}  ({e.sa})")
             top.setText(1, sa_name(e.sa, with_hex=False))
@@ -234,7 +243,7 @@ class NetworkTab(QtWidgets.QWidget):
                 d = latest.get((pgn, sa))
                 child.setText(5, hexs(d[1][:32]) + (" ..." if d and len(d[1]) > 32 else "") if d else "")
                 child.setText(6, f"{ref - st.last:.1f}s ago")
-        nodes = s.canopen_nodes()
+        nodes = s.canopen_nodes() if co else []
         for info in nodes:
             src = canopen.node_src(info.node)
             top = self._top(("node", info.node), src)
@@ -252,7 +261,7 @@ class NetworkTab(QtWidgets.QWidget):
                 child.setText(5, hexs(cs.data))
                 child.setText(6, f"{ref - cs.last:.1f}s ago")
         known = {n.node for n in nodes}
-        other = {cid: st for cid, st in std.items() if cob.node_of(cid) not in known}
+        other = {cid: st for cid, st in std.items() if cob.node_of(cid) not in known} if co else {}
         for key in [k for k in self.items if isinstance(k, tuple) and k[0] == "id" and k[1] not in other]:
             item = self.items.pop(key)          # its node turned up: it's listed under the node now
             item.parent().removeChild(item)
@@ -272,9 +281,9 @@ class NetworkTab(QtWidgets.QWidget):
                 child.setText(6, f"{ref - st.last:.1f}s ago")
         self.tree.sortItems(0, Qt.SortOrder.AscendingOrder)
         parts = []
-        if s.ecus or not nodes:
+        if j1939:
             parts.append(f"{len(s.ecus)} source address(es)")
-        if nodes:
+        if co:
             parts.append(f"{len(nodes)} CANopen node(s)")
         self.summary.setText(", ".join(parts))
         self._selection()

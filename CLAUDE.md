@@ -61,8 +61,10 @@ Headless or minimal Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-
   (README "License" and the copied file's header).
 * The simulators' fault codes (J1939 `sim/machine.py`, CANopen `sim/canopen.py`) are asserted by
   tests. Change both together.
-* CANopen shares the J1939 screens (no separate mode): row sources are `core.canopen.source_name`
-  ints (J1939 address, `node_src`, `id_src`). EMCY text is the CiA 301 class; OEM text only via a
+* Protocols are per profile (`j1939`, `canopen`, `j1939+canopen`, `obd2`; generic profile for each in
+  `profiles.GENERIC`). CANopen and J1939 share tabs but each shows only when the profile says so:
+  check `profiles.speaks_j1939()` / `speaks_canopen()`, never "is it on the bus". Row sources are
+  `core.canopen.source_name` ints (J1939 address, `node_src`, `id_src`). EMCY text is the CiA 301 class; OEM text only via a
   profile's `"emcy"`.
 * `legacy/` is frozen reference code. Don't import it, and don't copy J1939 tables from
   `legacy/can_opener_v0.1`: they're wrong (see legacy/README.md).

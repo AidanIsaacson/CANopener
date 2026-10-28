@@ -1,5 +1,6 @@
 {
   "name": "Simulated battery truck (CANopen)",
+  "protocol": "canopen",
   "description": "Matches the CANopen simulator (Connection > Show simulators > CANopen simulator). A worked example of a CANopen profile: node names, PDO signals on 11-bit IDs, manufacturer EMCY text. The message layout is made up for the simulator and describes no real controller. It has no 'detect' section on purpose: real trucks use nodes 01 and 02 too.",
   "nodes": {
     "0x01": "Traction controller (sim)",

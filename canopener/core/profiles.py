@@ -43,8 +43,11 @@ CANopen (11-bit) machines, alongside or instead of J1939::
 manufacturer EMCY error codes, and ``detect.nodes`` recognises the machine from the nodes heard.
 
 ``protocol`` is what the machine speaks: ``"j1939"`` (the default: fault codes, live data,
-network, machine info) or ``"obd2"`` (a car / light truck: the OBD-II reader instead). Front-ends
-show only the screens for the active profile's protocol.
+network, machine info), ``"canopen"`` (the same screens for CANopen nodes: EMCY errors and error
+history, node states, NMT; nothing J1939 is shown or sent), ``"j1939+canopen"`` (both on one bus,
+for the machines that mix them) or ``"obd2"`` (a car / light truck: the OBD-II reader instead).
+Front-ends show only the screens for the active profile's protocol (``speaks_j1939`` /
+``speaks_canopen``).
 
 ``detect`` lets the app recognise a machine from the source addresses it sees on the bus and
 offer to switch to the profile.
@@ -70,8 +73,8 @@ from ..j1939 import addresses, constants, signals, spn
 from ..j1939.signals import Signal
 from . import config, units
 
-J1939, OBD2 = "j1939", "obd2"
-PROTOCOLS = (J1939, OBD2)
+J1939, OBD2, CANOPEN, J1939_CANOPEN = "j1939", "obd2", "canopen", "j1939+canopen"
+PROTOCOLS = (J1939, OBD2, CANOPEN, J1939_CANOPEN)
 BUILTIN_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "profiles")
 
 
@@ -369,6 +372,19 @@ def apply(profile: Profile | None, *, spn_csv: str | None = None):
 def protocol() -> str:
     """The active profile's protocol (J1939 with no profile)."""
     return _active.protocol if _active is not None else J1939
+
+
+def speaks_j1939(proto: str | None = None) -> bool:
+    """Whether the (active) protocol includes J1939: its codes, lamps, requests and screens."""
+    return (proto or protocol()) in (J1939, J1939_CANOPEN)
+
+
+def speaks_canopen(proto: str | None = None) -> bool:
+    """Whether the (active) protocol includes CANopen: nodes, EMCY, SDO reads, NMT."""
+    return (proto or protocol()) in (CANOPEN, J1939_CANOPEN)
+
+
+GENERIC = {J1939: "generic", OBD2: "obd2", CANOPEN: "generic-canopen", J1939_CANOPEN: "generic-j1939-canopen"}
 
 
 def find(pid: str) -> Profile | None:

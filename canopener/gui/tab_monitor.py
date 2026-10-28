@@ -1,11 +1,11 @@
 """Bus Monitor tab: raw frames, scrolling or one row per ID with changed bytes highlighted. 11-bit
-IDs show their CANopen meaning (TPDO1 node 05, Heartbeat ...)."""
+IDs show their CANopen meaning (TPDO1 node 05, Heartbeat ...) on a CANopen profile."""
 
 import time
 
 from ..can.frame import CanFrame
 from ..canopen import cob
-from ..core import canopen
+from ..core import canopen, profiles
 from ..j1939.addresses import sa_name
 from ..j1939.constants import pgn_label
 from ..j1939.ids import parse_id
@@ -30,6 +30,8 @@ def _labels(fr: CanFrame, pgn, sa) -> tuple[str, str]:
     """(Label, Src) columns: J1939 PGN / address names, or the CANopen meaning of an 11-bit ID."""
     if fr.extended:
         return ("" if pgn is None else pgn_label(pgn)), ("" if sa is None else sa_name(sa))
+    if not profiles.speaks_canopen():
+        return "", ""
     node = cob.node_of(fr.can_id)
     return cob.label(fr.can_id), (canopen.source_name(canopen.node_src(node)) if node else "")
 

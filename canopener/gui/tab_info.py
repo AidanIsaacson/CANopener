@@ -1,7 +1,7 @@
 """Machine Info tab: component / software / ECU IDs, VIN, hours, fuel, readiness, and each
 CANopen node's identity (device type, name, versions, vendor / product / serial)."""
 
-from ..core import canopen
+from ..core import canopen, profiles
 from ..j1939.addresses import sa_name
 from .qt import QtWidgets
 
@@ -38,7 +38,8 @@ class InfoTab(QtWidgets.QWidget):
         claims = {sa: d for (p, sa), (t, d) in result.responses.items() if p == 0xEE00}
         readiness = result.readiness()
         session = self.ctx.session
-        nodes = [n for n in session.canopen_nodes() if n.od] if session is not None else []
+        nodes = [n for n in session.canopen_nodes() if n.od] if session is not None and profiles.speaks_canopen() \
+            else []
         if not info and not claims and not readiness and not nodes:
             return          # e.g. a codes-only read: keep what we had
         self.tree.clear()
