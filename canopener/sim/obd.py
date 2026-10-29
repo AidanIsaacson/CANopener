@@ -77,7 +77,10 @@ class ObdSimulator:
     # --- live values (wander with time so the display isn't static) ---
     def _live(self, ecu: _Ecu, pid: int) -> bytes | None:
         t = time.time() - self.t0
-        u16 = lambda v: int(v).to_bytes(2, "big")             # noqa: E731
+        # Saturates like a real ECU (run time, PID 1F, stops at 65535 s). Unclamped, a seeded sim
+        # (t0 = seed, so t is about the epoch) or one running over 18 h raised in its rx thread
+        # and went silent.
+        u16 = lambda v: max(0, min(0xFFFF, int(v))).to_bytes(2, "big")    # noqa: E731
         if ecu is self.tcm:
             return self._status(ecu) if pid == 0x01 else None
         values = {

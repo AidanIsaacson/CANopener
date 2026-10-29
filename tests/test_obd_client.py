@@ -121,3 +121,16 @@ def test_listen_only_blocks_requests():
     finally:
         c.close()
         conn.close()
+
+
+def test_seeded_sim_keeps_answering_run_time():
+    # sim_seed is the sim's start time, so "time since start" is about the epoch: PID 1F (run time,
+    # 2 bytes) used to overflow, killing the sim's rx thread so it never answered again.
+    conn = connection.open_connection(connection.OBD_SIM, sim_seed=1)
+    c = ObdClient(conn.session)
+    try:
+        assert c.read_pid(ECM, 0x1F).value == 65535         # saturates, like a real ECU
+        assert c.read_vin() == "1HGCM82633A004352"          # and it's still answering
+    finally:
+        c.close()
+        conn.close()
