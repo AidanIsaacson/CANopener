@@ -167,6 +167,7 @@ appeared.
 | `this kernel has no driver for: gs_usb …` during install | Your kernel is a cut-down one. `sudo apt install linux-generic` (Ubuntu/Mint) or `linux-image-amd64` (Debian), reboot, re-run the installer. |
 | Connected but no traffic, or lots of errors in the status bar | Wrong bitrate. Use **Auto**, or try 500k. Check the key is on and CAN-H/CAN-L aren't swapped. |
 | "slcan firmware, which can't do listen-only" | The adapter has slcan firmware (above): untick **Listen-only** and pick the bitrate instead of **Auto**, or flash candleLight. To check by hand, `candump` hears nothing while `ip -details link show can0` says `LISTEN-ONLY`. |
+| "stopped answering" (or `RTNETLINK answers: Connection timed out` / `Broken pipe`) | Some USB adapters (seen on an InnoMaker USB2CAN) lock up when they're started at the wrong bitrate on a busy bus, which **Auto** and **Find signal** do while searching. Turn the key off or unplug the adapter from the machine for a moment (or replug it into the laptop), then pick the bitrate by hand. |
 | Connect asks for a password | The passwordless rule isn't installed. Re-run the installer (or use **Settings → Set up passwordless CAN access…**). |
 
 Still stuck? Open an issue on GitHub with the output of `canopener-cli interfaces` and the error

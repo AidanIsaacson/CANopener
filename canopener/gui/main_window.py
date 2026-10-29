@@ -785,7 +785,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         found, log = interfaces.detect_bitrate(name, progress=progress)
         if found is None:
-            tail = "" if interfaces.is_slcan(name) else \
+            stuck = any("stopped answering" in line for line in log)
+            tail = "" if interfaces.is_slcan(name) or stuck else \
                 "\n\nIs the key on and the harness connected? You can also pick a bitrate by hand."
             QtWidgets.QMessageBox.warning(
                 self, "Auto bitrate", "Couldn't detect the bitrate:\n\n" + "\n".join(log) + tail)

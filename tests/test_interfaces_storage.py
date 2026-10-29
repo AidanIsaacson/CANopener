@@ -125,6 +125,51 @@ def test_slcan_refuses_listen_only(tmp_path, monkeypatch):
     assert found is None and "candleLight" in log[0] and len(ran) == 1   # nothing probed
 
 
+def test_details_read_bitrate_from_gs_usb_and_slcan(monkeypatch):
+    # `ip -details -json` as Linux 7.0 prints it: gs_usb has a bittiming object, but slcan (fixed
+    # bitrates) has only a flat bittiming_bitrate. Missing it made Connect leave a CANable up at
+    # 500k when 250k was picked.
+    import json
+    import subprocess
+
+    out = {
+        "can1": {"ctrlmode": ["LISTEN-ONLY"], "state": "ERROR-ACTIVE",
+                 "bittiming": {"bitrate": 500000, "sample_point": "0.875"}},
+        "can0": {"ctrlmode_supported": ["LISTEN-ONLY"], "state": "ERROR-ACTIVE",
+                 "bittiming_bitrate": 250000, "bitrate_const": [125000, 250000, 500000]},
+    }
+
+    class R:
+        def __init__(self, name):
+            self.stdout = json.dumps([{"ifname": name, "linkinfo": {"info_data": out[name]}}])
+
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: R(argv[-1]))
+    gs, sl = interfaces.CanInterface("can1", "up"), interfaces.CanInterface("can0", "up")
+    interfaces._fill_details(gs)
+    interfaces._fill_details(sl)
+    assert (gs.bitrate, gs.listen_only) == (500000, True)
+    assert (sl.bitrate, sl.listen_only) == (250000, False)
+    assert interfaces.needs_setup(sl, 500000, False)
+
+
+def test_stuck_adapter_gets_advice(monkeypatch):
+    # The USB2CAN (gs_usb) hangs when started at a wrong bitrate on a busy bus: Linux says
+    # 'Connection timed out', then 'Broken pipe' until the bus goes quiet.
+    assert interfaces.stuck_adapter_hint("can1", "Operation not permitted") is None
+    assert interfaces.stuck_adapter_hint("vcan0", "RTNETLINK answers: Broken pipe") is None
+    monkeypatch.setattr(interfaces, "run_privileged",
+                        lambda steps, **kw: (False, "RTNETLINK answers: Connection timed out"))
+    ok, msg = interfaces.bring_up("can1", 250000)
+    assert not ok and msg.startswith("RTNETLINK answers: Connection timed out") and "stopped answering" in msg
+
+    found, log = interfaces.detect_bitrate("can1", runner=lambda steps: (False, "RTNETLINK answers: Broken pipe"),
+                                           open_backend=FakeBackend, sys_net="/nonexistent")
+    assert found is None and "Broken pipe" in log[0] and "stopped answering" in log[1]
+
+    monkeypatch.setattr(interfaces, "run_privileged", lambda steps, **kw: (False, "Operation not permitted"))
+    assert interfaces.bring_up("can1", 250000) == (False, "Operation not permitted")    # unchanged
+
+
 def test_needs_setup_when_down_or_set_differently():
     up = interfaces.CanInterface
     assert interfaces.needs_setup(up("can0", "down"), 250000, False)

@@ -119,8 +119,9 @@ class SignalFinder:
     * ``error``      couldn't configure the interface this time; retrying
     * ``heard``      good frames at a bitrate; confirming they keep coming
     * ``locked``     steady good traffic; ``bitrate`` is the answer and the finder has finished
-    * ``failed``     gave up: the interface exists but can't be configured (permissions, or the
-                     adapter can't do listen-only). The only way it stops on its own besides locking.
+    * ``failed``     gave up: the interface exists but can't be configured (permissions, the
+                     adapter can't do listen-only, or it stopped answering: see
+                     interfaces.stuck_adapter_hint). The only way it stops on its own besides locking.
 
     After locking, the interface is left up at the found bitrate, in listen-only unless
     ``listen_only=False`` (then it is brought up once more in normal mode, like Connect does).
@@ -208,6 +209,10 @@ class SignalFinder:
             if br is not None and configured != br:
                 ok, msg = self.runner(interfaces.setup_steps(self.name, br, listen_only=True))
                 if not ok:
+                    hint = interfaces.stuck_adapter_hint(self.name, msg)
+                    if hint:            # it stays stuck until the bus goes quiet: retrying can't help
+                        self._emit("failed", f"Couldn't set {self.name} to {label}: {msg}. {hint}")
+                        return
                     failures += 1
                     if failures >= self.max_failures:
                         self._emit("failed", f"Couldn't set {self.name} to {label} listen-only: {msg}")

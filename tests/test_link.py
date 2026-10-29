@@ -109,6 +109,16 @@ def test_finder_retries_then_gives_up_when_it_cant_configure():
     assert "not permitted" in events[-1].text
 
 
+def test_finder_stops_at_once_when_the_adapter_is_stuck():
+    # A USB2CAN started at a wrong bitrate on a busy bus stops answering until the bus goes quiet:
+    # retrying or moving to the next bitrate only fails again, so say what to do instead.
+    bus, events = Bus(500000), []
+    f = finder(bus, events, runner=lambda steps: (False, "RTNETLINK answers: Connection timed out"))
+    f.run()
+    assert [e.state for e in events] == ["failed"]
+    assert "stopped answering" in events[0].text and "250k" in events[0].text
+
+
 def test_finder_stops_at_once_on_slcan():
     # The CANable's slcan firmware can't do listen-only, so the finder would search deaf forever.
     bus, events = Bus(250000), []

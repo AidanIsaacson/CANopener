@@ -164,6 +164,28 @@ def slcan_listen_only_hint(name: str) -> str:
             "does listen-only properly.")
 
 
+STUCK_ERRORS = ("Connection timed out", "Broken pipe")
+
+
+def stuck_adapter_hint(name: str, msg: str) -> str | None:
+    """Plain-language advice when configuring ``name`` failed because the adapter stopped
+    answering, else None. A USB2CAN (gs_usb, InnoMaker firmware) started at a wrong bitrate on a
+    busy bus hangs ('RTNETLINK answers: Connection timed out', then 'Broken pipe' for every
+    command) until the bus goes quiet, so retrying, or trying the next bitrate, doesn't help."""
+    if name.startswith("vcan") or not any(e in (msg or "") for e in STUCK_ERRORS):
+        return None
+    return (f"{name} stopped answering. Some USB adapters lock up when they're started at the wrong "
+            "bitrate on a busy bus. Turn the key off or unplug the adapter from the machine for a "
+            "moment (or unplug it from the computer and plug it back in), then pick the bitrate "
+            "instead of Auto or Find signal: 250k for most J1939 machines.")
+
+
+def explain_setup_error(name: str, msg: str) -> str:
+    """``msg`` from a failed bring-up, with advice added when the adapter is stuck."""
+    hint = stuck_adapter_hint(name, msg)
+    return f"{msg}\n\n{hint}" if hint else msg
+
+
 def needs_setup(iface: CanInterface, bitrate: int | None, listen_only: bool) -> bool:
     """True if Connect has to (re)configure ``iface``: it's down, or it's up at a different bitrate
     (``None`` = any) or listen-only setting than the one picked. The signal finder, for one,
@@ -187,7 +209,8 @@ def _fill_details(iface: CanInterface):
         info = json.loads(r.stdout)[0].get("linkinfo", {}).get("info_data", {})
     except (OSError, ValueError, IndexError, subprocess.SubprocessError):
         return
-    iface.bitrate = info.get("bittiming", {}).get("bitrate")
+    # Adapters with fixed bitrates (slcan: 'bitrate_const') report it as a flat "bittiming_bitrate".
+    iface.bitrate = info.get("bittiming", {}).get("bitrate") or info.get("bittiming_bitrate")
     iface.listen_only = "LISTEN-ONLY" in info.get("ctrlmode", [])
 
 
@@ -236,7 +259,8 @@ def bring_up(name: str, bitrate: int, listen_only: bool = False, timeout: float 
     if not name.startswith("vcan"):
         steps = steps[:-1] + [restart_ms_step(name)] + steps[-1:]   # restart-ms before 'up'
         optional = {len(steps) - 2}
-    return run_privileged(steps, timeout=timeout, optional=optional)
+    ok, msg = run_privileged(steps, timeout=timeout, optional=optional)
+    return ok, msg if ok else explain_setup_error(name, msg)
 
 
 def setup_command(name: str, bitrate: int, listen_only: bool = False) -> str:
@@ -398,6 +422,9 @@ def detect_bitrate(name: str, candidates=BITRATES, listen_secs: float = 1.5, min
         ok, msg = runner(setup_steps(name, br, listen_only=True))
         if not ok:
             log.append(f"{br // 1000}k: could not set listen-only mode ({msg})")
+            hint = stuck_adapter_hint(name, msg)
+            if hint:
+                log.append(hint)
             return None, log
         backend = open_backend(name)
         try:
