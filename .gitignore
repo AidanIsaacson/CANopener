@@ -16,3 +16,10 @@ hyster_*.json
 vam_*.json
 *pcst*
 *PCST*
+
+# KiCad (hardware/): commit the project, schematic, board and library files, not these
+*-backups/
+*.kicad_prl
+fp-info-cache
+*.lck
+\#auto_saved_files#

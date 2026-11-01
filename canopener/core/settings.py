@@ -38,8 +38,13 @@ DEFAULTS: dict = {
     # measurement sources (core.meters)
     "meters.sim": False,                # a simulated meter, for trying the logger without hardware
     "meters.serial": "",                # serial port of a JSON-lines meter (Pico / ESP32 bridge)
-    "meters.iio": "",                   # IIO ADC device name (e.g. ads1015) read as probe voltages
+    "meters.iio": "",                   # IIO ADC device name (e.g. ads1115) read as probe voltages
     "meters.iio_ratio": 1.0,            # input divider: volts at the probe per volt at the ADC
+    # installed options (core.hardware): which on-deck parts this unit has fitted
+    "hardware": {},                     # option id -> "yes" / "no" / "auto"; missing = "no"
+    "hardware.meter_pico.port": "",     # serial port, if not found by its USB name
+    "hardware.logic_pico.port": "",
+    "hardware.esp32.port": "",          # "" = /dev/ttyAMA0 (the GPIO14/15 UART)
     # the handheld (canopener.device)
     "device.window": "800x480",         # window size when not full screen (trying it on a laptop)
     "device.diagonal_in": 7.0,          # screen size: sizes touch targets in millimetres

@@ -2,8 +2,10 @@
 # Wiring and the reasons for these pins are in docs/DEVICE.md ("Controls"). Each switch goes
 # between its GPIO and ground; the Pi's internal pull-ups are used, so no resistors are needed.
 #
-# Pins left free on purpose: GPIO2/3 (I2C: an ADC, an RTC), GPIO7-11 + 25 (SPI0 + interrupt: the
-# MCP2518FD CAN controller), GPIO14/15 (UART), GPIO18-21 (PWM buzzer / I2S audio).
+# Pins left free on purpose (docs/ELECTRONICS.md 5.1; their overlays are in config-hardware.txt):
+# GPIO2/3 (I2C: the ADS1115), GPIO7-11 + 25 (SPI0: CAN stack A on CE0, INT 25; stack B on CE1),
+# GPIO20 (CAN stack B INT), GPIO21 (SYNC in from the meter Pico, pps-gpio), GPIO14/15 (UART:
+# the ESP32), GPIO18 (PWM buzzer), GPIO0/1 (HAT ID EEPROM). GPIO19 is the only spare.
 # Key codes are from linux/input-event-codes.h; the app's key map (System > Key map) expects these.
 
 # Five buttons along the top edge: soft keys F1-F4, and button 5 (F5: Back by default)

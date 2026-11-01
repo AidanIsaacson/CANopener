@@ -5,7 +5,7 @@
 * ``SerialLineSource``: a meter that prints one reading per line on a USB serial port: the Pico
   coprocessor, the ESP32 bridge for wireless satellites, or anything else that follows the line
   protocol below.
-* ``IioSource``: an ADC the Linux kernel already drives (an ADS1115 via ``dtoverlay=ads1015``,
+* ``IioSource``: an ADC the Linux kernel already drives (an ADS1115 via ``dtoverlay=ads1115``,
   an MCP3008, ...), read from sysfs: probe voltages on a bench Pi before the Pico board exists.
 
 Every source keeps a ``status`` the front-ends show ("not detected, retrying" and so on), the
@@ -22,10 +22,27 @@ firmware)::
     {"ch": "p1", "v": null, "flag": "OL"}          no valid reading, and why
     {"status": "error", "text": "probe 3 over voltage"}
     p1=4.512 p2=0.118                             the same, minimal (units from the hello, if any)
+    {"sync": 1234, "t_us": 123400012}             SYNC pulse 1234 left the Pico at t_us (core.sync)
+
+The hello may also list the parts the firmware found on its own buses, for ``core.hardware``:
+``"options": ["dac", "ohms", "src", "ads8584s"]``.
 
 Channel ids get the source id in front ("pico.p1"), so two meters can both have a "p1".
+
+Commands go the other way (``LineSource.send``), one JSON object per line, answered with a
+status line. Reads are free; the ones that put something on a probe tip (``src``, ``pullup``,
+``ohms``) are confirmed by the front-end first, and the firmware refuses them if the probe
+already sees a voltage::
+
+    {"cmd": "hello"}                              send the hello again
+    {"cmd": "rate", "hz": 20}                     meter readings per second
+    {"cmd": "threshold", "ch": "p1", "v": 2.5}    logic threshold at the probe tip (or "v": "auto")
+    {"cmd": "mode", "ch": "p3", "mode": "ohms"}   volts / ohms
+    {"cmd": "src", "on": true}                    component test source on probe 4
+    {"cmd": "pullup", "ch": "p1", "on": true}     4.7k pull-up from the source rail
 """
 
+import errno
 import glob
 import json
 import math
@@ -38,6 +55,8 @@ import time
 from .measure import BAD, OK, SIM, WAIT, Channel, ClockMapper, MeasurementSource, SourceStatus
 
 RETRY_SECS = 2.0
+# Commands that put a voltage or current on a probe tip: a front-end confirms before sending one.
+PROBE_COMMANDS = {"src", "pullup", "ohms"}
 
 
 class SimulatedMeter(MeasurementSource):
@@ -118,6 +137,8 @@ def parse_line(line: str):
             return None
         if "hello" in d:
             return "hello", d
+        if "sync" in d:
+            return "sync", d
         if "ch" in d:
             return "reading", d
         if "status" in d:
@@ -149,6 +170,13 @@ class FdReader:
         data = os.read(self.fd, 4096)
         return data if data else None
 
+    def write(self, data: bytes) -> bool:
+        try:
+            os.write(self.fd, data)
+            return True
+        except OSError:
+            return False
+
     def close(self):
         try:
             os.close(self.fd)
@@ -160,7 +188,7 @@ def open_serial(path: str) -> FdReader:
     """Open a USB serial port raw (no echo, no line editing). Baud rate doesn't matter for USB
     CDC devices like the Pico; it's set to 115200 for real UARTs."""
     import termios  # POSIX only; imported here so the module loads anywhere
-    fd = os.open(path, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+    fd = os.open(path, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
     try:
         attrs = termios.tcgetattr(fd)
         attrs[0] = 0                                    # iflag
@@ -176,18 +204,43 @@ def open_serial(path: str) -> FdReader:
 
 class LineSource(MeasurementSource):
     """A meter speaking the line protocol over any byte stream. ``opener()`` returns an object
-    with ``read(timeout)`` and ``close()`` (``FdReader``); it is called again after a dropout."""
+    with ``read(timeout)`` and ``close()`` (``FdReader``), and ``write(bytes)`` for ``send``; it
+    is called again after a dropout.
 
-    def __init__(self, source_id: str, name: str, opener, where: str = ""):
+    ``pulse_clock`` (a ``core.sync.PulseClock``): use the SYNC pulses for device times once it
+    has locked. ``on_options(list | None)`` gets the parts the firmware reported in its hello
+    (None when the meter goes away): ``core.hardware.Hardware.meter_report``."""
+
+    def __init__(self, source_id: str, name: str, opener, where: str = "", pulse_clock=None, on_options=None):
         super().__init__()
         self.id, self.name = source_id, name
         self.opener = opener
         self.where = where or name
+        self.pulse_clock = pulse_clock
+        self.on_options = on_options
+        self.options: list | None = None
         self._chs: dict[str, Channel] = {}
         self._clock = ClockMapper()
         self._stop = threading.Event()
         self._thread = None
+        self._stream = None
+        self._wlock = threading.Lock()
         self.lines = 0
+
+    def send(self, cmd: dict) -> bool:
+        """Send one command line (see the module docstring). False if the meter isn't connected.
+        Callers confirm ``PROBE_COMMANDS`` with the user first."""
+        stream = self._stream
+        write = getattr(stream, "write", None)
+        if write is None:
+            return False
+        with self._wlock:
+            return bool(write((json.dumps(cmd) + "\n").encode()))
+
+    def _set_options(self, options):
+        self.options = options
+        if self.on_options:
+            self.on_options(options)
 
     def channels(self) -> list[Channel]:
         return list(self._chs.values())
@@ -215,6 +268,9 @@ class LineSource(MeasurementSource):
                 self._stop.wait(RETRY_SECS)
                 continue
             self._clock.reset()
+            if self.pulse_clock is not None:
+                self.pulse_clock.reset()
+            self._stream = stream
             self.status = SourceStatus(WAIT, "No readings yet", f"{self.where} is open; waiting for data.")
             buf = b""
             try:
@@ -231,6 +287,8 @@ class LineSource(MeasurementSource):
             except OSError as e:
                 self.status = SourceStatus(BAD, "Disconnected", f"{self.where}: {e}. Retrying.")
             finally:
+                self._stream = None
+                self._set_options(None)
                 stream.close()
             self._stop.wait(RETRY_SECS)
 
@@ -249,11 +307,16 @@ class LineSource(MeasurementSource):
             if kind == "hello":
                 if d.get("name"):
                     self.name = str(d["name"])
+                if isinstance(d.get("options"), list):
+                    self._set_options([str(o) for o in d["options"]])
                 for c in d.get("channels") or []:
                     if isinstance(c, dict) and c.get("id"):
                         key = str(c["id"])
                         self._chs[key] = Channel.from_dict({**c, "id": f"{self.id}.{key}", "source": self.id,
                                                             "name": c.get("name", key)})
+            elif kind == "sync":
+                if self.pulse_clock is not None and isinstance(d.get("t_us"), (int, float)):
+                    self.pulse_clock.device_pulse(d["t_us"] / 1e6, time.time() if now is None else now)
             elif kind == "status":
                 level = OK if d.get("status") == "ok" else BAD
                 self.status = SourceStatus(level, str(d.get("status", "")).capitalize(), str(d.get("text", "")))
@@ -263,7 +326,8 @@ class LineSource(MeasurementSource):
                 host = time.time() if now is None else now
                 t = host
                 if isinstance(d.get("t_us"), (int, float)):
-                    t = self._clock.to_host(d["t_us"] / 1e6, host)
+                    synced = self.pulse_clock.to_host(d["t_us"] / 1e6) if self.pulse_clock is not None else None
+                    t = synced if synced is not None else self._clock.to_host(d["t_us"] / 1e6, host)
                 v = d.get("v")
                 v = float(v) if isinstance(v, (int, float)) and math.isfinite(v) else None
                 if self.status.level != OK:
@@ -272,8 +336,8 @@ class LineSource(MeasurementSource):
 
 
 class SerialLineSource(LineSource):
-    def __init__(self, path: str, source_id: str = "serial", name: str = "Serial meter"):
-        super().__init__(source_id, name, lambda: open_serial(path), where=path)
+    def __init__(self, path: str, source_id: str = "serial", name: str = "Serial meter", **kw):
+        super().__init__(source_id, name, lambda: open_serial(path), where=path, **kw)
         self.path = path
 
 
@@ -309,7 +373,7 @@ def _read_float(path: str) -> float | None:
 class IioSource(MeasurementSource):
     """Single-ended voltage inputs of a kernel ADC driver, polled from sysfs.
 
-    ``device`` is the driver name ("ads1015") or a folder; ``ratio`` is the input divider
+    ``device`` is the driver name ("ads1115") or a folder; ``ratio`` is the input divider
     (probe volts per ADC volt: 6.0 for the DESIGN.md 50k/10k divider)."""
 
     id = "iio"
@@ -388,13 +452,39 @@ class IioSource(MeasurementSource):
         super().stop()
 
 
-def sources_from_settings(settings) -> list[MeasurementSource]:
-    """The sources switched on in ``core.settings`` (meters.*)."""
+def sources_from_settings(settings, hardware=None, pulse_clock=None) -> list[MeasurementSource]:
+    """The sources to run: the installed options (``core.hardware``: meter Pico, ESP32, the
+    Pi's ADC), plus anything switched on by hand in ``core.settings`` (meters.*: a simulated
+    meter, a serial meter or an IIO ADC on a bench Pi or a laptop). A part that isn't installed
+    gets no source at all; one that's installed but missing gets a source that reports it and
+    retries, on its own thread."""
     out: list[MeasurementSource] = []
+    ports: set[str] = set()
+    iio = settings.get("meters.iio") or ""
+    ratio = float(settings.get("meters.iio_ratio") or 1.0)
+    if hardware is not None:
+        if hardware.available("meter_pico"):
+            ports.add(hardware.port("meter_pico"))
+
+            def open_pico():
+                port = hardware.port("meter_pico")          # looked up again on every retry
+                if not port:
+                    raise OSError(errno.ENOENT, "not found on USB")
+                return open_serial(port)
+            clock = pulse_clock if hardware.available("sync") else None
+            out.append(LineSource("pico", "Meter Pico", open_pico, where="Meter Pico", pulse_clock=clock,
+                                  on_options=hardware.meter_report))
+        if hardware.available("esp32"):
+            port = hardware.port("esp32") or "/dev/ttyAMA0"
+            ports.add(port)
+            out.append(SerialLineSource(port, "esp32", "Wireless meters"))
+        if hardware.available("adc_pi") and not iio:
+            found = hardware.detect("adc_pi")
+            iio = found.detail if found.found else "ads1115"
     if settings.get("meters.sim"):
         out.append(SimulatedMeter())
-    if settings.get("meters.serial"):
+    if settings.get("meters.serial") and settings.get("meters.serial") not in ports:
         out.append(SerialLineSource(settings.get("meters.serial")))
-    if settings.get("meters.iio"):
-        out.append(IioSource(settings.get("meters.iio"), float(settings.get("meters.iio_ratio") or 1.0)))
+    if iio:
+        out.append(IioSource(iio, ratio))
     return out

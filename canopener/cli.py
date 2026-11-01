@@ -9,6 +9,7 @@
     canopener-cli scan --iface pcan:PCAN_USBBUS1 --bitrate 250000   # any python-can adapter
     canopener-cli setup --iface can0 --bitrate auto   # configure + bring up (listen-only probe)
     canopener-cli find --iface can0 --sound           # keep listening while probing; chime on lock
+    canopener-cli hardware --stage 2b --set can_b=auto  # installed options: what's fitted, what's found
 """
 
 import argparse
@@ -459,6 +460,33 @@ def cmd_capture(a) -> int:
     return 0
 
 
+def cmd_hardware(a) -> int:
+    from .core import hardware
+    from .core.settings import Settings
+    hw = hardware.Hardware(Settings())
+    if a.stage:
+        hw.set_stage(a.stage)
+    for item in a.set or []:
+        oid, _, state = item.partition("=")
+        try:
+            hw.set_state(oid, state)
+        except ValueError as e:
+            sys.exit(f"{e}. Options: {', '.join(hardware.BY_ID)}; states: yes, no, auto")
+    for item in a.port or []:
+        oid, _, path = item.partition("=")
+        if oid not in ("meter_pico", "logic_pico", "esp32"):
+            sys.exit("--port works for meter_pico, logic_pico and esp32")
+        hw.settings.set(f"hardware.{oid}.port", path)
+    marks = {hardware.OK: "ok ", hardware.WAIT: "?  ", hardware.BAD: "!! ", hardware.OFF: "-  "}
+    for st in hw.report():
+        o = st.option
+        print(f"{marks[st.level]}{o.id:<15} stage {o.stage:<3} {st.state:<4} {o.name:<24} {st.text}")
+        if st.level == hardware.BAD or a.verbose:
+            print(f"{'':<23}{st.detail or o.hint}")
+    print(f"\nStored in {hw.settings.file} (\"hardware\"). Not installed = never touched.")
+    return 0
+
+
 def cmd_profiles(a) -> int:
     found, errors = profiles.available_profiles()
     for p in found:
@@ -523,6 +551,13 @@ def main(argv=None) -> int:
     f.add_argument("--buzzer", metavar="SPEC", help="also on a buzzer: auto, /dev/input/eventN or pwm:CHIP:CH")
     f.set_defaults(fn=cmd_find)
     sub.add_parser("profiles", help="list machine profiles").set_defaults(fn=cmd_profiles)
+
+    hw = sub.add_parser("hardware", help="installed options on the handheld: what's fitted and whether it's found")
+    hw.add_argument("--stage", help="mark everything up to this build stage installed, the rest not (1, 2a ... 8)")
+    hw.add_argument("--set", action="append", metavar="ID=STATE", help="one option: yes / no / auto (repeatable)")
+    hw.add_argument("--port", action="append", metavar="ID=PATH", help="serial port of a Pico or the ESP32")
+    hw.add_argument("-v", "--verbose", action="store_true", help="show what each option is and where to look")
+    hw.set_defaults(fn=cmd_hardware)
 
     cl = sub.add_parser("clear", help="clear J1939 fault codes: active (DM11, default) or stored (DM3); "
                                       "asks first, then reads the codes again")

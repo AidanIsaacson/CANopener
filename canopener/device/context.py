@@ -20,9 +20,11 @@ from ..core import capture as cap
 from ..core import config, interfaces, link, meters, profiles, scan, sound, units
 from ..core.capture import Capture
 from ..core.connection import CANOPEN_SIM, OBD_SIM, PROFILE_SIM, SIMULATOR, SOCKETCAN, open_connection
+from ..core.hardware import Hardware
 from ..core.live import LiveData, ObdLiveData
 from ..core.measure import MeasurementHub, MeasurementLiveData
 from ..core.settings import Settings
+from ..core.sync import PpsReader, PulseClock
 
 SOURCES = [(SOCKETCAN, "CAN adapter"), (SIMULATOR, "Simulator (J1939 machine)"),
            (OBD_SIM, "Simulator (OBD-II car)"), (CANOPEN_SIM, "Simulator (CANopen truck)"),
@@ -53,6 +55,9 @@ class DeviceContext:
         self.obd_live = ObdLiveData()
         self.meter_live = MeasurementLiveData()
         self.hub = MeasurementHub()
+        self.hardware = Hardware(self.settings)     # installed options: what this unit has fitted
+        self.pulse_clock = PulseClock()
+        self.pps: PpsReader | None = None
         self.result = None                  # last J1939 ScanResult
         self.obd_codes: dict | None = None  # last OBD-II read: module -> {stored/pending/permanent: [codes]}
         self.obd_client = None
@@ -111,12 +116,21 @@ class DeviceContext:
         return p.name if p else "No profile"
 
     def apply_meters(self):
-        """(Re)start the measurement sources switched on in settings."""
+        """(Re)start the measurement sources: installed options plus those switched on in settings."""
         for src in self.hub.sources():
             self.hub.remove_source(src.id)
-        for src in meters.sources_from_settings(self.settings):
+        self._stop_pps()
+        if self.hardware.available("sync"):
+            self.pps = PpsReader(self.pulse_clock)
+            self.pps.start()
+        for src in meters.sources_from_settings(self.settings, self.hardware, self.pulse_clock):
             self.hub.add_source(src)
         self.meter_live.clear()
+
+    def _stop_pps(self):
+        if self.pps is not None:
+            self.pps.stop()
+            self.pps = None
 
     def toast(self, text: str):
         self.toasts.append((text, time.time() + TOAST_SECS))
@@ -601,6 +615,7 @@ class DeviceContext:
                 traceback.print_exc()
         self.disconnect()
         self.hub.stop()
+        self._stop_pps()
 
     def pending_captures(self) -> list[str]:
         return cap.pending_captures()

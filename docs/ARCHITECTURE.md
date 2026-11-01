@@ -107,6 +107,10 @@ answers all of it, on 11- or 29-bit IDs.
 | CAN Node & PID Label Profiles | `core/profiles.py` + `canopener/profiles/*.json` |
 | Paged screens: Live Data, Fault Codes, Capture Log ... | Desktop GUI tabs, and the handheld UI's pages in `device/screens/` over the same core calls. Live Data's model (values, min/max, history, picked signals) is `core/live.py` |
 | DMM probes, Pico analog channels, wireless satellites on the capture timeline | `core/measure.py` (hub, channels, clock mapping) + `core/meters.py` (sources); recorded to `measurements.csv` by `core/capture.py` |
+| Tiered build: which parts are fitted | `core/hardware.py` (installed options: not installed / installed / use if found, by build stage); System > Installed options, `canopener-cli hardware` |
+| Periodic SYNC pulse (meter Pico → Pi GPIO21 + logic Pico D2) | `core/sync.py` (`PulseClock`, `PpsReader`, `fit_edges`); firmware in `firmware/meter-pico/` |
+| Logic analyzer (logic Pico, stock sigrok-pico) | `core/logic.py` (sigrok-cli command, channel names, SYNC edges from `.sr`) |
+| Pico / ESP32 firmware | `firmware/` (meter Pico in MicroPython, ESP32 bridge in Arduino); all speak the meter line protocol |
 | Header chrome, soft keys, encoder / d-pad navigation | `device/app.py` + `device/input.py`; wiring in `deploy/raspberry-pi/config-controls.txt` |
 | Fault code → live PID (use-case step 2) | `Signal.spn` links; GUI "Show in Live Data" button |
 | CAN status pill / "is the adapter hearing the machine" | `core/link.py`: `adapter_status`, `bus_status` (GUI: Adapter / Bus lamps) |
@@ -161,7 +165,12 @@ Built along these lines; usage, wiring and status are in [DEVICE.md](DEVICE.md).
 
 `core/measure.py` (channels, samples, `MeasurementHub`, `ClockMapper`, `MeasurementLiveData`) and
 `core/meters.py` (simulated, serial JSON-lines and Linux IIO sources) are the groundwork for the
-DMM, the Pico's analog channels and wireless satellites. Samples carry wall-clock time like
+DMM, the Pico's analog channels and wireless satellites. `core/hardware.py` decides which sources
+start (the installed options, [ELECTRONICS.md](ELECTRONICS.md) section 19): a part that isn't fitted
+gets no source, one that's fitted but missing gets a source that reports it and retries on its own
+thread. Detection only looks at sysfs and `/dev`, so it can't block. `core/sync.py` pairs the meter
+Pico's SYNC pulses with the kernel's pps stamps of the same edges and maps Pico time to wall time
+between them; sources without SYNC keep `ClockMapper`. Samples carry wall-clock time like
 `CanFrame`; a capture records them to `measurements.csv`, and `capture_report` merges them into
 `live_data.csv` and the summary timeline.
 

@@ -9,7 +9,7 @@ import os
 import subprocess
 
 from ... import __version__
-from ...core import config, meters, sound, storage, system, units
+from ...core import config, hardware, meters, sound, storage, system, units
 from ..input import ACTION_NAMES
 from .base import InfoDialog, Row, RowList, Screen, choose, confirm, cycle, label_of
 
@@ -97,6 +97,7 @@ class SettingsScreen(Screen):
         for src in ctx.hub.sources():
             rows.append(Row(src.name, src.status.text, kind="info", level=lambda src=src: src.status.level,
                             hint=src.status.detail))
+        rows += self._hardware_rows()
         rows.append(Row("Storage", kind="header"))
         free = system.disk_free(config.data_dir() if os.path.isdir(config.data_dir()) else os.path.expanduser("~"))
         rows.append(Row("Logs folder", config.data_dir(), kind="info",
@@ -112,6 +113,29 @@ class SettingsScreen(Screen):
             Row("Restart", select=lambda: self._power("Restart", system.REBOOT)),
             Row("Power off", select=lambda: self._power("Power off", system.POWER_OFF)),
         ]
+        return rows
+
+    def _hardware_rows(self):
+        """Installed options: what this unit has fitted. Not installed = never touched."""
+        hw = self.ctx.hardware
+        stages = [(f"Stage {st}", st) for st in hardware.STAGES]
+        rows = [Row("Installed options", kind="header"),
+                Row("Set all from build stage", select=lambda: choose(
+                    self.app, "Built up to stage", stages, None,
+                    lambda st: (hw.set_stage(st), self.ctx.apply_meters())),
+                    hint="then change single parts below")]
+
+        def setter(oid):
+            return lambda v: (hw.set_state(oid, v), self.ctx.apply_meters())
+        for opt in hardware.OPTIONS:
+            st = hw.status(opt.id)
+            rows.append(Row(f"{opt.name} (stage {opt.stage})",
+                            lambda opt=opt: label_of(hardware.STATES, hw.state(opt.id)),
+                            select=lambda opt=opt: choose(self.app, opt.name, hardware.STATES, hw.state(opt.id),
+                                                          setter(opt.id)),
+                            adjust=lambda d, opt=opt: setter(opt.id)(cycle(hardware.STATES, hw.state(opt.id), d)),
+                            level=lambda opt=opt: hw.status(opt.id).level,
+                            hint=f"{st.text}: {st.detail}" if st.detail else st.text))
         return rows
 
     # --- actions ---

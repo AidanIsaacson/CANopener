@@ -85,7 +85,7 @@ the start:
   signal B drops out mid-travel, the DESIGN.md use case), `SerialLineSource` (anything that
   prints readings on a USB serial port: the Pico coprocessor, the ESP32 bridge for wireless
   satellites) and `IioSource` (an ADC the kernel already drives, such as an ADS1115 with
-  `dtoverlay=ads1015`: real probe voltages on a bench Pi before the Pico board exists).
+  `dtoverlay=ads1115`: real probe voltages on a bench Pi before the Pico board exists).
 * **The capture records them.** `Capture.start(session, ..., measurements=hub)` writes
   `measurements.csv` beside `capture.log` while recording (flushed every second, so a power cut
   loses at most that). On save, each channel becomes a column in `live_data.csv` next to the CAN
@@ -110,7 +110,15 @@ p1=4.512 p2=0.118                            the same, minimal
 ```
 
 The source re-opens the port after a dropout and reports its state, the "Pico not detected,
-Retry?" pattern from DESIGN.md. Waveforms and logic captures (kHz-MHz) don't belong in a CSV row
+Retry?" pattern from DESIGN.md.
+
+**Installed options** (`core/hardware.py`, System > Installed options, or
+`canopener-cli hardware`): the handheld is built in stages, so each on-deck part (CAN stacks, the
+two Picos, the sync input, the Pi's ADC, the ESP32, the parts behind the meter Pico) is set to Not
+installed (the default: never touched), Installed (missing = a red lamp with a hint, retried) or
+Use if found. "Set all from build stage" fills them in. Meter sources for the meter Pico, the ESP32
+and the Pi's ADC start from these; the Meters rows above stay for a bench Pi or a laptop.
+[ELECTRONICS.md](ELECTRONICS.md) section 19 has the list. Waveforms and logic captures (kHz-MHz) don't belong in a CSV row
 per sample: they will be their own files in the capture folder, on the same timebase, listed in
 `capture.json`.
 
@@ -124,9 +132,12 @@ polling, works the same under a desktop or without one), and a USB keyboard does
 on the bench. The rotary encoder uses the kernel's `rotary-encoder` driver; the app reads it from
 `/dev/input` (the user must be in the `input` group: `install.sh --device`).
 
-Suggested pins (Pi 5, also fine on a 4 / CM4). They leave the buses the rest of the design needs
-free: I2C1 for an ADC or RTC, SPI0 + GPIO25 for the MCP2518FD CAN controller, the UART, and
-GPIO18-21 for a PWM buzzer or I2S audio.
+Suggested pins (Pi 5, also fine on a 3B+ / 4 / CM5). They leave the buses the rest of the design
+needs free ([ELECTRONICS.md](ELECTRONICS.md) 5.1): I2C1 (GPIO2/3) for the ADS1115, SPI0 for both
+MCP2518FD CAN controllers (CE0 + INT GPIO25, CE1 + INT GPIO20), GPIO21 for the SYNC pulse from the
+meter Pico, the UART (GPIO14/15) for the ESP32, and GPIO18 for a PWM buzzer. I2S audio is given up
+for GPIO20/21; GPIO19 is the only spare. Their overlay lines are in
+[`deploy/raspberry-pi/config-hardware.txt`](../deploy/raspberry-pi/config-hardware.txt).
 
 | Control | GPIO | Sends | App action |
 |---|---|---|---|
@@ -157,6 +168,7 @@ keys (System > Key map shows the current map).
 | Panel | Pixels | Set |
 |---|---|---|
 | Raspberry Pi Touch Display 2 (7") | 720x1280, portrait | Rotate picture: 90° (or 270°), screen size 7" |
+| Raspberry Pi Touch Display 2 (10.1", July 2026) | 1200x1920, portrait | Rotate picture: 90° (or 270°), screen size 10.1". On the prototype; bigger than the 7" crossbar |
 | Original Raspberry Pi 7" display | 800x480 | screen size 7" |
 | Typical 10.1" DSI panels | 1280x800 | screen size 10.1" |
 
@@ -209,3 +221,5 @@ These need the real hardware, and are the first things to check on the Pi:
   steps per detent, and the pull-ups.
 * Brightness through `/sys/class/backlight` with the udev rule.
 * The serial meter source against a real Pico, and the IIO source against an ADS1115.
+* Installed-option detection on a real Pi (USB names of both Picos, `/sys/class/pps`, the
+  `ads1115` IIO name), and the SYNC pulse pairing (`core/sync.py`) against real pps edges.

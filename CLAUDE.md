@@ -48,6 +48,12 @@ Headless or minimal Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-
   and Linux interfaces (can0) always use the built-in `SocketCanBackend`. Keep it that way.
 * **Settings both UIs share** (connection, units, profile, sound, meters, the handheld's controls)
   live in `core/settings.py` (`settings.json`); the desktop GUI still keeps its own in `QSettings`.
+* **Installed options** (`core/hardware.py`): a feature that needs on-deck hardware checks
+  `Hardware.available(id)` first, and a part that's "not installed" is never opened or polled.
+  Detection only looks (sysfs, `/dev`), never opens a device. Hardware I/O stays on its own thread.
+  Electronics decisions and pinouts are `docs/ELECTRONICS.md` (keep its pin tables, section 19,
+  `deploy/raspberry-pi/config-hardware.txt` and `firmware/meter-pico/config.py` in step).
+  `firmware/` is never imported by `canopener/`; `hardware/` will hold the KiCad board.
 * **Measurements** (meters, probes, anything read besides CAN) go through `core/measure.py`
   (`MeasurementHub`, wall-clock timestamps like `CanFrame`); sources are in `core/meters.py`.
   A capture records them to `measurements.csv` and the report merges them with the CAN data.

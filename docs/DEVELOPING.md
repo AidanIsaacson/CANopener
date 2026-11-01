@@ -110,14 +110,20 @@ canopener/
   canopen/   CANopen (CiA 301) protocol: COB-IDs, NMT, EMCY, SDO, standard objects, passive sniffer
   can/       bus backends (SocketCAN, python-can (optional), virtual, log replay) and candump log files
   core/      session engine, scans, live-data model, OBD/UDS clients, transmit, reports, profiles,
-             units, link status + signal finder, sound cues, self-update
+             units, link status + signal finder, sound cues, self-update; for the handheld:
+             meters, installed options (hardware.py), SYNC clock (sync.py), logic Pico (logic.py)
   sim/       simulated machine (J1939), OBD-II/UDS car and CANopen battery truck
   gui/       desktop GUI (Qt) - a thin front-end over core/
   cli.py     command-line front-end
-deploy/      Linux installer + USB adapter plug-in rules; Raspberry Pi launcher, service, sudoers
+deploy/      Linux installer + USB adapter plug-in rules; Raspberry Pi launcher, service, sudoers,
+             config.txt lines for the controls and for each hardware stage
+firmware/    the handheld's coprocessors: meter Pico (MicroPython), logic Pico (stock sigrok-pico),
+             ESP32 bridge (Arduino). Not part of the Python package
+hardware/    the custom board (KiCad, to come) and its groundwork notes
 legacy/      the original j1939_codes.py script and the v0.1 Pi app (frozen, for reference)
 tests/       pytest suite, including headless GUI tests
-docs/        DESIGN.md (hardware + concept), ARCHITECTURE.md (software), install/ (guides)
+docs/        DESIGN.md (hardware + concept), ELECTRONICS.md (prototype electronics: pinouts, protection,
+             stages, BOM), DEVICE.md (handheld UI), ARCHITECTURE.md (software), install/ (guides)
 ```
 
 ## Files the app writes

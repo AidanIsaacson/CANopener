@@ -596,3 +596,19 @@ def test_handheld_simulators_hidden_by_default(ctx):
     ctx.settings.set("can.source", "obd-sim")
     ctx.set_show_simulators(False)
     assert kinds() == ["socketcan"] and ctx.settings.get("can.source") == "socketcan"
+
+
+def test_system_screen_installed_options(app_for):
+    from canopener.core import hardware
+    app = app_for()
+    app.open_mode("settings")
+    app.step([])
+    screen = app.top
+    assert any(r.label == "Set all from build stage" for r in screen.rows.refresh())
+    hw = app.ctx.hardware
+    hw.set_stage("2b")
+    row = next(r for r in screen.rows.refresh() if r.label.startswith("Meter Pico"))
+    assert row.value_text() == "Installed"
+    row.adjust(1)                                         # Installed -> Use if found
+    assert hw.state("meter_pico") == hardware.AUTO
+    app.step([])                                          # draws with the fault lamps, no hang

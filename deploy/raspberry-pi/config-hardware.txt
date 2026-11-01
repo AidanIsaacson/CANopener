@@ -1,0 +1,41 @@
+# CANopener handheld hardware: append the lines for the stages you've BUILT to
+# /boot/firmware/config.txt, then reboot. Controls are separate: config-controls.txt.
+#
+# Pins and the reasons for them: docs/ELECTRONICS.md (5.1 Pi header). Then tell the app what's
+# fitted, so it never polls a part that isn't there:
+#     canopener-cli hardware --stage 2b      (or System > Installed options on the handheld)
+#
+# Lines marked [verify] are from the docs, not yet run on this hardware: check each with
+# `dtoverlay -h <name>` on the Pi before relying on it.
+
+# --- Stage 1: CAN stack A (MCP2518FD on SPI0 CE0, INT on GPIO25, 20 MHz crystal) -> can0 ---
+dtparam=spi=on
+dtoverlay=mcp251xfd,spi0-0,oscillator=20000000,interrupt=25
+# oscillator= must match the crystal (40000000 on the custom board, D10).
+
+# --- Stage 2b: SYNC from the meter Pico GP15 into GPIO21, kernel time stamps -> /dev/pps0 ---
+#dtoverlay=pps-gpio,gpiopin=21
+
+# --- Stage 3: ADS1115 on I2C1 (GPIO2/3), address 0x48 -> IIO device "ads1115" [verify] ---
+# Only through the divider + clamp front end (ELECTRONICS.md 5.7), never bare probes.
+#dtparam=i2c_arm=on
+#dtoverlay=ads1115,addr=0x48,cha_enable,chb_enable,chc_enable,chd_enable
+
+# --- Stage 5: CAN stack B (MCP2518FD on SPI0 CE1, INT on GPIO20) -> can1 ---
+#dtoverlay=mcp251xfd,spi0-1,oscillator=20000000,interrupt=20
+
+# --- Stage 6: ESP32 on the GPIO14/15 UART -> /dev/ttyAMA0 ---
+# Turn the serial console off first (raspi-config > Interface Options > Serial Port:
+# login shell No, serial hardware Yes).
+# Pi 5:
+#dtparam=uart0=on
+# Pi 3B+ (frees the PL011 UART from the onboard Bluetooth):
+#enable_uart=1
+#dtoverlay=disable-bt
+
+# --- Optional: PWM buzzer on GPIO18 (I2S audio is given up for GPIO19-21) ---
+# As in deploy/raspberry-pi/README.md; [verify] the func= value on the Pi 5's RP1.
+#dtoverlay=pwm,pin=18,func=2
+
+# Pi 5 power: a 5 V / 5 A supply, or it limits USB current (the Picos are on USB). On the 3B+,
+# take any SPI TFT hat off first: it sits on SPI0 with the CAN controller.
