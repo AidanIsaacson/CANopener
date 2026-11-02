@@ -203,6 +203,62 @@ def test_games_stay_hidden_until_about_is_opened_seven_times(app):
     assert "games" not in [m.id for m in modes.shown(app.ctx)]
 
 
+def tap(app, pos):
+    app.step([pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=pos),
+              pygame.event.Event(pygame.MOUSEBUTTONUP, button=1, pos=pos)])
+
+
+def hit_point(app, match):
+    """The centre of the newest tap region whose handler passes ``match``."""
+    rect = next(r for r, fn in reversed(app.ui.hits) if match(fn))
+    return rect.center
+
+
+def test_about_has_a_show_games_button(app):
+    from canopener.device import modes
+    from canopener.device.screens.base import InfoDialog
+    app.open_mode("settings")
+    next(r for r in app.top.rows.refresh() if r.label == "About this device").select()
+    app.step([])
+    assert isinstance(app.top, InfoDialog)
+    toggle = app.top.corner[1]
+    assert app.top.corner[0]() == "Show games menu"
+    tap(app, hit_point(app, lambda fn: fn == toggle))
+    assert app.ctx.settings.get("device.games") and "games" in [m.id for m in modes.shown(app.ctx)]
+    assert app.top.corner[0]() == "Hide games menu"
+    tap(app, hit_point(app, lambda fn: fn == toggle))
+    assert not app.ctx.settings.get("device.games")
+
+
+def test_harness_plays_by_touch(app):
+    from canopener.device.screens.games import HarnessScreen
+    app.push(HarnessScreen(app))
+    app.step([])
+    g = app.top.game
+
+    def default(fn, value):
+        return getattr(fn, "__defaults__", None) == (value,)
+    # held sideways: the board's columns run down the screen, its buttons along the left edge
+    col0, col7 = hit_point(app, lambda fn: default(fn, 0)), hit_point(app, lambda fn: default(fn, hz.COLS - 1))
+    assert col0[1] < col7[1]
+    drop = hit_point(app, lambda fn: default(fn, gc.DROP))
+    assert drop[0] < col0[0]
+    tap(app, col0)                                  # tap a column: the piece goes there
+    assert g.piece.x == 0
+    mask = g.piece.mask
+    tap(app, col0)                                  # ... tap it again: it turns
+    assert g.piece.mask == hz.rotate_cw(mask)
+    tap(app, hit_point(app, lambda fn: default(fn, gc.SWAP)))
+    assert g.hold == hz.rotate_cw(mask) and g.held
+    x = g.piece.x                                   # the swapped-in piece starts in the middle
+    tap(app, drop)
+    assert g.grid[hz.ROWS - 1][x] or g.lit
+    g.toggle_pause(0)
+    app.step([])
+    tap(app, col7)                                  # paused: a tap anywhere on the board resumes
+    assert not g.paused
+
+
 def test_harness_is_played_sideways(app):
     from canopener.device.screens.games import HarnessScreen
     app.ctx.settings.set("device.games", True)

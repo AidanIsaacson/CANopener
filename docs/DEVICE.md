@@ -77,14 +77,17 @@ changes, default No, never in listen-only.
 
 ## Games (hidden)
 
-Open **System > About this device** seven times in a row and a **Games** tile joins the home
-screen (after System, so the soft keys don't change); **System > Show games** hides it again.
+Tap **Show games menu** in the corner of **System > About this device** (or open About seven
+times in a row) and a **Games** tile joins the home screen (after System, so the soft keys don't
+change); the same button, now **Hide games menu**, or **System > Show games** hides it again.
 
 **Harness** (`device/harness.py`, the screen is `device/screens/games.py`) is played with the
 handheld turned a quarter turn anticlockwise, so it draws portrait and turns the picture. Wire
 segments fall into a board between two bus bars: the encoder turns a segment, the d-pad's up /
 down (now left / right) move it, its left (now down) drops it, pushing the encoder swaps it for
-the side piece, Back pauses. A wire touching the bars at two points clears with everything joined
+the side piece, Back pauses. With just the touchscreen: tap a column to move the segment there
+(tap its own column to turn it), the Turn / Swap / Drop buttons under the board, and tap the
+score to pause. A wire touching the bars at two points clears with everything joined
 to it: bar to bar scores double, back to the same bar single; wires falling into the gap can
 close a chain.
 

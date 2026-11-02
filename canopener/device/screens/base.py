@@ -275,11 +275,12 @@ class ChoiceDialog(Dialog):
 
 
 class InfoDialog(Dialog):
-    """Text to read (a fault code's details, about, an error), with optional extra soft keys."""
+    """Text to read (a fault code's details, about, an error), with optional extra soft keys and a
+    small button in the top corner (``corner``: (label or a function returning it, fn))."""
 
-    def __init__(self, app, title: str, lines: list[str], keys: list | None = None):
+    def __init__(self, app, title: str, lines: list[str], keys: list | None = None, corner=None):
         super().__init__(app)
-        self.title, self.lines, self.keys = title, lines, keys or []
+        self.title, self.lines, self.keys, self.corner = title, lines, keys or [], corner
         self.view = ListView()
 
     def softkeys(self):
@@ -297,7 +298,15 @@ class InfoDialog(Dialog):
     def draw(self, ui, rect):
         t = ui.theme
         p = self.panel(ui, rect, 0.92, 0.94)
-        ui.text(self.title, (p.x + t.pad * 2, p.y + t.touch * .5), "big", "text", max_w=p.w - 4 * t.pad)
+        title_w = p.w - 4 * t.pad
+        if self.corner is not None:
+            label, fn = self.corner
+            label = label() if callable(label) else label
+            b = pygame.Rect(0, 0, min(p.w * .45, t.font("small").size(label)[0] + 3 * t.pad), t.touch * .8)
+            b.topright = (p.right - t.pad, p.y + t.pad)
+            ui.button(b, label, fn, font="small")
+            title_w = b.x - p.x - 3 * t.pad
+        ui.text(self.title, (p.x + t.pad * 2, p.y + t.touch * .5), "big", "text", max_w=title_w)
         area = pygame.Rect(p.x + t.pad * 2, p.y + t.touch, p.w - 4 * t.pad, p.h - t.touch - t.pad)
         wrapped = [w for line in self.lines for w in (ui.wrap(line, "body", area.w - t.pad) or [""])]
         lh = t.font("body").get_linesize() + 2

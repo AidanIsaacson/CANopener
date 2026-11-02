@@ -4,6 +4,8 @@ signals can play it ("Controls from CAN").
 Harness is played with the handheld turned a quarter turn anticlockwise, so the picture is drawn
 portrait and turned to match: the encoder turns the piece, the d-pad's up / down (now left /
 right) move it, its left (now down) drops it, and pushing the encoder swaps it for the side piece.
+With just the screen: tap a column to move the piece there (tap its own column to turn it), and the
+Turn / Swap / Drop buttons under the board.
 """
 
 import time
@@ -171,16 +173,37 @@ class HarnessScreen(Screen):
         pu = UI(portrait, ui.theme)
         self._draw_portrait(pu, portrait.get_rect())
         ui.surface.blit(pygame.transform.rotate(portrait, -90), rect.topleft)    # top of the picture -> right
-        ui.hit(rect, self._pause)
+        ui.hit(rect, lambda: None)
+        for pr, fn in pu.hits:                  # the picture's taps, turned the same way
+            ui.hit(pygame.Rect(rect.right - pr.bottom, rect.y + pr.x, pr.h, pr.w), fn)
+
+    # --- touch ---
+    def _cmd(self, cmd, n=1):
+        self.game.command(cmd, n, time.monotonic())
+
+    def _tap_column(self, x):
+        p = self.game.piece
+        if p is not None and p.x == x:
+            self._cmd(gc.TURN)
+        else:
+            self._cmd(gc.COLUMN, x)
+
+    def _tap_overlay(self):
+        if self.game.over:
+            self._new()
+        else:
+            self._pause()
 
     def _draw_portrait(self, ui: UI, r: pygame.Rect):
         g, t = self.game, ui.theme
         head = round(r.h * .17)
-        cell = min((r.w - 2 * t.pad) / (hz.COLS + .8), (r.h - head - 2 * t.pad) / hz.ROWS)
+        keys = t.touch                          # Turn / Swap / Drop along the bottom
+        cell = min((r.w - 2 * t.pad) / (hz.COLS + .8), (r.h - head - keys - 3 * t.pad) / hz.ROWS)
         bar = cell * .4
         bw, bh = cell * hz.COLS, cell * hz.ROWS
         bx = r.centerx - bw / 2
-        by = r.bottom - t.pad - bh
+        by = r.bottom - 2 * t.pad - keys - bh
+        ui.hit(pygame.Rect(r.x, r.y, r.w, head), self._pause)      # tap the score: pause
         # header: side piece, score, next piece
         box = min(head - 2 * t.pad, cell * 1.6)
         side = pygame.Rect(r.x + t.pad, r.y + t.pad + t.touch * .4, box, box)
@@ -199,6 +222,12 @@ class HarnessScreen(Screen):
         ui.fill(pygame.Rect(bx, by, bw, bh), "panel", t.radius)
         for x in (bx - bar - 2, bx + bw + 2):
             ui.fill(pygame.Rect(x, by, bar, bh), "accent", t.radius)
+        for x in range(hz.COLS):                # tap a column: the piece goes there (or turns)
+            ui.hit(pygame.Rect(bx + x * cell, by, cell, bh), lambda x=x: self._tap_column(x))
+        kw = (r.w - 4 * t.pad) / 3
+        for i, (label, cmd) in enumerate((("Turn", gc.TURN), ("Swap", gc.SWAP), ("Drop", gc.DROP))):
+            ui.button(pygame.Rect(r.x + t.pad + i * (kw + t.pad), r.bottom - t.pad - keys, kw, keys), label,
+                      lambda cmd=cmd: self._cmd(cmd), enabled=not g.busy and not (cmd == gc.SWAP and g.held))
         live = self._live_cells()
         for y in range(hz.ROWS):
             for x in range(hz.COLS):
@@ -216,8 +245,8 @@ class HarnessScreen(Screen):
             self._tile(ui, pr, g.piece.mask, "text", "panel2")
             ui.fill(pr, "focus", t.radius, max(2, t.pad // 3))
         if g.over or g.paused:
-            msg = ("Game over", f"Score {g.score}", "Push: new game  ·  Back: leave") if g.over else \
-                ("Paused", "Push: resume", "Back: leave")
+            msg = ("Game over", f"Score {g.score}", "Tap or push: new game  ·  Back: leave") if g.over else \
+                ("Paused", "Tap or push: resume", "Back: leave")
             o = pygame.Rect(0, 0, bw * .9, t.touch * 2.6)
             o.center = (r.centerx, by + bh / 2)
             ui.fill(o, (0, 0, 0), t.radius)
@@ -225,6 +254,7 @@ class HarnessScreen(Screen):
             ui.text(msg[0], (o.centerx, o.y + o.h * .25), "big", "text", align="center")
             ui.text(msg[1], (o.centerx, o.y + o.h * .55), "body", "text", align="center")
             ui.text(msg[2], (o.centerx, o.y + o.h * .8), "small", "dim", align="center", max_w=o.w - t.pad)
+            ui.hit(r, self._tap_overlay)
 
     def _live_cells(self) -> set:
         """Wires joined to a bus bar: drawn lit, so you can see how far each reaches."""

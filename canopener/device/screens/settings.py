@@ -114,7 +114,7 @@ class SettingsScreen(Screen):
         ]
         if s.get("device.games"):
             rows.append(Row("Show games", select=lambda: s.set("device.games", False), check=lambda: True,
-                            hint="hide them again (About, seven times, brings them back)"))
+                            hint="hide them again (System > About brings them back)"))
         rows += [
             Row("Desktop app instead", select=self._to_desktop, hint="switch to the laptop window (Qt)"),
             # Exits cleanly, so the Pi's service (Restart=on-failure) leaves the desktop showing.
@@ -211,8 +211,16 @@ class SettingsScreen(Screen):
                  f"Settings: {self.ctx.settings.file}", f"Logs: {config.logs_dir()}"]
         if self.app.encoder is not None:
             lines.append(f"Encoder: {self.app.encoder.path or self.app.encoder.error or 'looking'}")
-        self.app.push(InfoDialog(self.app, "About", lines))
+        self.app.push(InfoDialog(self.app, "About", lines, corner=(self._games_label, self._toggle_games)))
         self._count_about()
+
+    def _games_label(self) -> str:
+        return "Hide games menu" if self.ctx.settings.get("device.games") else "Show games menu"
+
+    def _toggle_games(self):
+        on = not self.ctx.settings.get("device.games")
+        self.ctx.settings.set("device.games", on)
+        self.ctx.toast("Games: on the home screen" if on else "Games hidden")
 
     def _count_about(self):
         """Open About seven times in a row (each within 10 s of the last) and Games appears."""
