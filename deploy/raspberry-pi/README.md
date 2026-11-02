@@ -4,7 +4,8 @@ Reference for the files in this folder. **For step-by-step setup from a blank SD
 [docs/install/raspberry-pi.md](../../docs/install/raspberry-pi.md).**
 
 Target setup: Raspberry Pi OS (64-bit, Bookworm or later), a SocketCAN adapter or an
-MCP2515/MCP2518FD HAT showing up as `can0`, and a touchscreen. (Not yet verified on Pi hardware.)
+MCP2515/MCP2518FD HAT showing up as `can0`, and a touchscreen. (Verified on a Pi 5 with Trixie and a
+CANable 2.0; not yet with a HAT.)
 
 ```bash
 git clone https://github.com/AidanIsaacson/CANopener.git ~/CANopener
@@ -20,6 +21,7 @@ cd ~/CANopener
 | `71-canopener-backlight.rules` | udev rule: the `video` group may set the screen brightness. Installed by `install.sh --device`. |
 | `canopener.sudoers` | Lets your user run **only** `ip link set canN up/down/type can ...` without a password. Without it, interface setup asks for a password (pkexec), which a kiosk can't answer. |
 | `canopener.service` | systemd **user** service: start at login, restart on crash. |
+| `canopener-autostart.desktop` | Desktop login autostart that starts the service: Raspberry Pi OS's desktop (labwc) never activates `graphical-session.target`, so the service's own `WantedBy=` doesn't fire there. Installed by `install.sh --autostart` as `~/.config/autostart/canopener.desktop`. |
 | `canopener.desktop` | Application-menu entry. |
 
 ## SPI-HAT kernel overlay

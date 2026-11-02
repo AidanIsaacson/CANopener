@@ -372,6 +372,24 @@ def test_handheld_system_screen_switches_to_the_desktop_app(app_for, monkeypatch
     assert not app.running and app.switch_to == "desktop" and app.ctx.settings.get("ui") == "desktop"
 
 
+def test_handheld_exit_to_desktop_closes_without_switching(app_for):
+    """System > Exit to desktop closes cleanly (exit 0, so the Pi's service doesn't restart it) and
+    leaves the chosen UI alone, unlike Desktop app instead."""
+    from canopener.device.screens.settings import SettingsScreen
+    app = app_for(ui="device")
+    app.open_mode("settings")
+    screen = app.top
+    assert isinstance(screen, SettingsScreen)
+    row = next(r for r in screen.rows.refresh() if r.label == "Exit to desktop")
+    row.select()                                        # asks first, No by default
+    app.action(inp.SELECT)
+    assert app.running
+    row.select()
+    app.action(inp.ROTATE, 1)
+    app.action(inp.SELECT)
+    assert not app.running and app.switch_to is None and app.ctx.settings.get("ui") == "device"
+
+
 def test_switching_starts_a_fresh_process_or_asks_systemd_to(monkeypatch, tmp_path):
     """The other UI starts as a new process (own session, output logged), never inside the old one."""
     import subprocess
@@ -473,6 +491,18 @@ def test_only_the_pi_service_counts_as_running_under_systemd(monkeypatch, tmp_pa
     assert not updates.under_systemd(str(pi))
     unit = open(os.path.join(os.path.dirname(__file__), "..", "deploy", "raspberry-pi", "canopener.service")).read()
     assert "Environment=CANOPENER_SERVICE=1" in unit
+
+
+def test_pi_autostart_starts_the_service_at_desktop_login():
+    """Raspberry Pi OS's labwc desktop never activates graphical-session.target, so the service's
+    WantedBy= never fired (found on a Pi 5): the desktop's own autostart has to start it."""
+    here = os.path.join(os.path.dirname(__file__), "..", "deploy", "raspberry-pi")
+    entry = open(os.path.join(here, "canopener-autostart.desktop")).read()
+    exec_line = next(line for line in entry.splitlines() if line.startswith("Exec="))
+    assert "systemctl --user start canopener.service" in exec_line
+    assert "import-environment" in exec_line and "WAYLAND_DISPLAY" in exec_line
+    installer = open(os.path.join(here, "install.sh")).read()
+    assert 'canopener-autostart.desktop" "$HOME/.config/autostart/canopener.desktop"' in installer
 
 
 def test_a_canopener_folder_in_the_working_directory_cant_shadow_the_app(tmp_path):

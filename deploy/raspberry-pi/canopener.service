@@ -1,5 +1,7 @@
 # systemd *user* service: starts CANopener when you log in to the Pi desktop and restarts
-# it if it crashes. Installed by install.sh into ~/.config/systemd/user/.
+# it if it crashes. Installed by install.sh into ~/.config/systemd/user/. On Raspberry Pi OS
+# the desktop's autostart (canopener-autostart.desktop) starts it: labwc never activates
+# graphical-session.target, which other desktops do.
 #   systemctl --user enable --now canopener     # start now and at every login
 #   journalctl --user -u canopener -f           # watch its output
 [Unit]

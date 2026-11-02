@@ -47,7 +47,8 @@ pick **Simulator** (a telehandler) or **OBD-II simulator (car)**, and press **Co
 ## The handheld (in progress)
 
 The same core app runs on desktop and Raspberry Pi. To try it on the laptop: **Settings → Handheld (Pi) screen**
-(and **System → Desktop app instead** to come back).
+(and **System → Desktop app instead** to come back). On the Pi, **System → Exit to desktop** closes it and
+shows the Pi's desktop; open it again from the menu.
 
 The Raspberry Pi, however, can be made into a portable handset, packed with other features.
 

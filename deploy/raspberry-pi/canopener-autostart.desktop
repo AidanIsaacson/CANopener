@@ -1,0 +1,10 @@
+[Desktop Entry]
+# Desktop login autostart: starts canopener.service once the desktop is up. Raspberry Pi OS's labwc
+# session never activates graphical-session.target, so the service's WantedBy= alone never fires
+# there. Installed by install.sh --autostart as ~/.config/autostart/canopener.desktop.
+Type=Application
+Name=CANopener (start at login)
+Comment=Starts the CANopener user service
+Exec=sh -c "systemctl --user import-environment DISPLAY WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE; systemctl --user start canopener.service"
+NoDisplay=true
+Terminal=false

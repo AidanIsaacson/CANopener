@@ -7,8 +7,9 @@ it waiting for downloads). Works on a Pi 3B+, 4, 5, or CM4.
 > the Touch Display 2 and a USB CANable, then the first buttons and the encoder. It uses this page
 > for the basics.
 
-> **Status:** these steps use the scripts in [`deploy/raspberry-pi/`](../../deploy/raspberry-pi),
-> which are tested on desktop Linux but **not yet on real Pi hardware**. If a step doesn't match
+> **Status:** these steps use the scripts in [`deploy/raspberry-pi/`](../../deploy/raspberry-pi).
+> They have been tested on a **Pi 5** with Raspberry Pi OS (64-bit) from October 2026 and a
+> CANable 2.0, but not yet on the other Pi models or with an SPI CAN HAT. If a step doesn't match
 > what you see, note where and open an issue.
 
 ## 1. Flash the SD card
@@ -144,7 +145,7 @@ Re-running the installer also picks up new drivers, rules and dependencies.
 
 | Problem | Fix |
 |---|---|
-| Doesn't start at login | `systemctl --user status canopener` and `journalctl --user -u canopener` show why. Fallback: `mkdir -p ~/.config/autostart && cp ~/.local/share/applications/canopener.desktop ~/.config/autostart/` |
+| Doesn't start at login | `systemctl --user status canopener` and `journalctl --user -u canopener` show why. If it says `inactive (dead)` with no errors, the login never started it: re-run the installer with `--autostart` (it adds `~/.config/autostart/canopener.desktop`, which starts it when the desktop logs in), then reboot. |
 | Startup log | `~/.local/state/canopener/launch.log` (interface setup + app output) |
 | `pip` can't find PySide6 | You're on the 32-bit OS. Reflash with Raspberry Pi OS **(64-bit)**, or use `sudo apt install python3-pyqt6` and `~/canopener-venv/bin/pip install -e .` |
 | `can0` doesn't exist with a USB adapter | `~/canopener-venv/bin/canopener-cli interfaces` says why (e.g. slcan firmware not attached, adapter in DFU mode). See the laptop guide's [troubleshooting](linux-laptop.md#troubleshooting). |

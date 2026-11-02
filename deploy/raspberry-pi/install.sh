@@ -50,6 +50,10 @@ for arg in "$@"; do
         sed "s|CANOPENER_LAUNCHER|$LAUNCHER|" "$HERE/canopener.service" > "$HOME/.config/systemd/user/canopener.service"
         systemctl --user daemon-reload
         systemctl --user enable canopener
+        # Raspberry Pi OS's desktop (labwc) never reaches graphical-session.target: its login
+        # autostart starts the service instead. Replaces an older copy of the menu entry there.
+        mkdir -p "$HOME/.config/autostart"
+        install -m 644 "$HERE/canopener-autostart.desktop" "$HOME/.config/autostart/canopener.desktop"
         echo "   starts at next login; 'systemctl --user start canopener' to start now"
         ;;
     --device)

@@ -7,6 +7,7 @@ Left / right on the d-pad changes the focused value; Select opens a list to pick
 import glob
 import os
 import subprocess
+import time
 
 from ... import __version__
 from ...core import config, hardware, meters, sound, storage, system, units
@@ -33,12 +34,16 @@ def serial_ports() -> list[str]:
     return sorted(glob.glob("/dev/ttyACM*") + glob.glob("/dev/ttyUSB*") + glob.glob("/dev/serial/by-id/*"))
 
 
+UNLOCK_OPENS, UNLOCK_GAP_S = 7, 10.0
+
+
 class SettingsScreen(Screen):
     title = "System"
 
     def __init__(self, app, section: str | None = None):
         super().__init__(app)
         self.rows = RowList(self._rows)
+        self._about_opens: list[float] = []     # Games unlock: About, seven times in a row
         if section:
             rows = self.rows.refresh()
             i = next((i for i, r in enumerate(rows) if r.kind == "header" and r.label == section), 0)
@@ -106,10 +111,18 @@ class SettingsScreen(Screen):
         rows += [
             Row("System", kind="header"),
             Row("About this device", select=self._about),
+        ]
+        if s.get("device.games"):
+            rows.append(Row("Show games", select=lambda: s.set("device.games", False), check=lambda: True,
+                            hint="hide them again (About, seven times, brings them back)"))
+        rows += [
             Row("Desktop app instead", select=self._to_desktop, hint="switch to the laptop window (Qt)"),
-            Row("Close the app", select=lambda: confirm(self.app, "Close CANopener?",
-                                                         "A recording in progress is stopped and saved.", "Close",
-                                                         lambda: setattr(self.app, "running", False))),
+            # Exits cleanly, so the Pi's service (Restart=on-failure) leaves the desktop showing.
+            Row("Exit to desktop", select=lambda: confirm(
+                self.app, "Exit to the desktop?",
+                "CANopener closes and the Pi's desktop shows. Open it again from the menu (CANopener) or by "
+                "restarting. A recording in progress is stopped and saved.", "Exit",
+                lambda: setattr(self.app, "running", False)), hint="close CANopener"),
             Row("Restart", select=lambda: self._power("Restart", system.REBOOT)),
             Row("Power off", select=lambda: self._power("Power off", system.POWER_OFF)),
         ]
@@ -199,6 +212,24 @@ class SettingsScreen(Screen):
         if self.app.encoder is not None:
             lines.append(f"Encoder: {self.app.encoder.path or self.app.encoder.error or 'looking'}")
         self.app.push(InfoDialog(self.app, "About", lines))
+        self._count_about()
+
+    def _count_about(self):
+        """Open About seven times in a row (each within 10 s of the last) and Games appears."""
+        s = self.ctx.settings
+        if s.get("device.games"):
+            return
+        now = time.monotonic()
+        if self._about_opens and now - self._about_opens[-1] > UNLOCK_GAP_S:
+            self._about_opens = []
+        self._about_opens.append(now)
+        left = UNLOCK_OPENS - len(self._about_opens)
+        if left <= 0:
+            self._about_opens = []
+            s.set("device.games", True)
+            self.ctx.toast("Games unlocked: they're on the home screen")
+        elif left <= 3:
+            self.ctx.toast(f"{left} more...")
 
     def _to_desktop(self):
         from ... import frontends
