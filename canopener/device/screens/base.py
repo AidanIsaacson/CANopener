@@ -108,13 +108,18 @@ class RowList:
         def draw_row(ui: UI, i, r, focused):
             row = rows[i]
             if row.kind == "header":
-                ui.text(row.label.upper(), (r.x + t.pad, r.bottom - t.pad), "small", "accent", valign="center")
+                lr = ui.text(row.label.upper(), (r.x + t.pad, r.bottom - t.pad), "small", "accent", valign="center")
+                if lr.right + t.pad < r.right - t.pad:          # a hairline running on from the heading
+                    pygame.draw.line(ui.surface, ui.color("line"), (lr.right + t.pad, lr.centery),
+                                     (r.right - t.pad * 2, lr.centery), 1)
                 return
             inner = r.inflate(-t.pad // 2, -t.pad // 3)
+            lit = focused and row.selectable
             if row.kind != "info":
-                ui.fill(inner, "panel2" if row.kind == "action" else "panel", t.radius)
-            if focused and row.selectable:
+                ui.fill(inner, "panel2" if row.kind == "action" or lit else "panel", t.radius)
+            if lit:
                 ui.fill(inner, "focus", t.radius, max(2, t.pad // 3))
+                ui.fill(pygame.Rect(inner.x, inner.y, max(4, t.pad // 2), inner.h), "focus", t.radius)
             x = inner.x + t.pad
             if row.check is not None:
                 box = pygame.Rect(0, 0, t.touch * .5, t.touch * .5)
@@ -175,8 +180,8 @@ class Dialog(Screen):
         ui.hit(rect, lambda: None)                  # swallow taps outside the panel
         p = pygame.Rect(0, 0, rect.w * w_frac, rect.h * h_frac)
         p.center = rect.center
-        ui.fill(p, "panel", ui.theme.radius * 2)
-        ui.fill(p, "line", ui.theme.radius * 2, 2)
+        ui.card(p, "panel", ui.theme.radius * 2)
+        ui.fill(p, "line", ui.theme.radius * 2, 1)
         return p
 
 
@@ -266,7 +271,9 @@ class ChoiceDialog(Dialog):
         def draw_row(ui, i, r, focused):
             label, value = self.options[i]
             inner = r.inflate(-t.pad // 2, -t.pad // 3)
-            ui.fill(inner, "accent" if value == self.current else "panel2", t.radius)
+            ui.fill(inner, "accent_dim" if value == self.current else "panel2", t.radius)
+            if value == self.current:
+                ui.fill(pygame.Rect(inner.x, inner.y, max(4, t.pad // 2), inner.h), "accent", t.radius)
             if focused:
                 ui.fill(inner, "focus", t.radius, max(2, t.pad // 3))
             ui.text(label, (inner.x + t.pad, inner.centery), "body", "text", max_w=inner.w - 2 * t.pad)

@@ -18,6 +18,7 @@ import traceback
 import pygame
 
 from .. import __version__, plugins
+from ..core import sound
 from ..core.settings import Settings
 from . import input as inp
 from . import modes, ui
@@ -27,6 +28,38 @@ from .ui import UI, Theme
 
 TAP_SLOP_MM = 2.5           # a finger moving less than this is a tap, more is a drag
 MIN_WINDOW = 320            # pixels: the smallest a window may be dragged to, either way
+
+
+class MixerSpeaker:
+    """Tones through Pygame's mixer, for ``DeviceContext.speaker``: they start within a few
+    milliseconds, so a tap's chirp lands with the tap (a player command takes ~100 ms to start).
+    The audio device is opened on the first sound; without one, core.sound's player command."""
+
+    def __init__(self):
+        self.ok: bool | None = None
+        self._sounds: dict = {}
+
+    def _open(self):
+        try:
+            pygame.mixer.init(frequency=sound.RATE, size=-16, channels=1, buffer=512, allowedchanges=0)
+            self.ok = pygame.mixer.get_init() is not None
+        except (pygame.error, TypeError):
+            self.ok = False
+
+    def __call__(self, tone: str, volume: float) -> bool:
+        if self.ok is None:
+            self._open()
+        if not self.ok:
+            return sound.play_speaker(tone, volume)
+        try:
+            snd = self._sounds.get(tone)
+            if snd is None:
+                snd = self._sounds[tone] = pygame.mixer.Sound(buffer=sound.wav_bytes(sound.TONES[tone]))
+            snd.set_volume(min(1.0, sound.amplitude(volume) / 0.8))
+            snd.play()
+        except pygame.error:
+            return False
+        return True
 
 
 class DeviceApp:
@@ -57,6 +90,9 @@ class DeviceApp:
         self.clock = pygame.time.Clock()
         self.running = True
         self.switch_to: str | None = None   # another front-end to start once this one has closed
+        self.restart = False                # System > Check for updates: start the new version on closing
+        self._pressed = None                # the tap area under the finger, drawn lit while it's down
+        self._chirped = False               # one touch chirp per frame (a tap can also be a soft key)
         self._touch = None              # (start pos, tap fn, scroller, moved, last pos)
         if not modes.modes():
             modes.register_builtin()
@@ -179,6 +215,12 @@ class DeviceApp:
                 slots.append(SoftKey("Timestamp", self.ctx.tag))
         return slots
 
+    def chirp(self):
+        """Touch / button feedback (System > Sound > Chirp on taps), at most once a frame."""
+        if not self._chirped:
+            self._chirped = True
+            self.ctx.cue("touch")
+
     def action(self, action: str, n: int = 1):
         if action == inp.QUIT:
             self.running = False
@@ -222,6 +264,7 @@ class DeviceApp:
             if a in (inp.ROTATE_CW, inp.ROTATE_CCW):
                 self.action(inp.ROTATE, 1 if a == inp.ROTATE_CW else -1)
             elif a is not None:
+                self.chirp()
                 a = self.press.down(a)
                 if a is not None:
                     self.action(a)
@@ -235,18 +278,23 @@ class DeviceApp:
             self.action(inp.ROTATE, -ev.y)
         elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
             pos = self.to_logical(ev.pos)
-            self._touch = [pos, self.ui.hit_at(pos), self.ui.drag_at(pos), False, pos]
+            rect, fn = self.ui.hit_rect_at(pos)
+            self._touch = [pos, fn, self.ui.drag_at(pos), False, pos]
+            self._pressed = rect if fn is not None and rect.w * rect.h < self.size[0] * self.size[1] / 3 else None
+            if fn is not None:
+                self.chirp()
         elif ev.type == pygame.MOUSEMOTION and self._touch is not None:
             pos = self.to_logical(ev.pos)
             start, _, scroller, moved, last = self._touch
             if not moved and abs(pos[1] - start[1]) + abs(pos[0] - start[0]) > TAP_SLOP_MM * self.theme.px_per_mm:
                 self._touch[3] = moved = True
+                self._pressed = None
             if moved and scroller is not None:
                 scroller.scroll_by(last[1] - pos[1])
             self._touch[4] = pos
         elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1 and self._touch is not None:
             _, fn, _, moved, _ = self._touch
-            self._touch = None
+            self._touch = self._pressed = None
             if not moved and fn is not None:
                 fn()
 
@@ -258,6 +306,7 @@ class DeviceApp:
         if self.ladder is not None:
             for kind, a in self.ladder.poll():
                 if kind == "down":
+                    self.chirp()
                     self.action(self.keymap.button5 if a == inp.BUTTON5 else a)
         a = self.press.poll()
         if a is not None:
@@ -296,12 +345,15 @@ class DeviceApp:
         self._draw_softkeys(u, keys)
         self._draw_status(u, stat)
         self._draw_toast(u, content)
+        if self._pressed is not None:           # the finger's on it: show it took the tap
+            u.glow(self._pressed)
         if self.rotate:
             self.screen.blit(pygame.transform.rotate(self.canvas, -self.rotate), (0, 0))
 
     def _draw_softkeys(self, u: UI, rect):
         t = self.theme
         u.fill(rect, "panel")
+        self._hairline(u, rect)
         slots = self.softkey_slots()
         n = len(slots)
         gap = t.pad
@@ -309,7 +361,7 @@ class DeviceApp:
         for i, key in enumerate(slots):
             r = pygame.Rect(rect.x + gap + i * (w + gap), rect.y + t.pad // 2, w, rect.h - t.pad)
             if key is None:
-                u.fill(r, "bg", t.radius)
+                u.fill(r, "panel_hi", t.radius)
                 continue
             u.button(r, key.label, (lambda a=inp.SOFT[i]: self.action(a)) if key.fn else None,
                      enabled=key.enabled, active=key.active)
@@ -317,6 +369,7 @@ class DeviceApp:
     def _draw_status(self, u: UI, rect):
         t, ctx = self.theme, self.ctx
         u.fill(rect, "panel")
+        self._hairline(u, rect)
         x = rect.x + t.pad // 2
         bw = round(t.touch * 1.05)
         for icon, fn, on in ((ui.icon_back, lambda: self.action(inp.BACK), len(self.stack) > 1),
@@ -349,6 +402,11 @@ class DeviceApp:
         title = f"{ctx.busy}…" if ctx.busy else self.breadcrumb()
         u.text(title, (x + t.pad, rect.centery), "body", "accent" if ctx.busy else "text", max_w=right - x - t.pad)
 
+    def _hairline(self, u: UI, rect):
+        """A thin line where a bar meets the page, so the chrome reads as its own layer."""
+        y = rect.bottom - 1 if rect.y == 0 else rect.y
+        pygame.draw.line(u.surface, ui.COLORS["line"], (rect.x, y), (rect.right, y), 1)
+
     def _draw_toast(self, u: UI, content):
         msg = self.ctx.current_toast()
         if not msg:
@@ -358,14 +416,15 @@ class DeviceApp:
         lh = t.font("body").get_linesize()
         r = pygame.Rect(0, 0, content.w * .86, lh * len(lines) + t.pad * 2)
         r.midbottom = (content.centerx, content.bottom - t.pad)
-        u.fill(r, (0, 0, 0), t.radius)
-        u.fill(r, "accent", t.radius, 2)
+        u.card(r, "panel2", t.radius)
+        u.fill(pygame.Rect(r.x, r.y, max(4, t.pad // 2), r.h), "accent", t.radius)   # accent stripe
         for i, line in enumerate(lines):
             u.text(line, (r.centerx, r.y + t.pad + lh * i + lh // 2), "body", "text", align="center")
 
     # ------------------------------------------------------------------
     def step(self, events=None):
         """One frame: input, state, drawing. ``events`` for tests (default: Pygame's queue)."""
+        self._chirped = False
         for ev in (pygame.event.get() if events is None else events):
             self.handle_event(ev)
         self.poll_hardware()
@@ -420,10 +479,12 @@ def main(argv=None) -> int:
         size = a.size or _size(settings.get("device.window") or "800x480")
     except ValueError:
         size = (800, 480)
-    pygame.display.init()           # not pygame.init(): no mixer (sound cues go through core.sound)
+    pygame.display.init()           # not pygame.init(): the mixer opens on the first sound (MixerSpeaker)
     pygame.font.init()
     pygame.display.set_caption(f"CANopener {__version__}")
     ctx = DeviceContext(settings)
+    if not a.screenshot:
+        ctx.speaker = MixerSpeaker()
     try:
         app = DeviceApp(ctx, size, rotate=a.rotate, fullscreen=a.fullscreen, encoder=not a.screenshot)
     except Exception:                       # no usable display (video driver, permissions, ...)
@@ -457,6 +518,12 @@ def main(argv=None) -> int:
             pass
         ctx.shutdown()
         pygame.quit()
+    if app.restart:                         # System > Check for updates: the new version
+        from .. import frontends
+        from ..core import updates
+        if updates.under_systemd():         # the Pi's service starts us again on this exit code
+            return updates.RESTART_EXIT_CODE
+        return frontends.switch(frontends.DEVICE, fullscreen=app.fullscreen)
     if app.switch_to:                       # System > Desktop app instead
         from .. import frontends
         return frontends.switch(app.switch_to, fullscreen=app.fullscreen)

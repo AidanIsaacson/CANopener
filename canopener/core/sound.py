@@ -3,6 +3,11 @@
 A cue is a few (frequency, seconds) notes. Each one has its own rhythm as well as its own pitch,
 so it still reads on an *active* buzzer that can only beep at one pitch.
 
+``TONES`` are the sounds there are; ``EVENTS`` are the things that can make one (traffic dropped,
+a log started, a tap on the screen ...). Which tone each event plays is a setting
+(``sound.tones``: event -> tone name or ``"off"``; ``tone_for``), as is the speaker volume
+(``sound.volume``, 0-100). The volume only scales the speaker: a buzzer has one loudness.
+
 Outputs:
 
 * **speaker**: the notes as a WAV file, played with whichever command-line player exists
@@ -37,6 +42,54 @@ CUES = {
     "back": [(1175, 0.08), (1760, 0.08)],                   # two quick rising: traffic came back
     "test": [(1320, 0.15)],
 }
+# Every tone there is: the four cues above plus some to choose from for other events.
+TONES = {
+    **CUES,
+    "chirp": [(2600, 0.012)],                               # a tap on the screen: as short as can be heard
+    "click": [(1900, 0.02)],
+    "blip": [(1320, 0.06)],
+    "double": [(1480, 0.06), (1480, 0.06)],
+    "rising": [(660, 0.07), (990, 0.07), (1320, 0.12)],
+    "falling": [(1320, 0.07), (990, 0.07), (660, 0.16)],
+    "alert": [(1760, 0.1), (1320, 0.1), (1760, 0.1), (1320, 0.1)],
+    "low": [(440, 0.28)],
+}
+TONE_LABELS = {
+    "found": "Locked on (three rising)", "lost": "Dropped (two falling)", "back": "Back (two quick)",
+    "test": "Beep", "chirp": "Chirp", "click": "Click", "blip": "Blip", "double": "Double beep",
+    "rising": "Rising", "falling": "Falling", "alert": "Alert (warble)", "low": "Low tone",
+}
+OFF = "off"
+# Things that can make a sound: (id, label, default tone). Front-ends call ``cue(event)``.
+EVENTS = [
+    ("touch", "Tap or button press", "chirp"),
+    ("found", "Signal found (bitrate locked on)", "found"),
+    ("lost", "CAN traffic stopped", "lost"),
+    ("back", "CAN traffic came back", "back"),
+    ("rec_start", "Log started", "rising"),
+    ("rec_stop", "Log stopped", "falling"),
+    ("tag", "Timestamp added", "blip"),
+    ("codes", "Codes read: some found", "double"),
+    ("error", "Something failed", "low"),
+    ("game_clear", "Game: circuit or row cleared", "click"),
+    ("game_over", "Game over", "falling"),
+]
+EVENT_LABELS = {e: label for e, label, _ in EVENTS}
+DEFAULT_TONES = {e: tone for e, _, tone in EVENTS}
+
+
+def tone_for(event: str, overrides: dict | None = None) -> str | None:
+    """The tone ``event`` plays (None: off). A tone's own name plays that tone."""
+    tone = (overrides or {}).get(event, DEFAULT_TONES.get(event, event))
+    return tone if tone in TONES else None
+
+
+def amplitude(volume: float) -> float:
+    """Volume 0-1 -> sample amplitude. Squared, so the steps sound even (half way = -12 dB)."""
+    v = max(0.0, min(1.0, float(volume)))
+    return 0.8 * v * v
+
+
 PLAYERS = [["pw-play"], ["paplay"], ["aplay", "-q"]]
 SPEAKER, BUZZER = "speaker", "buzzer"
 AUTO = "auto"               # buzzer spec: find a beeper input device by itself
@@ -62,18 +115,19 @@ def wav_bytes(notes, rate: int = RATE, volume: float = 0.8) -> bytes:
     return bytes(out)
 
 
-def cue_path(cue: str, folder: str | None = None) -> str:
-    """The cue's WAV file, written on first use."""
+def cue_path(cue: str, folder: str | None = None, volume: float = 1.0) -> str:
+    """The tone's WAV file at this volume (to the nearest 5 %), written on first use."""
     folder = folder or tempfile.gettempdir()
     uid = os.getuid() if hasattr(os, "getuid") else 0
-    path = os.path.join(folder, f"canopener-{cue}-{uid}.wav")
+    pct = round(max(0.0, min(1.0, volume)) * 20) * 5
+    path = os.path.join(folder, f"canopener-{cue}-v{pct}-{uid}.wav")
     if not os.path.exists(path):
         tmp = f"{path}.{os.getpid()}.tmp"
         with wave.open(tmp, "wb") as w:
             w.setnchannels(1)
             w.setsampwidth(2)
             w.setframerate(RATE)
-            w.writeframes(wav_bytes(CUES[cue]))
+            w.writeframes(wav_bytes(TONES[cue], volume=amplitude(pct / 100)))
         os.replace(tmp, path)
     return path
 
@@ -86,12 +140,12 @@ def player() -> list[str] | None:
     return None
 
 
-def play_speaker(cue: str) -> bool:
+def play_speaker(cue: str, volume: float = 1.0) -> bool:
     argv = player()
-    if argv is None:
+    if argv is None or volume <= 0:
         return False
     try:
-        subprocess.Popen([*argv, cue_path(cue)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        subprocess.Popen([*argv, cue_path(cue, volume=volume)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, start_new_session=True)
     except OSError:
         return False
@@ -216,7 +270,7 @@ def play_buzzer(cue: str, spec: str = AUTO, wait: bool = False) -> bool:
 
     def run() -> bool:
         try:
-            dev.play(CUES[cue])
+            dev.play(TONES[cue])
             return True
         except OSError:
             return False
@@ -230,10 +284,10 @@ def play_buzzer(cue: str, spec: str = AUTO, wait: bool = False) -> bool:
 
 
 # ----------------------------------------------------------------------
-def play(cue: str, speaker: bool = True, buzzer: str = AUTO) -> bool:
-    """Play a cue on the speaker and/or buzzer, whichever are enabled and present. Returns True
+def play(cue: str, speaker: bool = True, buzzer: str = AUTO, volume: float = 1.0) -> bool:
+    """Play a tone on the speaker and/or buzzer, whichever are enabled and present. Returns True
     if at least one started (the front-end can fall back to its own beep otherwise)."""
-    if cue not in CUES:
+    if cue not in TONES:
         return False
-    started = play_speaker(cue) if speaker else False
+    started = play_speaker(cue, volume) if speaker else False
     return play_buzzer(cue, buzzer) or started

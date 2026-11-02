@@ -18,7 +18,8 @@ def isolated_config(tmp_path, monkeypatch):
                                  str(tmp_path / "qsettings"))
     except ImportError:             # no Qt: GUI tests are skipped anyway
         pass
-    from canopener.core import profiles
+    from canopener.core import profiles, sound
+    monkeypatch.setattr(sound, "player", lambda: None)     # no beeping from the speaker while testing
     profiles.apply(None)
     yield
     profiles.apply(None)

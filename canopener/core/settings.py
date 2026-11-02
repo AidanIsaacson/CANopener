@@ -34,6 +34,9 @@ DEFAULTS: dict = {
     "sound.speaker": True,
     "sound.buzzer": "auto",
     "sound.link_cues": True,            # chime when traffic drops out / comes back
+    "sound.volume": 80,                 # speaker volume, 0-100 (core.sound.amplitude)
+    "sound.touch": False,               # chirp on every tap / button press (the handheld)
+    "sound.tones": {},                  # event -> tone name or "off" (core.sound.EVENTS / TONES)
     "log.plan": [],
     # measurement sources (core.meters)
     "meters.sim": False,                # a simulated meter, for trying the logger without hardware
@@ -60,6 +63,7 @@ DEFAULTS: dict = {
     "device.ladder_levels": [0.0, 0.6, 1.2, 1.8, 2.4],     # volts per ladder button (soft keys 1-5)
     "device.games": False,              # Games on the home screen (System > About, seven times)
     "games.harness_best": 0,
+    "games.cargo_best": 0,
     "games.controls": {},               # profile id -> signal bindings (device/game_controls.py)
 }
 

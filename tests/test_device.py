@@ -642,3 +642,101 @@ def test_system_screen_installed_options(app_for):
     row.adjust(1)                                         # Installed -> Use if found
     assert hw.state("meter_pico") == hardware.AUTO
     app.step([])                                          # draws with the fault lamps, no hang
+
+
+# --- sound settings ------------------------------------------------------------
+def test_event_tones_volume_and_touch_chirps(app_for, monkeypatch):
+    from canopener.core import sound
+    played = []
+    monkeypatch.setattr(sound, "play_buzzer", lambda tone, spec=sound.AUTO, wait=False: False)
+    app = app_for()
+    app.ctx.speaker = lambda tone, volume: played.append((tone, volume)) or True
+    s = app.ctx.settings
+    assert app.ctx.cue("tag") and played[-1] == ("blip", 0.8)
+    s.set("sound.tones", {"tag": "alert", "codes": "off"})
+    app.ctx.cue("tag")
+    assert played[-1][0] == "alert" and not app.ctx.cue("codes")
+    s.set("sound.volume", 0)
+    n = len(played)
+    app.ctx.cue("tag")
+    assert len(played) == n                         # volume off: the speaker stays quiet
+    s.set("sound.volume", 50)
+    # touch chirps: off by default, on in System > Sound; once per press, not per soft key too
+    pos = (20, 20)
+    app.step([pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=pos),
+              pygame.event.Event(pygame.MOUSEBUTTONUP, button=1, pos=pos)])
+    assert len(played) == n
+    s.set("sound.touch", True)
+    app.step([pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=pos),
+              pygame.event.Event(pygame.MOUSEBUTTONUP, button=1, pos=pos)])
+    assert played[n:] == [("chirp", 0.5)]
+    app.step([key(pygame.K_DOWN), key(pygame.K_DOWN, up=True)])
+    assert played[-1] == ("chirp", 0.5) and len(played) == n + 2
+    assert sound.tone_for("test") == "test" and sound.tone_for("nonsense") is None
+
+
+def test_tones_screen_picks_and_previews(app_for, monkeypatch):
+    from canopener.core import sound
+    from canopener.device.screens.settings import TonesScreen
+    monkeypatch.setattr(sound, "play_buzzer", lambda *a, **k: False)
+    app = app_for()
+    played = []
+    app.ctx.speaker = lambda tone, volume: played.append(tone) or True
+    app.open_mode("settings")
+    row = next(r for r in app.top.rows.refresh() if r.label == "Tones for events")
+    row.select()
+    assert isinstance(app.top, TonesScreen)
+    app.step([])
+    log = next(r for r in app.top.rows.refresh() if r.label == "Log started")
+    log.adjust(1)
+    tone = app.ctx.settings.get("sound.tones")["rec_start"]
+    assert tone != "rising" and played[-1] == tone
+    next(r for r in app.top.rows.refresh() if r.label.startswith("Back to the standard")).select()
+    assert app.ctx.settings.get("sound.tones") == {}
+    app.step([])
+
+
+def test_sound_wav_follows_the_volume(tmp_path):
+    from canopener.core import sound
+    loud, quiet = sound.cue_path("chirp", str(tmp_path), 1.0), sound.cue_path("chirp", str(tmp_path), 0.3)
+    assert loud != quiet
+    import array
+    import wave
+
+    def peak(p):
+        with wave.open(p) as w:
+            return max(abs(v) for v in array.array("h", w.readframes(w.getnframes())))
+    assert peak(quiet) < peak(loud) * 0.2
+
+
+# --- updates from the handheld ----------------------------------------------------
+def test_check_for_updates_install_and_restart(app_for, monkeypatch):
+    from canopener.core import updates
+    from canopener.device.screens.base import ConfirmDialog, InfoDialog
+    st = updates.UpdateStatus(True, "An update is available (version 9.9.9): 2 change(s).", latest="9.9.9",
+                              behind=2, commits=["Cargo", "Sound settings"])
+    monkeypatch.setattr(updates, "check", lambda: st)
+    monkeypatch.setattr(updates, "apply", lambda: (True, "Updated. Restart CANopener to use the new version."))
+    app = app_for()
+    app.open_mode("settings")
+    next(r for r in app.top.rows.refresh() if r.label == "Check for updates").select()
+    assert app.ctx.wait_idle()
+    assert isinstance(app.top, InfoDialog) and "- Cargo" in app.top.lines
+    install = next(k for k in app.top.softkeys() if k is not None and k.label == "Install")
+    install.fn()
+    assert isinstance(app.top, ConfirmDialog)
+    app.top._answer(True)
+    assert app.ctx.wait_idle()
+    assert isinstance(app.top, ConfirmDialog) and app.top.title == "Restart now?"
+    app.top._answer(True)
+    assert app.restart and not app.running
+
+
+def test_no_install_button_when_up_to_date(app_for, monkeypatch):
+    from canopener.core import updates
+    monkeypatch.setattr(updates, "check", lambda: updates.UpdateStatus(True, "CANopener 0.2.6 is up to date."))
+    app = app_for()
+    app.open_mode("settings")
+    next(r for r in app.top.rows.refresh() if r.label == "Check for updates").select()
+    assert app.ctx.wait_idle()
+    assert [k.label for k in app.top.softkeys() if k is not None] == ["Close"]

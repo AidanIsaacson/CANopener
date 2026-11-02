@@ -67,7 +67,7 @@ the encoder does nothing.
 | **CAN** | **Connect** (source, interface, bitrate or *Auto* via the signal finder, listen-only, profile, connect at power-on, adapter and bus status). **Codes** (J1939 active / stored / full scan with lamps, or OBD-II codes from every module; select a code for details, *Live data* jumps to its sensor). **Live** (every value, tick the ones you want, *Grid* shows them big with a 60 s trace). **Bus** (modules with frame rates, or every CAN ID with changing bytes marked). **Log** (below). |
 | **Meter** | Each measurement channel as a big readout with min / max and a trace; Hold; each source's status ("not detected, retrying"). |
 | **Data log** | Start / stop, timestamps (planned list or as-you-go), undo, save, trim to the stretch around the timestamps, copy to a USB stick, recover a log a power cut interrupted. Records the bus **and every meter channel**. |
-| **System** | Brightness, screen size, picture rotation, which edge the buttons are on, 4 or 5 buttons and what button 5 does, units, sound cues and buzzer, meters, logs folder and USB export, about (temperature, uptime, IP), exit to desktop / restart / power off. |
+| **System** | Brightness, screen size, picture rotation, which edge the buttons are on, 4 or 5 buttons and what button 5 does, units, sound (below), meters, logs folder and USB export, about (temperature, uptime, IP), check for updates, exit to desktop / restart / power off. |
 
 ![Live Data grid: engine speed, torque and pedal position, big, with traces](images/device-live-grid.png)
 
@@ -75,25 +75,54 @@ Everything is read-only. The device UI only sends J1939 requests and OBD-II read
 clear-codes or transmit screen yet. When it gets one, it follows CLAUDE.md: state what it
 changes, default No, never in listen-only.
 
+## Sound
+
+**System > Sound**: the speaker **volume** (0-100 %, in 10 % steps; a buzzer has one loudness),
+speaker on / off, **chirp on taps and buttons** (a short tick each time a press registers; off
+until you turn it on), the CAN traffic chime, the buzzer, and **Tones for events**: one row per
+event (tap or press, signal found, traffic stopped / back, log started / stopped, timestamp,
+codes found, something failed, a game's clear and game over), each set to one of the tones in
+`core/sound.py` (`TONES`) or *Off*. Changing a row plays the tone you picked; *Back to the
+standard sounds* resets them. Kept in `settings.json` as `sound.volume`, `sound.touch` and
+`sound.tones` (event -> tone, only the ones changed).
+
+On the handheld, tones go through Pygame's mixer (opened on the first sound), so a chirp starts
+within a few milliseconds of the tap. Without an audio device it falls back to `pw-play` /
+`paplay` / `aplay` like the desktop app.
+
+## Updates
+
+**System > Check for updates** does what the desktop app's *Help > Check for updates* does
+(`core/updates.py`): fetches from GitHub, lists what's new, and **Install** pulls the new version
+(fast-forward only; local changes stop it) and reinstalls the Python packages if they changed.
+Then it asks to restart: under the Pi's service it exits with the code systemd restarts on,
+otherwise it starts the new version itself. If an update also changes the system setup
+(`deploy/`), it says to run the installer once in a terminal.
+
 ## Games (hidden)
 
 Tap **Show games menu** in the corner of **System > About this device** (or open About seven
 times in a row) and a **Games** tile joins the home screen (after System, so the soft keys don't
 change); the same button, now **Hide games menu**, or **System > Show games** hides it again.
 
-**Harness** (`device/harness.py`, the screen is `device/screens/games.py`) is played with the
-handheld turned a quarter turn anticlockwise, so it draws portrait and turns the picture. Wire
-segments fall into a board between two bus bars: the encoder turns a segment, the d-pad's up /
-down (now left / right) move it, its left (now down) drops it, pushing the encoder swaps it for
-the side piece, Back pauses. With just the touchscreen: tap a column to move the segment there
-(tap its own column to turn it), the Turn / Swap / Drop buttons under the board, and tap the
-score to pause. A wire touching the bars at two points clears with everything joined
-to it: bar to bar scores double, back to the same bar single; wires falling into the gap can
-close a chain.
+Both games (the screens are `device/screens/games.py`) are played with the handheld turned a
+quarter turn anticlockwise, so they draw portrait and turn the picture. The encoder turns the
+piece, the d-pad's up / down (now left / right) move it, its left (now down) drops it, pushing
+the encoder swaps it for the side piece, Back pauses. With just the touchscreen: tap a column to
+move the piece there (tap the piece to turn it), the row of buttons under the board (move left,
+Turn, Swap, Drop, move right), and tap the score to pause.
+
+**Harness** (`device/harness.py`): wire segments fall into a board between two bus bars. A wire
+touching the bars at two points clears with everything joined to it: bar to bar scores double,
+back to the same bar single; wires falling into the gap can close a chain.
+
+**Cargo** (`device/cargo.py`): a falling-block game. Crates of Cargo's own shapes (singles, pairs,
+a pallet, three-crate bars and corners, five-crate P / U / V / T / L loads) drop into a trailer;
+a row packed wall to wall ships out, and several rows at once score more.
 
 **Controls from CAN** (`device/game_controls.py`): every control goes through one command
 interface, so the machine's own signals, decoded by the active profile, can play it too: steer
-to turn the piece, the lower switch drops it. Games > Controls from CAN picks a signal on the bus
+to turn the piece, the lower switch drops it (both games). Games > Controls from CAN picks a signal on the bus
 for each action. A binding is an **edge** (a threshold, for switches), a **delta** (one step per
 so much change, for a steering angle) or a **position** (the value's range spread across the
 columns). They're kept per profile in `settings.json`:

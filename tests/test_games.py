@@ -1,4 +1,4 @@
-"""The handheld's hidden Games: Harness's rules, game controls from CAN signals, and the unlock."""
+"""The handheld's hidden Games: Harness's and Cargo's rules, game controls from CAN signals, and the unlock."""
 
 import os
 import threading
@@ -6,6 +6,7 @@ import threading
 import pytest
 
 from canopener.core.settings import Settings
+from canopener.device import cargo as cg
 from canopener.device import game_controls as gc
 from canopener.device import harness as hz
 from canopener.j1939 import signals
@@ -95,6 +96,63 @@ def test_segments_fall_faster_each_level_and_the_game_ends_when_the_top_fills():
     g.piece = hz.Piece(hz.N | hz.S, x=0, y=0)
     g.drop(0)
     assert g.over
+
+
+# --- Cargo -------------------------------------------------------------------
+def test_cargo_full_rows_ship_and_score_more_together():
+    g = cg.Cargo(seed=1)
+    for y in (cg.ROWS - 1, cg.ROWS - 2):
+        for x in range(cg.COLS):
+            if x not in (4, 5):
+                g.grid[y][x] = "single"
+    g.piece = cg.Crate("pallet", cg.SHAPES["pallet"], x=4, y=0)
+    g.drop(now=0)
+    assert g.lit == {cg.ROWS - 1, cg.ROWS - 2} and g.rows_cleared == 2 and g.score == cg.ROW_POINTS[2]
+    assert g.piece is None                          # nothing moves while the rows light up
+    g.grid[cg.ROWS - 3][0] = "pair"                 # a crate above them settles two rows down
+    g.update(cg.CLEAR_S + 0.01)
+    assert g.grid[cg.ROWS - 1][0] == "pair" and not any(g.grid[cg.ROWS - 2]) and g.piece is not None
+
+
+def test_cargo_controls_walls_turns_and_swap():
+    g = cg.Cargo(seed=2)
+    g.piece = cg.Crate("l", cg.SHAPES["l"], x=4, y=0)
+    g.command(gc.LEFT, 20)
+    assert g.piece.x == 0                           # the wall stops it
+    g.command(gc.TURN, 1)                           # lying down now: 4 wide, 2 high
+    assert g.piece.width == 4 and len(g.piece.cells) == 5
+    g.command(gc.RIGHT, 20)
+    assert g.piece.x == cg.COLS - 4
+    g.command(gc.TURN, -1)                          # back upright, still on the board
+    assert all(0 <= x < cg.COLS for x, _ in g.piece.at())
+    g.command(gc.COLUMN, 0)
+    assert g.piece.x == 0
+    nxt, cur = g.next, g.piece.kind
+    g.command(gc.SWAP)
+    assert g.hold == cur and g.piece.kind == nxt
+    g.command(gc.SWAP)                              # once per crate
+    assert g.hold == cur
+    g.command(gc.PAUSE, now=1)
+    g.update(100)
+    assert g.paused and g.piece.y == 0
+
+
+def test_cargo_turns_are_quarter_turns():
+    for cells in cg.SHAPES.values():
+        assert cg.turn_cells(cells, 4) == cg.normalise(cells)
+        assert cg.turn_cells(cg.turn_cells(cells, 1), -1) == cg.normalise(cells)
+
+
+def test_cargo_falls_faster_each_level_and_ends_when_the_load_reaches_the_top():
+    assert cg.fall_interval(3) < cg.fall_interval(2) and cg.fall_interval(99) == 0.1
+    g = cg.Cargo(seed=4)
+    y = g.piece.y
+    g.update(cg.fall_interval(1) + 0.01)
+    assert g.piece.y == y + 1
+    for y in range(cg.ROWS):
+        g.grid[y][cg.COLS // 2 - 1] = "single"
+    g.drop(1)
+    assert g.over and g.piece is None
 
 
 # --- controls from CAN -------------------------------------------------------
@@ -259,6 +317,52 @@ def test_harness_plays_by_touch(app):
     assert not g.paused
 
 
+def test_both_games_have_move_buttons(app):
+    from canopener.device.screens.games import CargoScreen, HarnessScreen
+    for screen in (HarnessScreen, CargoScreen):
+        app.push(screen(app))
+        app.step([])
+        g = app.top.game
+        x = g.piece.x
+
+        def default(fn, value):
+            return getattr(fn, "__defaults__", None) == (value,)
+        left, right = hit_point(app, lambda fn: default(fn, gc.LEFT)), hit_point(app, lambda fn: default(fn, gc.RIGHT))
+        assert left[1] < right[1]                   # held sideways, the board's left is up the screen
+        tap(app, left)
+        assert g.piece.x == x - 1
+        tap(app, right)
+        tap(app, right)
+        assert g.piece.x == x + 1
+        app.top.game.over = True
+        app.step([])
+        app.pop()
+
+
+def test_cargo_plays_by_touch_and_keeps_its_best(app):
+    from canopener.device.screens.games import CARGO_BEST, CargoScreen
+    app.ctx.settings.set("device.games", True)
+    app.open_mode("games")
+    press(app, pygame.K_F2)                         # Cargo
+    scr = app.top
+    assert isinstance(scr, CargoScreen)
+    g = scr.game
+    g.piece = cg.Crate("bar", cg.SHAPES["bar"], x=3, y=0)
+
+    def default(fn, value):
+        return getattr(fn, "__defaults__", None) == (value,)
+    app.step([])
+    tap(app, hit_point(app, lambda fn: default(fn, 4)))      # tap the crate: it turns upright
+    assert g.piece.width == 1
+    tap(app, hit_point(app, lambda fn: default(fn, 0)))      # tap a column: it goes there
+    assert g.piece.x == 0
+    press(app, pygame.K_LEFT)                       # d-pad left (now down): drop
+    assert g.grid[cg.ROWS - 1][0] == "bar"
+    g.score, g.over = 1234, True
+    app.step([])
+    assert app.ctx.settings.get(CARGO_BEST) == 1234
+
+
 def test_harness_is_played_sideways(app):
     from canopener.device.screens.games import HarnessScreen
     app.ctx.settings.set("device.games", True)
@@ -287,13 +391,13 @@ def test_harness_is_played_sideways(app):
 
 
 @pytest.mark.parametrize("size", [(800, 480), (1024, 600), (1280, 720)])
-def test_harness_draws_at_panel_sizes(size):
+def test_games_draw_at_panel_sizes(size):
     os.environ["SDL_VIDEODRIVER"] = "dummy"
     pygame.display.init()
     pygame.font.init()
     from canopener.device.app import DeviceApp
     from canopener.device.context import DeviceContext
-    from canopener.device.screens.games import HarnessScreen
+    from canopener.device.screens.games import CargoScreen, HarnessScreen
     ctx = DeviceContext(Settings())
     try:
         a = DeviceApp(ctx, size, encoder=False)
@@ -302,6 +406,13 @@ def test_harness_draws_at_panel_sizes(size):
         for _ in range(3):
             a.step([])
         a.top.game.over = True
+        a.step([])
+        a.pop()
+        a.push(CargoScreen(a))
+        a.top.game.grid[cg.ROWS - 1] = ["pair"] * cg.COLS
+        for _ in range(3):
+            a.step([])
+        a.top.game.toggle_pause(0)
         a.step([])
     finally:
         ctx.shutdown()

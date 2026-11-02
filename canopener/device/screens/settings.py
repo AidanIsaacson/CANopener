@@ -10,9 +10,9 @@ import subprocess
 import time
 
 from ... import __version__
-from ...core import config, hardware, meters, sound, storage, system, units
+from ...core import config, hardware, meters, sound, storage, system, units, updates
 from ..input import ACTION_NAMES
-from .base import InfoDialog, Row, RowList, Screen, choose, confirm, cycle, label_of
+from .base import InfoDialog, Row, RowList, Screen, SoftKey, choose, confirm, cycle, label_of
 
 
 def status(ctx) -> str:
@@ -27,6 +27,8 @@ BUTTON5 = [("Back", "back"), ("Soft key 5", "soft"), ("Start / stop log", "log")
 UNITS = [("Metric (kPa, °C, km/h)", units.METRIC), ("Imperial (psi, °F, mph)", units.IMPERIAL)]
 LONG_PRESS = [(f"{s:g} s", s) for s in (0.5, 0.7, 1.0, 1.5)]
 WINDOWS = [(s, s) for s in ("800x480", "1024x600", "1280x720", "1280x800")]
+VOLUMES = [("Off", 0)] + [(f"{v}%", v) for v in range(10, 101, 10)]
+TONE_OPTIONS = [("Off", sound.OFF)] + [(sound.TONE_LABELS.get(t, t), t) for t in sound.TONES]
 RATIOS = [("1 (straight to the ADC)", 1.0), ("6 (50k / 10k divider)", 6.0), ("11 (100k / 10k)", 11.0)]
 
 
@@ -85,10 +87,16 @@ class SettingsScreen(Screen):
             Row("Units", kind="header"),
             self._row("Units", "units", UNITS),
             Row("Sound", kind="header"),
+            self._row("Volume", "sound.volume", VOLUMES, lambda: ctx.play_tone("test"),
+                      hint="the speaker (a buzzer has one loudness)"),
             self._toggle("Speaker", "sound.speaker"),
+            self._toggle("Chirp on taps and buttons", "sound.touch", lambda: ctx.cue("touch"),
+                         hint="a short tick each time a press registers"),
             self._toggle("Chime when CAN traffic drops / returns", "sound.link_cues"),
+            Row("Tones for events", select=lambda: self.app.push(TonesScreen(self.app)),
+                hint="pick a sound (or none) for each: log started, codes found, ..."),
             Row("Buzzer", lambda: s.get("sound.buzzer"), select=self._buzzer, hint="auto, off, or pwm:CHIP:CHANNEL"),
-            Row("Test sound", select=lambda: ctx.cue("test")),
+            Row("Test sound", select=lambda: ctx.play_tone("test")),
             Row("Simulators", kind="header"),
             Row("Show simulators", select=lambda: ctx.set_show_simulators(not s.get("show_simulators")),
                 check=lambda: s.get("show_simulators"), hint="a pretend machine and car under CAN > Connect"),
@@ -111,6 +119,8 @@ class SettingsScreen(Screen):
         rows += [
             Row("System", kind="header"),
             Row("About this device", select=self._about),
+            Row("Check for updates", __version__, select=self._check_updates,
+                hint="download the newest CANopener from GitHub (needs internet)"),
         ]
         if s.get("device.games"):
             rows.append(Row("Show games", select=lambda: s.set("device.games", False), check=lambda: True,
@@ -239,6 +249,42 @@ class SettingsScreen(Screen):
         elif left <= 3:
             self.ctx.toast(f"{left} more...")
 
+    # --- updates (core.updates: the same as the desktop app's Help > Check for updates) ---
+    def _check_updates(self):
+        self.ctx.run_job("Checking for updates", updates.check, self._update_checked)
+
+    def _update_checked(self, st: updates.UpdateStatus):
+        lines = [st.message]
+        if st.commits:
+            lines += ["", "What's new:"] + [f"- {c}" for c in st.commits[:15]]
+            if len(st.commits) > 15:
+                lines.append(f"  ... and {len(st.commits) - 15} more")
+        if st.dirty:
+            lines += ["", "Changed on this device (left alone): " + ", ".join(st.dirty[:6])]
+        keys = [SoftKey("Install", self._install)] if st.available and not st.ahead else []
+        self.app.push(InfoDialog(self.app, "Updates", lines, keys=keys))
+
+    def _install(self):
+        self.app.pop()                          # the Updates dialog
+        confirm(self.app, "Install the update?",
+                "CANopener downloads the new version and then asks to restart. Reading the bus carries on "
+                "while it downloads.", "Install", self._run_install, danger=False)
+
+    def _run_install(self):
+        self.ctx.run_job("Installing the update", updates.apply, self._installed)
+
+    def _installed(self, result):
+        ok, msg = result
+        if not ok:
+            self.app.push(InfoDialog(self.app, "Update failed", msg.splitlines()))
+            return
+
+        def restart():
+            self.app.restart = True
+            self.app.running = False
+        confirm(self.app, "Restart now?", msg + "\n\nA recording in progress is stopped and saved first.",
+                "Restart", restart, danger=False)
+
     def _to_desktop(self):
         from ... import frontends
         ok, why = frontends.available(frontends.DESKTOP)
@@ -266,6 +312,63 @@ class SettingsScreen(Screen):
                 self.ctx.toast(f"{what} failed: {e}")
         confirm(self.app, f"{what}?", "A recording in progress is stopped and saved, and the bus disconnected.",
                 what, go)
+
+    def on_action(self, action, n=1):
+        return self.rows.on_action(action, n)
+
+    def draw(self, ui, rect):
+        self.rows.draw(ui, rect)
+
+
+class TonesScreen(Screen):
+    """System > Sound > Tones for events: which tone (or none) each event plays. Changing one
+    plays it, so you hear what you picked."""
+
+    title = "Tones"
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.rows = RowList(self._rows)
+
+    def _tones(self) -> dict:
+        return dict(self.ctx.settings.get("sound.tones") or {})
+
+    def _current(self, event: str) -> str:
+        return self._tones().get(event, sound.DEFAULT_TONES[event])
+
+    def _set(self, event: str, tone: str):
+        tones = self._tones()
+        if tone == sound.DEFAULT_TONES[event]:
+            tones.pop(event, None)
+        else:
+            tones[event] = tone
+        self.ctx.settings.set("sound.tones", tones)
+        self.ctx.play_tone(tone)
+
+    def _rows(self):
+        rows = [Row("Each event's sound", kind="header")]
+        for event, label, _ in sound.EVENTS:
+            hint = "only with Chirp on taps and buttons on" if event == "touch" else ""
+            rows.append(Row(label, lambda e=event: label_of(TONE_OPTIONS, self._current(e)),
+                            select=lambda e=event, lb=label: choose(self.app, lb, TONE_OPTIONS, self._current(e),
+                                                                    lambda v, e=e: self._set(e, v)),
+                            adjust=lambda d, e=event: self._set(e, cycle(TONE_OPTIONS, self._current(e), d)),
+                            hint=hint))
+        rows.append(Row("Back to the standard sounds", kind="action", select=self._reset))
+        return rows
+
+    def _reset(self):
+        self.ctx.settings.set("sound.tones", {})
+        self.ctx.toast("Standard sounds back")
+
+    def softkeys(self):
+        return [SoftKey("Play", self._play_focused), SoftKey("Standard", self._reset)]
+
+    def _play_focused(self):
+        row = self.rows.focused()
+        event = next((e for e, label, _ in sound.EVENTS if row is not None and row.label == label), None)
+        if event:
+            self.ctx.play_tone(self._current(event))
 
     def on_action(self, action, n=1):
         return self.rows.on_action(action, n)

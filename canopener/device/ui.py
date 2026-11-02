@@ -17,7 +17,11 @@ COLORS = {
     "focus": (255, 196, 0), "rec": (240, 62, 62), "on": (46, 160, 90), "warn": (240, 160, 40),
     "ok": (47, 182, 96), "wait": (240, 170, 30), "bad": (230, 60, 60), "off": (110, 118, 130),
     "sim": (70, 140, 240), "idle": (110, 100, 220), "black": (0, 0, 0), "white": (255, 255, 255),
+    # the finish: solid colours (no per-pixel alpha), so they cost what any fill costs
+    "shadow": (7, 9, 12), "edge": (62, 71, 86), "edge_accent": (122, 188, 255), "edge_bad": (250, 120, 120),
+    "accent_dim": (28, 52, 84), "panel_hi": (36, 42, 52),
 }
+EDGES = {"panel": "edge", "panel2": "edge", "accent": "edge_accent", "bad": "edge_bad", "panel_hi": "edge"}
 LEVEL = {"ok": "ok", "wait": "wait", "bad": "bad", "off": "off", "sim": "sim", "idle": "idle"}
 
 
@@ -72,10 +76,14 @@ class UI:
         self.drags.append((pygame.Rect(rect), scroller))
 
     def hit_at(self, pos):
+        return self.hit_rect_at(pos)[1]
+
+    def hit_rect_at(self, pos):
+        """(rect, fn) of the top-most tap area at ``pos``, or (None, None)."""
         for rect, fn in reversed(self.hits):
             if rect.collidepoint(pos):
-                return fn
-        return None
+                return rect, fn
+        return None, None
 
     def drag_at(self, pos):
         for rect, s in reversed(self.drags):
@@ -89,6 +97,29 @@ class UI:
 
     def fill(self, rect, color, radius: int = 0, width: int = 0):
         pygame.draw.rect(self.surface, self.color(color), rect, width, border_radius=radius)
+
+    def card(self, rect, color="panel", radius: int | None = None, shadow: bool = True):
+        """A raised panel: a soft drop shadow, the fill and a lighter top edge. Three plain draws,
+        no alpha blending, so it's as cheap on a Pi as a flat fill."""
+        rect = pygame.Rect(rect)
+        radius = self.theme.radius if radius is None else radius
+        if shadow:
+            d = max(2, self.theme.pad // 3)
+            self.fill(rect.move(0, d), "shadow", radius)
+        self.fill(rect, color, radius)
+        edge = EDGES.get(color) if isinstance(color, str) else None
+        if edge and rect.w > 2 * radius:
+            pygame.draw.line(self.surface, self.color(edge), (rect.x + radius, rect.y),
+                             (rect.right - radius - 1, rect.y), max(1, self.theme.touch // 50))
+        return rect
+
+    def glow(self, rect):
+        """Light up what the finger is on (drawn over everything, only while pressed)."""
+        rect = pygame.Rect(rect)
+        lit = pygame.Surface(rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(lit, (255, 255, 255, 46), lit.get_rect(), border_radius=self.theme.radius)
+        self.surface.blit(lit, rect.topleft)
+        self.fill(rect, "accent", self.theme.radius, 2)
 
     def render(self, text: str, font: str = "body", color="text", px: int | None = None) -> pygame.Surface:
         key = (text, font, px, self.color(color))
@@ -164,7 +195,7 @@ class UI:
         rect = pygame.Rect(rect)
         t = self.theme
         bg = color or ("accent" if active else "panel2")
-        self.fill(rect, bg if enabled else "panel", t.radius)
+        self.card(rect, bg if enabled else "panel", t.radius, shadow=enabled)
         if focused:
             self.fill(rect, "focus", t.radius, max(2, t.pad // 2))
         fg = "text" if enabled else "faint"
@@ -188,7 +219,9 @@ class UI:
         rect = pygame.Rect(rect)
         self.fill(rect, "panel2", rect.h // 2)
         d = rect.h // 2
-        pygame.draw.circle(self.surface, self.color(LEVEL.get(level, "off")), (rect.x + d, rect.centery), d // 2)
+        c = self.color(LEVEL.get(level, "off"))
+        pygame.draw.circle(self.surface, tuple(v // 3 for v in c), (rect.x + d, rect.centery), d * .62)   # halo
+        pygame.draw.circle(self.surface, c, (rect.x + d, rect.centery), d // 2)
         self.text(text, (rect.x + d * 2, rect.centery), font, "text", max_w=rect.w - d * 2 - d // 2)
 
     def checkbox(self, rect, on: bool):
@@ -282,7 +315,9 @@ class ListView:
         if max_off > 0:                         # scroll position, thin bar on the right
             bar_h = max(ui.theme.pad * 2, rect.h * rect.h // (count * row_h))
             y = rect.y + (rect.h - bar_h) * self.offset / max_off
-            ui.fill((rect.right - ui.theme.pad // 2, y, ui.theme.pad // 2, bar_h), "line", 2)
+            w = max(3, ui.theme.pad // 2)
+            ui.fill((rect.right - w, rect.y, w, rect.h), "panel", w // 2)
+            ui.fill((rect.right - w, y, w, bar_h), "line", w // 2)
         ui.drag(rect, self)
 
     def _tap(self, i, on_tap):

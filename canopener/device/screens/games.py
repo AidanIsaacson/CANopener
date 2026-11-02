@@ -1,11 +1,11 @@
-"""Games (hidden: System > About this device, seven times): Harness, and which of the machine's
-signals can play it ("Controls from CAN").
+"""Games (hidden: System > About this device, seven times): Harness, Cargo, and which of the
+machine's signals can play them ("Controls from CAN").
 
-Harness is played with the handheld turned a quarter turn anticlockwise, so the picture is drawn
-portrait and turned to match: the encoder turns the piece, the d-pad's up / down (now left /
+Both games are played with the handheld turned a quarter turn anticlockwise, so the picture is
+drawn portrait and turned to match: the encoder turns the piece, the d-pad's up / down (now left /
 right) move it, its left (now down) drops it, and pushing the encoder swaps it for the side piece.
-With just the screen: tap a column to move the piece there (tap its own column to turn it), and the
-Turn / Swap / Drop buttons under the board.
+With just the screen: tap a column to move the piece there (tap the piece to turn it), and the
+row of buttons under the board: move left, Turn, Swap, Drop, move right.
 """
 
 import time
@@ -13,6 +13,7 @@ import time
 import pygame
 
 from ...core import profiles
+from .. import cargo as cg
 from .. import game_controls as gc
 from .. import harness as hz
 from .. import input as inp
@@ -20,11 +21,14 @@ from ..ui import UI
 from .base import Row, RowList, Screen, SoftKey, choose
 
 BEST = "games.harness_best"
+CARGO_BEST = "games.cargo_best"
 
 
 def status(ctx) -> str:
-    best = int(ctx.settings.get(BEST) or 0)
-    return f"Harness best: {best}" if best else "Harness"
+    s = ctx.settings
+    best = [f"{name} {int(s.get(key) or 0)}" for name, key in (("Harness", BEST), ("Cargo", CARGO_BEST))
+            if int(s.get(key) or 0)]
+    return "Best: " + ", ".join(best) if best else "Harness, Cargo"
 
 
 def _profile_id() -> str:
@@ -45,6 +49,8 @@ class GamesScreen(Screen):
         p = profiles.active()
         rows = [Row("Harness", lambda: f"best {int(s.get(BEST) or 0)}", select=self._play,
                     hint="turn the handheld sideways; wire bar to bar (or back to the same bar)"),
+                Row("Cargo", lambda: f"best {int(s.get(CARGO_BEST) or 0)}", select=self._play_cargo,
+                    hint="turn the handheld sideways; pack full rows to ship them"),
                 Row(f"Controls from CAN ({p.name if p else 'no profile'})", kind="header")]
         for do in gc.ACTIONS:
             b = gc.binding_for(s, pid, do)
@@ -55,10 +61,13 @@ class GamesScreen(Screen):
         return rows
 
     def softkeys(self):
-        return [SoftKey("Play", self._play)]
+        return [SoftKey("Harness", self._play), SoftKey("Cargo", self._play_cargo)]
 
     def _play(self):
         self.app.push(HarnessScreen(self.app))
+
+    def _play_cargo(self):
+        self.app.push(CargoScreen(self.app))
 
     def _bind(self, do):
         model = self.ctx.can_model()
@@ -105,17 +114,39 @@ def _describe(b: dict | None) -> str:
     return f"when it reaches {b.get('above', 0.5):g}"
 
 
-class HarnessScreen(Screen):
-    title = "Harness"
+def icon_left(ui: UI, r, c):
+    pygame.draw.polygon(ui.surface, c, [(r.x + r.w * .22, r.centery), (r.right - r.w * .25, r.y + r.h * .18),
+                                        (r.right - r.w * .25, r.bottom - r.h * .18)])
+
+
+def icon_right(ui: UI, r, c):
+    pygame.draw.polygon(ui.surface, c, [(r.right - r.w * .22, r.centery), (r.x + r.w * .25, r.y + r.h * .18),
+                                        (r.x + r.w * .25, r.bottom - r.h * .18)])
+
+
+class SidewaysGame(Screen):
+    """What both games share: played sideways (drawn portrait, turned), the same controls (one
+    command interface: buttons, encoder, touch, CAN signals), the score header with the side and
+    next pieces, the button row and the pause / game-over card. A game supplies ``new_game``,
+    ``COLS`` / ``ROWS``, ``best_key`` and the drawing of its board and pieces."""
+
+    COLS, ROWS = 8, 12
+    best_key = BEST
+    bars = False                            # Harness: bus bars down both sides of the board
 
     def __init__(self, app):
         super().__init__(app)
-        self.game = hz.Harness(now=time.monotonic())
+        self.game = self.new_game(time.monotonic())
         self.controls = None
         self._saved = False
+        self._was_lit = False
+        self._portrait = None
+
+    def new_game(self, now: float):
+        raise NotImplementedError
 
     def on_enter(self):
-        self.controls = gc.SignalControls.for_profile(self.ctx.settings, _profile_id(), hz.COLS)
+        self.controls = gc.SignalControls.for_profile(self.ctx.settings, _profile_id(), self.COLS)
 
     def on_leave(self):
         if not self.game.paused and not self.game.over:
@@ -130,7 +161,10 @@ class HarnessScreen(Screen):
         self.game.toggle_pause(time.monotonic())
 
     def _new(self):
-        self.game, self._saved = hz.Harness(now=time.monotonic()), False
+        self.game, self._saved, self._was_lit = self.new_game(time.monotonic()), False, False
+
+    def _best(self) -> int:
+        return int(self.ctx.settings.get(self.best_key) or 0)
 
     def on_action(self, action, n=1):
         g, now = self.game, time.monotonic()
@@ -157,20 +191,27 @@ class HarnessScreen(Screen):
             return False
         return True
 
-    # --- drawing ---
+    # --- per frame ---
     def draw(self, ui, rect):
         g, now = self.game, time.monotonic()
         if self.controls is not None and not g.paused:
             for cmd, n in self.controls.poll(self.ctx.session):
                 g.command(cmd, n, now)
         g.update(now)
+        if g.lit and not self._was_lit:
+            self.ctx.cue("game_clear")
+        self._was_lit = bool(g.lit)
         if g.over and not self._saved:
             self._saved = True
-            if g.score > int(self.ctx.settings.get(BEST) or 0):
-                self.ctx.settings.set(BEST, g.score)
-        portrait = pygame.Surface((rect.h, rect.w))
+            self.ctx.cue("game_over")
+            if g.score > self._best():
+                self.ctx.settings.set(self.best_key, g.score)
+        portrait = self._portrait
+        if portrait is None or portrait.get_size() != (rect.h, rect.w):     # made once, not every frame
+            portrait = self._portrait = pygame.Surface((rect.h, rect.w))
         portrait.fill(ui.color("bg"))
         pu = UI(portrait, ui.theme)
+        pu._cache = ui._cache                   # share rendered text between frames
         self._draw_portrait(pu, portrait.get_rect())
         ui.surface.blit(pygame.transform.rotate(portrait, -90), rect.topleft)    # top of the picture -> right
         ui.hit(rect, lambda: None)
@@ -183,10 +224,13 @@ class HarnessScreen(Screen):
 
     def _tap_column(self, x):
         p = self.game.piece
-        if p is not None and p.x == x:
+        if p is not None and self._piece_under(x):
             self._cmd(gc.TURN)
         else:
             self._cmd(gc.COLUMN, x)
+
+    def _piece_under(self, x) -> bool:
+        return self.game.piece.x == x
 
     def _tap_overlay(self):
         if self.game.over:
@@ -194,40 +238,88 @@ class HarnessScreen(Screen):
         else:
             self._pause()
 
+    # --- drawing ---
     def _draw_portrait(self, ui: UI, r: pygame.Rect):
         g, t = self.game, ui.theme
         head = round(r.h * .17)
-        keys = t.touch                          # Turn / Swap / Drop along the bottom
-        cell = min((r.w - 2 * t.pad) / (hz.COLS + .8), (r.h - head - keys - 3 * t.pad) / hz.ROWS)
-        bar = cell * .4
-        bw, bh = cell * hz.COLS, cell * hz.ROWS
+        keys = t.touch                          # the button row along the bottom
+        side_w = .8 if self.bars else .2
+        cell = min((r.w - 2 * t.pad) / (self.COLS + side_w), (r.h - head - keys - 3 * t.pad) / self.ROWS)
+        bw, bh = cell * self.COLS, cell * self.ROWS
         bx = r.centerx - bw / 2
         by = r.bottom - 2 * t.pad - keys - bh
         ui.hit(pygame.Rect(r.x, r.y, r.w, head), self._pause)      # tap the score: pause
         # header: side piece, score, next piece
-        box = min(head - 2 * t.pad, cell * 1.6)
+        box = min(head - 2 * t.pad, cell * 2.2, r.w * .24)
         side = pygame.Rect(r.x + t.pad, r.y + t.pad + t.touch * .4, box, box)
         nxt = pygame.Rect(r.right - t.pad - box, side.y, box, box)
         ui.text("Side", (side.centerx, r.y + t.pad + t.touch * .2), "small", "dim", align="center")
         ui.text("Next", (nxt.centerx, r.y + t.pad + t.touch * .2), "small", "dim", align="center")
-        for b, mask in ((side, g.hold), (nxt, g.next)):
-            ui.fill(b, "panel", t.radius)
-            if mask is not None:
-                self._tile(ui, b.inflate(-t.pad, -t.pad), mask, "text", "panel2")
+        for b, item in ((side, g.hold), (nxt, g.next)):
+            ui.card(b, "panel", t.radius)
+            if item is not None:
+                self._draw_preview(ui, b.inflate(-t.pad, -t.pad), item)
         mid = r.centerx
         ui.text(f"{g.score}", (mid, r.y + head * .38), "title", "text", align="center")
-        best = max(int(self.ctx.settings.get(BEST) or 0), g.score)
+        best = max(self._best(), g.score)
         ui.text(f"Level {g.level}   Best {best}", (mid, r.y + head * .78), "small", "dim", align="center")
-        # board and bus bars
-        ui.fill(pygame.Rect(bx, by, bw, bh), "panel", t.radius)
-        for x in (bx - bar - 2, bx + bw + 2):
-            ui.fill(pygame.Rect(x, by, bar, bh), "accent", t.radius)
-        for x in range(hz.COLS):                # tap a column: the piece goes there (or turns)
+        # board
+        board = pygame.Rect(bx, by, bw, bh)
+        ui.card(board.inflate(4, 4), "panel", t.radius)
+        for x in range(1, self.COLS):           # faint lane lines help aim
+            lx = bx + x * cell
+            pygame.draw.line(ui.surface, ui.color("panel_hi"), (lx, by + 2), (lx, by + bh - 3), 1)
+        if self.bars:
+            bar = cell * .4
+            for x in (bx - bar - 2, bx + bw + 2):
+                ui.fill(pygame.Rect(x, by, bar, bh), "accent", t.radius)
+        for x in range(self.COLS):              # tap a column: the piece goes there (or turns)
             ui.hit(pygame.Rect(bx + x * cell, by, cell, bh), lambda x=x: self._tap_column(x))
-        kw = (r.w - 4 * t.pad) / 3
-        for i, (label, cmd) in enumerate((("Turn", gc.TURN), ("Swap", gc.SWAP), ("Drop", gc.DROP))):
-            ui.button(pygame.Rect(r.x + t.pad + i * (kw + t.pad), r.bottom - t.pad - keys, kw, keys), label,
-                      lambda cmd=cmd: self._cmd(cmd), enabled=not g.busy and not (cmd == gc.SWAP and g.held))
+        self._draw_board(ui, bx, by, cell)
+        # buttons: move left, Turn, Swap, Drop, move right
+        n = 5
+        kw = (r.w - (n + 1) * t.pad) / n
+        ky = r.bottom - t.pad - keys
+        buttons = (("", gc.LEFT, icon_left), ("Turn", gc.TURN, None), ("Swap", gc.SWAP, None),
+                   ("Drop", gc.DROP, None), ("", gc.RIGHT, icon_right))
+        for i, (label, cmd, icon) in enumerate(buttons):
+            ui.button(pygame.Rect(r.x + t.pad + i * (kw + t.pad), ky, kw, keys), label,
+                      lambda cmd=cmd: self._cmd(cmd), icon=icon,
+                      enabled=not g.busy and not (cmd == gc.SWAP and g.held),
+                      active=cmd == gc.DROP)
+        if g.over or g.paused:
+            msg = ("Game over", f"Score {g.score}", "Tap or push: new game  ·  Back: leave") if g.over else \
+                ("Paused", "Tap or push: resume", "Back: leave")
+            o = pygame.Rect(0, 0, max(bw * .9, r.w * .8), t.touch * 2.6)
+            o.center = (r.centerx, by + bh / 2)
+            ui.card(o, "panel2", t.radius * 2)
+            ui.fill(o, "accent", t.radius * 2, 2)
+            ui.text(msg[0], (o.centerx, o.y + o.h * .25), "big", "text", align="center")
+            ui.text(msg[1], (o.centerx, o.y + o.h * .55), "body", "text", align="center")
+            ui.text(msg[2], (o.centerx, o.y + o.h * .8), "small", "dim", align="center", max_w=o.w - t.pad)
+            ui.hit(r, self._tap_overlay)
+
+    def _draw_board(self, ui: UI, bx, by, cell):
+        raise NotImplementedError
+
+    def _draw_preview(self, ui: UI, box: pygame.Rect, item):
+        raise NotImplementedError
+
+
+class HarnessScreen(SidewaysGame):
+    title = "Harness"
+    COLS, ROWS = hz.COLS, hz.ROWS
+    best_key = BEST
+    bars = True
+
+    def new_game(self, now):
+        return hz.Harness(now=now)
+
+    def _draw_preview(self, ui, box, mask):
+        self._tile(ui, box, mask, "text", "panel2")
+
+    def _draw_board(self, ui, bx, by, cell):
+        g, t = self.game, ui.theme
         live = self._live_cells()
         for y in range(hz.ROWS):
             for x in range(hz.COLS):
@@ -244,17 +336,6 @@ class HarnessScreen(Screen):
             pr = pygame.Rect(bx + g.piece.x * cell, by + g.piece.y * cell, cell, cell).inflate(-2, -2)
             self._tile(ui, pr, g.piece.mask, "text", "panel2")
             ui.fill(pr, "focus", t.radius, max(2, t.pad // 3))
-        if g.over or g.paused:
-            msg = ("Game over", f"Score {g.score}", "Tap or push: new game  ·  Back: leave") if g.over else \
-                ("Paused", "Tap or push: resume", "Back: leave")
-            o = pygame.Rect(0, 0, bw * .9, t.touch * 2.6)
-            o.center = (r.centerx, by + bh / 2)
-            ui.fill(o, (0, 0, 0), t.radius)
-            ui.fill(o, "accent", t.radius, 2)
-            ui.text(msg[0], (o.centerx, o.y + o.h * .25), "big", "text", align="center")
-            ui.text(msg[1], (o.centerx, o.y + o.h * .55), "body", "text", align="center")
-            ui.text(msg[2], (o.centerx, o.y + o.h * .8), "small", "dim", align="center", max_w=o.w - t.pad)
-            ui.hit(r, self._tap_overlay)
 
     def _live_cells(self) -> set:
         """Wires joined to a bus bar: drawn lit, so you can see how far each reaches."""
@@ -281,3 +362,61 @@ class HarnessScreen(Screen):
             if mask & bit:
                 pygame.draw.line(ui.surface, c, (cx, cy), end, w)
         pygame.draw.circle(ui.surface, c, (cx, cy), w * .75)
+
+
+# Crate colours, by shape: (fill, lighter top edge). Plain RGB, nothing blended.
+CRATE_COLORS = {
+    "single": ((150, 158, 172), (196, 202, 212)), "pair": ((64, 156, 255), (130, 192, 255)),
+    "bar": ((47, 182, 96), (110, 214, 146)), "corner": ((240, 160, 40), (250, 200, 120)),
+    "pallet": ((168, 120, 72), (206, 164, 118)), "p": ((110, 100, 220), (160, 152, 240)),
+    "u": ((230, 90, 140), (244, 150, 186)), "v": ((40, 178, 190), (110, 214, 222)),
+    "t": ((224, 200, 60), (240, 226, 140)), "l": ((230, 96, 60), (244, 152, 126)),
+}
+
+
+class CargoScreen(SidewaysGame):
+    title = "Cargo"
+    COLS, ROWS = cg.COLS, cg.ROWS
+    best_key = CARGO_BEST
+
+    def new_game(self, now):
+        return cg.Cargo(now=now)
+
+    def _piece_under(self, x) -> bool:
+        return any(cx == x for cx, _ in self.game.piece.at())
+
+    def _crate(self, ui: UI, r: pygame.Rect, kind: str, lit: bool = False):
+        fill, edge = CRATE_COLORS.get(kind, CRATE_COLORS["single"])
+        if lit:
+            fill, edge = ui.color("focus"), ui.color("white")
+        rad = max(2, ui.theme.radius // 3)
+        pygame.draw.rect(ui.surface, fill, r, border_radius=rad)
+        pygame.draw.line(ui.surface, edge, (r.x + rad, r.y + 1), (r.right - rad - 1, r.y + 1), max(1, r.h // 10))
+        pygame.draw.rect(ui.surface, tuple(v * 3 // 5 for v in fill), r, max(1, r.w // 14), border_radius=rad)
+
+    def _draw_preview(self, ui, box, kind):
+        cells = cg.SHAPES[kind]
+        w = 1 + max(x for x, _ in cells)
+        h = 1 + max(y for _, y in cells)
+        c = min(box.w / max(w, 3), box.h / max(h, 3))
+        ox = box.centerx - w * c / 2
+        oy = box.centery - h * c / 2
+        for x, y in cells:
+            self._crate(ui, pygame.Rect(ox + x * c, oy + y * c, c, c).inflate(-2, -2), kind)
+
+    def _draw_board(self, ui, bx, by, cell):
+        g, t = self.game, ui.theme
+        for y, row in enumerate(g.grid):
+            lit = y in g.lit
+            for x, kind in enumerate(row):
+                if kind is not None:
+                    self._crate(ui, pygame.Rect(bx + x * cell, by + y * cell, cell, cell).inflate(-2, -2), kind, lit)
+        p = g.piece
+        if p is not None:
+            gy = g.ghost_y()
+            if gy is not None and gy != p.y:
+                for x, y in p.at(y=gy):
+                    ui.fill(pygame.Rect(bx + x * cell, by + y * cell, cell, cell).inflate(-4, -4), "line",
+                            max(2, t.radius // 3), 2)
+            for x, y in p.at():
+                self._crate(ui, pygame.Rect(bx + x * cell, by + y * cell, cell, cell).inflate(-2, -2), p.kind)

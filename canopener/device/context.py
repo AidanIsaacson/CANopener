@@ -73,6 +73,7 @@ class DeviceContext:
         self.focus_spn: int | None = None   # a fault code's SPN to show in Live Data
         self.focus_pids: list[int] = []     # the OBD-II equivalent
         self.python_can_found: list[str] = []
+        self.speaker = None                 # (tone, volume 0-1) -> bool: the UI's own player (Pygame's mixer)
         self._jobs: queue.Queue = queue.Queue()
         self._last_sample = 0.0
         self._link_checked = 0.0
@@ -172,6 +173,7 @@ class DeviceContext:
                 self.busy = None
             if kind == "error":
                 self.toast(payload)
+                self.cue("error")
             elif kind == "finder":
                 self._finder_event(payload)
             elif done is not None:
@@ -335,11 +337,30 @@ class DeviceContext:
             self.finder = None
             self.toast(ev.text)
 
-    def cue(self, name: str, link_status: bool = False):
-        if link_status and not self.settings.get("sound.link_cues"):
-            return
-        sound.play(name, speaker=bool(self.settings.get("sound.speaker")),
-                   buzzer=str(self.settings.get("sound.buzzer") or sound.AUTO))
+    def cue(self, event: str, link_status: bool = False) -> bool:
+        """Play the tone System > Sound picked for ``event`` (core.sound.EVENTS), on the speaker
+        (``self.speaker`` if the UI has a quicker way than a player command) and the buzzer."""
+        s = self.settings
+        if link_status and not s.get("sound.link_cues"):
+            return False
+        if event == "touch" and not s.get("sound.touch"):
+            return False
+        tone = sound.tone_for(event, s.get("sound.tones"))
+        return False if tone is None else self.play_tone(tone)
+
+    def play_tone(self, tone: str) -> bool:
+        """One tone at the set volume, whatever the events are set to (System > Sound previews)."""
+        s = self.settings
+        if tone not in sound.TONES:
+            return False
+        try:
+            volume = max(0, min(100, int(s.get("sound.volume")))) / 100
+        except (TypeError, ValueError):
+            volume = 0.8
+        started = False
+        if s.get("sound.speaker") and volume > 0:
+            started = self.speaker(tone, volume) if self.speaker is not None else sound.play_speaker(tone, volume)
+        return sound.play_buzzer(tone, str(s.get("sound.buzzer") or sound.AUTO)) or started
 
     # ------------------------------------------------------------------
     # reads
@@ -361,11 +382,15 @@ class DeviceContext:
         self.result = result
         extra = " (listen-only: broadcast codes only)" if result.listen_only else ""
         self.toast(f"{result.title}: {result.code_count} code(s){extra}")
+        if result.code_count:
+            self.cue("codes")
 
     def _obd_codes_read(self, by_ecu):
         self.obd_codes = by_ecu
         n = sum(len(c) for kinds in by_ecu.values() for c in kinds.values())
         self.toast(f"{len(by_ecu)} module(s) answered, {n} code(s)")
+        if n:
+            self.cue("codes")
 
     # --- clearing codes (changes the vehicle: screens confirm first, default No) ---
     def clear_j1939(self, which: str, da: int, then=None) -> bool:
@@ -482,6 +507,7 @@ class DeviceContext:
         if self.protocol == profiles.OBD2 and self.obd_streamer is not None and not self.obd_streamer.running:
             self.toggle_obd_stream()        # a car only talks when asked: keep it talking while logging
         self.toast("Recording")
+        self.cue("rec_start")
         return True
 
     def stop_log(self):
@@ -489,6 +515,7 @@ class DeviceContext:
             return
         self.capture.stop()
         self.toast("Stopped: Save keeps it, or tag / rename first")
+        self.cue("rec_stop")
 
     def tag(self):
         c = self.capture
@@ -501,6 +528,7 @@ class DeviceContext:
                 self.toast("Not recording")
             return
         i = c.tag_next()
+        self.cue("tag")
         self.toast(f"Tagged {c.title(i)} at {cap.fmt_elapsed(c.markers[i].t - c.started)}")
 
     def undo_tag(self):
