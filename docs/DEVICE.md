@@ -11,6 +11,9 @@ the CLI, so a fix in the scan, capture or decode code reaches all three.
 
 ![Home: CAN, Meter, Data log and System tiles; soft keys along the top, status strip along the bottom](images/device-home.png)
 
+**On the Pi:** start with [Handheld, first steps](install/handheld-stage0.md) (Pi 5 + Touch
+Display 2 + USB CANable, then the first buttons and the encoder).
+
 ## Try it on a laptop
 
 ```bash

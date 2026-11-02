@@ -1,6 +1,6 @@
 # CANopener: Electronics Bring-up (adapter-board prototype)
 
-*Living doc. Rev 0.6, 2026-11-01. This repo copy is the one to edit from now on.*
+*Living doc. Rev 0.7, 2026-11-02. This repo copy is the one to edit from now on.*
 
 **Scope.** The hand-wired proof of concept built on SOP/QFN-to-DIP adapter boards: pinouts, protection, what is sensitive to wire length, the front-end and timing design, and a working BOM. It is **not** the custom PCB. It exists to (1) get a working platform and (2) record what we learn as layout requirements. Enclosure, UI and software architecture stay in [DESIGN.md](DESIGN.md) / [DEVICE.md](DEVICE.md) / [ARCHITECTURE.md](ARCHITECTURE.md). DESIGN.md was brought up to these decisions in rev 0.6. Code for each part: [Software per component](#18-software-per-component). The custom board: [hardware/README.md](../hardware/README.md).
 
@@ -57,12 +57,13 @@
 
 | # | Stage | Done when |
 |---|---|---|
-| 0 | Prep | Pi boots (3B+ now, Pi 5 + 10.1" Touch Display 2 when they arrive); any SPI TFT removed from the 3B+ |
-| 1 | CAN stack A (MCP2518FD + TCAN1051V) | `can0` appears; loopback passes; frames exchanged with a USB CAN adapter on a terminated bench bus; then listen-only on a real machine |
+| 0 | Pi 5 + Touch Display 2 + USB CANable 2.0 | `canopener-device` starts full screen at boot, touch works, the CANable is `can0`, a bench bus or a real machine reads (listen-only needs candleLight firmware). No soldering. Guide: [install/handheld-stage0.md](install/handheld-stage0.md) |
+| 0b | First controls: a few buttons + the encoder | Each wired button acts as its key in the UI; the encoder moves the focus one row per detent. Pins and overlay lines from `config-controls.txt`; touch still works for anything not wired yet. Same guide |
+| 1 | CAN stack A (MCP2518FD + TCAN1051V) | Its interface appears (not always `can0` with the CANable plugged in: `canopener-cli hardware` says which); loopback passes; frames exchanged with the CANable on a terminated bench bus on the same Pi; then listen-only on a real machine |
 | 2a | Logic Pico (original Pico, sigrok-pico) | `sigrok-cli` captures from it on the Pi |
 | 2b | Meter Pico (Pico 2) | Meter line protocol over USB; sync pulse generated and timestamped by the Pi |
 | 3 | ADS1115 on I2C | Probe voltages appear in a capture via the IIO source. **Front end per 5.7, never bare probes into the Pi's ADC** |
-| 4 | Controls + display | Buttons/joystick via `gpio-key`; DSI panel running `canopener-device` |
+| 4 | The rest of the controls | All five buttons and the RKJXT1F42001 (d-pad + push + encoder in one part) in place of 0b's bench parts; final panel size decided (7" vs 10.1") |
 | 5 | CAN stack B | Second MCP2518FD on SPI0 CE1, INT on GPIO20 |
 | 6 | ESP32 | ESP-NOW receiver / Bluetooth gateway over the Pi UART |
 | 7 | Probe front end, one channel | Attenuators + comparator + DAC on one channel, tested with the meter Pico's internal ADC first |
@@ -238,7 +239,7 @@ ESP32-WROOM-32UE-N8: castellated pads, 1.27 mm pitch, no USB; needs a breakout o
 |---|---|---|
 | Touch Display 2, 10.1" (launched July 2026) | 1200 x 1920 | Incoming. Not in DEVICE.md's display table yet. Bigger than the 7" the chassis is designed around |
 | Touch Display 2, 7" | 720 x 1280 portrait | Design target |
-| TFT on hand (3B+) | ? | If it is an SPI hat, it conflicts with CAN on SPI0 |
+| TFT on hand (3B+) | ? | If it is an SPI hat, it conflicts with CAN on SPI0. Not needed now the Pi 5 is the bring-up Pi |
 
 ---
 
@@ -476,12 +477,12 @@ Quantities for 4 probe channels on one unit, plus spares for the bench.
 
 ## 13. Stage 1 bring-up checklist
 
-1. If the 3B+ has an SPI TFT hat, take it off and run headless over SSH.
+1. Stage 1 happens on the Pi 5 (stage 0 already set it up). On a 3B+ instead, take any SPI TFT hat off and run headless over SSH.
 2. Build the CAN stack unpowered; check continuity and look for shorts between 3V3, 5V and GND.
 3. Power up and watch the current draw; it should be small.
 4. Add the overlay line, reboot, run `dmesg | grep mcp251xfd`. A good probe reports oscillator and SPI clocks (about 8.5 MHz SPI). If `can0` is missing, check wiring and crystal first.
 5. Loopback: `sudo ip link set can0 up type can bitrate 250000 loopback on`, then `cansend can0 123#DEADBEEF` and `candump can0`. This tests the chip only, not the transceiver or bus.
-6. Bench bus: can0 to a USB CAN adapter over twisted pair with 120 ohm at **each** end (about 60 ohm across CANH/CANL, power off). Both directions at 250 and 500 kbps.
+6. Bench bus: the MCP2518FD's interface to the CANable on the same Pi, over twisted pair with 120 ohm at **each** end (about 60 ohm across CANH/CANL, power off). Both directions at 250 and 500 kbps. Interface names come in probe order, so check which is which with `canopener-cli hardware` (`can_a` = the SPI one, `usb_can` = the CANable) before `cansend` / `candump`.
 7. Real machine: listen-only first, Pi on battery or power bank. Confirm frames.
 
 ## 14. Data to record (becomes layout requirements)
@@ -530,6 +531,7 @@ Quantities for 4 probe channels on one unit, plus spares for the bench.
 
 ## 17. Changelog
 
+- 0.7 (2026-11-02): new stage 0 (Pi 5 + Touch Display 2 + the USB CANable, no soldering) and 0b (first buttons + encoder), guide in docs/install/handheld-stage0.md. Stage 4 is now the rest of the controls. Stage 1 uses the CANable on the same Pi as bench partner. Installed options `usb_can` and `controls`; the CAN stacks are found by SPI chip select, since with a USB adapter plugged in the MCP2518FD isn't always `can0`.
 - 0.6 (2026-11-01): moved into the repo as docs/ELECTRONICS.md. Section 16 marked up. New sections 18 (software per component) and 19 (installed options). Pi config lines in `deploy/raspberry-pi/config-hardware.txt`; firmware sketches in `firmware/`; custom-board groundwork in `hardware/README.md`. ESP32 port is `/dev/ttyAMA0` on both Pis (on a Pi 5, `/dev/serial0` is the debug connector).
 - 0.5 (2026-11-01): component test source (D13, 6.7): current-limited, metered 5 V on probe 4 with backfeed blocking, switchable pull-ups on probes 1-2, Component Test mode outline. Protection-policy rows, meter Pico pins GP8-11, INA226 on I2C0, stage 7b, BOM lines, COM PTC hold-current note. 12 V+ supply recorded as an accessory (footnote 1).
 - 0.4 (2026-10-29): protection policy (section 2). Shared probes (option B): a second attenuator per probe into a DAC-thresholded comparator feeding the logic Pico, auto-threshold from the ADC. Logic Pico channel map. Protected low-voltage logic header. Stage 3 ADS1115 front end. Probe front end built one channel first (new stage 7). To-buy list with quantities.
@@ -543,7 +545,9 @@ What runs where, and the file that holds it. **Sketch** = written, not yet run o
 
 | Part | Runs | Code | Status |
 |---|---|---|---|
-| Pi 5 / 3B+ (CM5 later) | Pi OS, `canopener-device` | `canopener/` (the app), `deploy/raspberry-pi/config-hardware.txt` (overlays per stage) | App runs on the simulators; overlays sketch |
+| Pi 5 / 3B+ (CM5 later) | Pi OS, `canopener-device` | `canopener/` (the app), `deploy/raspberry-pi/install.sh`, `deploy/raspberry-pi/config-hardware.txt` (overlays per stage) | App runs on the simulators; overlays sketch |
+| USB CANable 2.0 (stage 0) | Kernel `gs_usb` (candleLight) or `slcand` (slcan) | `can/backends.py`, `deploy/linux/adapter-setup.sh` (drivers, plug-in rule), `core/interfaces.py` | Done, used on the laptop; first run on the Pi at stage 0 |
+| Touch Display 2 | Pi OS (DSI, touch as mouse events in SDL) | `device/app.py` (rotation, mm-based sizing) | Untested on the panel |
 | CAN stack A / B (MCP2518FD + TCAN1051V) | Kernel `mcp251xfd` driver -> `can0` / `can1` | `can/backends.py` (SocketCAN, unchanged); a second session per bus is still to do | Stack A ready to try; stack B needs the two-session work |
 | Meter Pico (Pico 2) | MicroPython now, C SDK for waveform streaming | `firmware/meter-pico/` (firmware); `core/meters.py` (Pi side: line protocol, commands) | Sketch |
 | SYNC pulse | Meter Pico timer -> Pi GPIO21 (`pps-gpio`) + logic Pico D2 | `firmware/meter-pico/main.py`; `core/sync.py` (`PulseClock`, `PpsReader`, `fit_edges`) | Sketch; Pi side unit-tested |
@@ -567,12 +571,14 @@ build stage" fills them in from a stage number; single parts can then be changed
 
 | Option | Stage | Needs | Found by |
 |---|---|---|---|
-| `can_a` CAN stack A | 1 | | `/sys/class/net/can0` |
+| `usb_can` USB CAN adapter | 0 | | a CAN interface on USB (or slcand's, with an slcan CANable plugged in). Informational: it never hides a USB adapter |
+| `controls` Buttons and encoder | 0b | | input devices named `button@N` / `rotary@N` [verify the names on the Pi] |
+| `can_a` CAN stack A | 1 | | the CAN interface on SPI device `spi0.0`, whatever it's named |
 | `logic_pico` Logic Pico | 2a | | USB serial name (`/dev/serial/by-id`), or a set port |
 | `meter_pico` Meter Pico | 2b | | USB serial name, or a set port |
 | `sync` Sync pulse input | 2b | meter_pico | a pps device named `pps-gpio` |
 | `adc_pi` ADC on the Pi | 3 | | IIO device `ads1115` / `ads1015` |
-| `can_b` CAN stack B | 5 | | `/sys/class/net/can1` |
+| `can_b` CAN stack B | 5 | | the CAN interface on `spi0.1` |
 | `esp32` ESP32 wireless | 6 | | `/dev/ttyAMA0` exists |
 | `probe_frontend` Probe front end | 7 | meter_pico | meter hello: MCP4728 answered |
 | `ohms` Resistance channel | 7 | meter_pico | meter hello: ADS1115 answered |

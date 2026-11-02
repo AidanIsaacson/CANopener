@@ -14,9 +14,30 @@ def _settings(tmp_path):
     return Settings(str(tmp_path / "settings.json"))
 
 
+def _can_iface(root, name, *, spi=None, usb=None, virtual=False):
+    """A CAN interface in a fake sysfs: on an SPI chip select, on a USB device, or with no device
+    (slcand's, or vcan)."""
+    net = root / "sys/class/net" / name
+    os.makedirs(net)
+    (net / "type").write_text("280\n")
+    if spi:
+        dev = root / "sys/devices/platform/soc/spi" / spi
+        os.makedirs(dev / "net" / name)
+        os.makedirs(root / "sys/bus/spi/devices", exist_ok=True)
+        os.symlink(dev, root / "sys/bus/spi/devices" / spi)
+        os.symlink(dev, net / "device")
+    elif usb:
+        dev = root / "sys/devices/platform/usb1/1-1" / usb
+        drv = root / "sys/bus/usb/drivers" / "gs_usb"
+        os.makedirs(dev)
+        os.makedirs(drv, exist_ok=True)
+        os.symlink(drv, dev / "driver")
+        os.symlink(dev, net / "device")
+
+
 def _sysfs(root, *, can=(), pps=False, iio=None, serial=()):
     for iface in can:
-        os.makedirs(root / f"sys/class/net/{iface}")
+        _can_iface(root, iface, spi="spi0.0")
     if pps:
         d = root / "sys/class/pps/pps0"
         os.makedirs(d)
@@ -46,9 +67,11 @@ def test_nothing_is_installed_by_default(tmp_path):
 
 def test_stage_preset_and_requirements(tmp_path):
     hw = _hw(tmp_path)
+    hw.set_stage("0")
+    assert [o.id for o in hardware.OPTIONS if hw.state(o.id) == hardware.YES] == ["usb_can"]
     hw.set_stage("2b")
     assert [o.id for o in hardware.OPTIONS if hw.state(o.id) == hardware.YES] == \
-        ["can_a", "logic_pico", "meter_pico", "sync"]
+        ["usb_can", "controls", "can_a", "logic_pico", "meter_pico", "sync"]
     hw.set_state("ohms", hardware.YES)
     assert hw.available("ohms")
     hw.set_state("meter_pico", hardware.NO)
@@ -74,6 +97,42 @@ def test_auto_uses_what_is_found(tmp_path):
     assert hw.port("meter_pico").endswith("MicroPython_Board_in_FS_mode_e6614c3-if00")
     assert hw.available("sync")
     assert not hw.available("logic_pico")     # the MicroPython Pico is the meter, not sigrok
+
+
+def test_usb_adapter_and_spi_stack_are_told_apart(tmp_path):
+    root = tmp_path / "root"
+    _can_iface(root, "can0", usb="1-1:1.0")                 # the CANable, plugged in first
+    _can_iface(root, "can1", spi="spi0.0")                  # the MCP2518FD came up as can1
+    _can_iface(root, "vcan0", virtual=True)
+    probe = hardware.Probe(str(root))
+    assert probe.usb_can() == hardware.Detection(True, "can0 (gs_usb)")
+    assert probe.spi_net("spi0.0").where == "can1"
+    assert probe.spi_net("spi0.1").found is False
+
+
+def test_slcan_canable_counts_once_slcand_attached_it(tmp_path):
+    root = tmp_path / "root"
+    usb = root / "sys/bus/usb/devices/1-1"
+    os.makedirs(usb)
+    (usb / "idVendor").write_text("16d0\n")
+    (usb / "idProduct").write_text("117e\n")
+    (usb / "product").write_text("CANable2 b158aa7 github.com/normaldotcom/canable2.git\n")
+    probe = hardware.Probe(str(root))
+    det = probe.usb_can()
+    assert det.found is False and "slcan" in det.detail          # plugged in, not attached yet
+    _can_iface(root, "can0")                                     # slcand made can0 (no device link)
+    assert probe.usb_can() == hardware.Detection(True, "can0 (slcan)")
+
+
+def test_controls_from_input_device_names(tmp_path):
+    root = tmp_path / "root"
+    probe = hardware.Probe(str(root))
+    assert probe.input().found is False
+    for i, name in enumerate(["button@5", "button@6", "rotary@18", "vc4-hdmi"]):
+        d = root / f"sys/class/input/input{i}"
+        os.makedirs(d)
+        (d / "name").write_text(name + "\n")
+    assert probe.input() == hardware.Detection(True, "2 button(s) + encoder")
 
 
 def test_meter_options_come_from_the_hello(tmp_path):

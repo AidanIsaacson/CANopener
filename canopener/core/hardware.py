@@ -38,7 +38,8 @@ YES, NO, AUTO = "yes", "no", "auto"
 STATES = [("Not installed", NO), ("Installed", YES), ("Use if found", AUTO)]
 
 # Build stages in order (docs/ELECTRONICS.md section 3). "Built to stage N" fits everything up to N.
-STAGES = ["1", "2a", "2b", "3", "4", "5", "6", "7", "7b", "8"]
+# 0 = Pi 5 + Touch Display 2 + a USB CANable; 0b = the first buttons and the encoder.
+STAGES = ["0", "0b", "1", "2a", "2b", "3", "4", "5", "6", "7", "7b", "8"]
 
 # Source-status levels, the same lamp colours as core.measure / core.link
 OK, WAIT, BAD, OFF = "ok", "wait", "bad", "off"
@@ -69,10 +70,20 @@ class Option:
 
 
 OPTIONS: list[Option] = [
-    Option("can_a", "CAN stack A", "1", "MCP2518FD + TCAN1051V on SPI0 CE0: can0, the DB9.",
+    Option("usb_can", "USB CAN adapter", "0", "A CANable 2.0 (or any SocketCAN USB adapter): the CAN interface "
+           "until the on-board stacks exist, and the bench partner after. Informational: a USB adapter "
+           "always works whatever this says.",
+           "Plugged in? `canopener-cli interfaces` says why there's no interface (slcan not attached, "
+           "DFU mode, no driver). Run deploy/raspberry-pi/install.sh once for the drivers and plug-in rule.",
+           detect="usb_can"),
+    Option("controls", "Buttons and encoder", "0b", "Switches to ground on the GPIOs in config-controls.txt "
+           "(gpio-key) and the rotary encoder (rotary-encoder). Wire some or all; touch still works.",
+           "deploy/raspberry-pi/config-controls.txt in /boot/firmware/config.txt, then reboot; the user in the "
+           "input group (install.sh --device) for the encoder.", detect="input"),
+    Option("can_a", "CAN stack A", "1", "MCP2518FD + TCAN1051V on SPI0 CE0, the DB9.",
            "dtoverlay=mcp251xfd,spi0-0,oscillator=20000000,interrupt=25 in config.txt; then "
-           "`dmesg | grep mcp251xfd`. No can0 usually means wiring or the crystal.",
-           detect="net", arg="can0"),
+           "`dmesg | grep mcp251xfd`. No interface usually means wiring or the crystal.",
+           detect="spi_net", arg="spi0.0"),
     Option("logic_pico", "Logic Pico", "2a", "Original Pico running stock sigrok-pico: the logic analyzer.",
            "Plugged in by USB? Flashed with sigrok-pico? Set hardware.logic_pico.port if it isn't recognised.",
            detect="serial", arg=LOGIC_PICO_NAMES),
@@ -88,9 +99,9 @@ OPTIONS: list[Option] = [
            "exists. Only through the divider + clamp front end, never bare probes.",
            "dtoverlay=ads1115 in config.txt (check `dtoverlay -h ads1115`); `i2cdetect -y 1` should show 48.",
            detect="iio", arg=("ads1115", "ads1015")),
-    Option("can_b", "CAN stack B", "5", "Second MCP2518FD on SPI0 CE1: can1, a second bus at the same time.",
+    Option("can_b", "CAN stack B", "5", "Second MCP2518FD on SPI0 CE1: a second bus at the same time.",
            "dtoverlay=mcp251xfd,spi0-1,oscillator=20000000,interrupt=20 in config.txt.",
-           detect="net", arg="can1"),
+           detect="spi_net", arg="spi0.1"),
     Option("esp32", "ESP32 wireless", "6", "ESP-NOW receiver for satellite meters and Bluetooth gateway, on "
            "the Pi UART (GPIO14/15).",
            "Pi 5: dtparam=uart0=on in config.txt. 3B+: enable_uart=1 and dtoverlay=disable-bt. No serial "
@@ -136,13 +147,53 @@ class Probe:
     def _p(self, path: str) -> str:
         return os.path.join(self.root, path.lstrip("/"))
 
-    def net(self, iface: str) -> Detection:
-        d = self._p(f"/sys/class/net/{iface}")
-        if not os.path.isdir(d):
-            return Detection(False, detail=f"no {iface} interface")
-        drv = os.path.realpath(os.path.join(d, "device", "driver"))
-        driver = os.path.basename(drv) if os.path.exists(drv) else ""
-        return Detection(True, iface, f"driver {driver}" if driver else "")
+    def spi_net(self, spi_dev: str) -> Detection:
+        """The CAN interface of the controller on one SPI chip select, whatever it got named:
+        with a USB adapter plugged in too, the MCP2518FD isn't always can0."""
+        ifaces = sorted(glob.glob(self._p(f"/sys/bus/spi/devices/{spi_dev}/net/*")))
+        if not ifaces:
+            return Detection(False, detail=f"no CAN interface on {spi_dev}")
+        return Detection(True, os.path.basename(ifaces[0]), f"on {spi_dev}")
+
+    def usb_can(self, _arg=None) -> Detection:
+        """A CAN interface on a USB adapter: its device sits on USB (gs_usb, PEAK, Kvaser ...), or
+        it has no device at all (slcand's) while a CANable with slcan firmware is plugged in."""
+        from . import interfaces
+        adapters = interfaces.usb_adapters(self._p(interfaces.SYS_USB), self._p(interfaces.SYS_TTY))
+        slcan = any(a.kind == "slcan" for a in adapters)
+        found = []
+        for d in sorted(glob.glob(self._p("/sys/class/net/*"))):
+            name = os.path.basename(d)
+            if _read(os.path.join(d, "type")) != "280" or name.startswith("vcan"):     # 280 = ARPHRD_CAN
+                continue
+            dev = os.path.join(d, "device")
+            if os.path.exists(dev):
+                if "/usb" in os.path.realpath(dev):
+                    drv = os.path.join(dev, "driver")
+                    found.append(f"{name} ({os.path.basename(os.path.realpath(drv))})" if os.path.exists(drv)
+                                 else name)
+            elif slcan:
+                found.append(f"{name} (slcan)")
+        if found:
+            return Detection(True, ", ".join(found))
+        if adapters:
+            return Detection(False, detail=adapters[0].hint())
+        return Detection(False, detail="no USB CAN adapter found")
+
+    def input(self, _arg=None) -> Detection:
+        """gpio-key buttons and the rotary encoder, by their input device names [verify the
+        names on a Pi: gpio-key devices are expected as "button@<gpio>", the encoder "rotary@<gpio>"]."""
+        names = []
+        for d in sorted(glob.glob(self._p("/sys/class/input/input*"))):
+            n = _read(os.path.join(d, "name")).lower()
+            if n:
+                names.append(n)
+        enc = sum("rotary" in n or "encoder" in n for n in names)
+        keys = sum(n.startswith("button") or "gpio" in n for n in names)
+        if not enc and not keys:
+            return Detection(False, detail="no gpio-key or rotary-encoder input devices")
+        parts = ([f"{keys} button(s)"] if keys else []) + (["encoder"] if enc else [])
+        return Detection(True, " + ".join(parts))
 
     def serial(self, patterns, port: str = "") -> Detection:
         if port:
@@ -176,8 +227,12 @@ class Probe:
 
     def detect(self, opt: Option, settings=None, reported: list | None = None) -> Detection:
         port = (settings.get(f"hardware.{opt.id}.port") if settings is not None else "") or ""
-        if opt.detect == "net":
-            return self.net(opt.arg)
+        if opt.detect == "spi_net":
+            return self.spi_net(opt.arg)
+        if opt.detect == "usb_can":
+            return self.usb_can()
+        if opt.detect == "input":
+            return self.input()
         if opt.detect == "serial":
             return self.serial(opt.arg, port)
         if opt.detect == "port":

@@ -3,6 +3,10 @@
 From a blank SD card to CANopener starting by itself at power-on, in about 30 minutes (most of
 it waiting for downloads). Works on a Pi 3B+, 4, 5, or CM4.
 
+> **Building the handheld?** Start with [Handheld, first steps](handheld-stage0.md): the Pi 5,
+> the Touch Display 2 and a USB CANable, then the first buttons and the encoder. It uses this page
+> for the basics.
+
 > **Status:** these steps use the scripts in [`deploy/raspberry-pi/`](../../deploy/raspberry-pi),
 > which are tested on desktop Linux but **not yet on real Pi hardware**. If a step doesn't match
 > what you see, note where and open an issue.

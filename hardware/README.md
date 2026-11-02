@@ -10,7 +10,7 @@ Status markers as in ELECTRONICS.md: **[D]** decided, **[P]** proposed, **[TBD]*
 
 ## 1. Order of work
 
-1. **Finish the adapter-board prototype first** (ELECTRONICS.md stages 1-8) and fill in its
+1. **Finish the adapter-board prototype first** (ELECTRONICS.md stages 0-8) and fill in its
    section 14 table (SPI clock, crystal caps, compensation values, SYNC jitter, current per stage,
    temperatures). Those numbers are layout requirements; a board drawn before them is a guess.
 2. **Rev A: a Pi 5 add-on board** [P]. Same 40-pin header as the prototype, so the software

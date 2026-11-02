@@ -55,11 +55,9 @@ One-handed hold supported; most-used functions (start/stop log, save snapshot) r
  
 ### Core Compute
  
-**Bring-up: Raspberry Pi 3B+** (on hand)
-- Stage 1 of the hand-wired prototype (CAN stack A), headless over SSH. Same 40-pin header as the Pi 5, so wiring carries over. Any SPI TFT hat comes off: it sits on SPI0 with the CAN controller
-- No RTC; time jumps when NTP arrives after boot
+**Bring-up starts on the Pi 5, with no soldering** (stage 0): the Pi 5, the Touch Display 2 and the same USB CANable 2.0 as the laptop build make a working touch scan tool first. Then a few buttons and the encoder on a breadboard (stage 0b), then the CAN chips (stage 1), with the CANable kept as the bench partner. Guide: [install/handheld-stage0.md](install/handheld-stage0.md). The Raspberry Pi 3B+ on hand is a spare bench Pi (no RTC; any SPI TFT hat conflicts with CAN on SPI0).
 
-**Prototype: Raspberry Pi 5** + 10.1" Touch Display 2 (arriving)
+**Prototype: Raspberry Pi 5** + 10.1" Touch Display 2
 - Development and software validation platform for the adapter-board prototype ([ELECTRONICS.md](ELECTRONICS.md))
 - Runs full Linux, boots straight into the diagnostic app (`canopener-device`)
 - Storage: 64–128GB microSD, SanDisk or Samsung Pro Endurance (rated for sustained writes)
