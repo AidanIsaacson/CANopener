@@ -423,6 +423,18 @@ def icon_home(ui: UI, r, c):
     pygame.draw.rect(ui.surface, c, (r.x + r.w * .22, r.y + r.h * .46, r.w * .56, r.h * .44), lw)
 
 
+def icon_games(ui: UI, r, c):
+    """A wire bend joining two bus bars: Harness."""
+    lw = _lw(r) + 1
+    for x in (.08, .92):
+        pygame.draw.line(ui.surface, c, (r.x + r.w * x, r.y + r.h * .1), (r.x + r.w * x, r.bottom - r.h * .1), lw + 2)
+    pts = [(r.x + r.w * .08, r.y + r.h * .3), (r.centerx, r.y + r.h * .3), (r.centerx, r.y + r.h * .7),
+           (r.right - r.w * .08, r.y + r.h * .7)]
+    pygame.draw.lines(ui.surface, c, False, pts, lw)
+    pygame.draw.circle(ui.surface, c, (r.centerx, r.y + r.h * .3), lw * 1.2)
+    pygame.draw.circle(ui.surface, c, (r.centerx, r.y + r.h * .7), lw * 1.2)
+
+
 ICONS = {"can": icon_can, "meter": icon_meter, "settings": icon_settings, "log": icon_log,
          "codes": icon_codes, "live": icon_live, "connect": icon_connect, "bus": icon_bus,
-         "back": icon_back, "home": icon_home}
+         "back": icon_back, "home": icon_home, "games": icon_games}

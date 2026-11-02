@@ -17,7 +17,7 @@ class HomeScreen(Screen):
         self.grid = GridView()
 
     def softkeys(self):
-        return [SoftKey(m.title, lambda m=m: self.app.open_mode(m.id)) for m in modes.modes()[:4]]
+        return [SoftKey(m.title, lambda m=m: self.app.open_mode(m.id)) for m in modes.shown(self.ctx)[:4]]
 
     def on_action(self, action, n=1):
         g = self.grid
@@ -28,7 +28,7 @@ class HomeScreen(Screen):
         elif action in (inp.UP, inp.DOWN):
             g.move2d(0, -1 if action == inp.UP else 1)
         elif action == inp.SELECT:
-            ms = modes.modes()
+            ms = modes.shown(self.ctx)
             if ms:
                 self.app.open_mode(ms[g.focus].id)
         else:
@@ -37,7 +37,7 @@ class HomeScreen(Screen):
 
     def draw(self, ui, rect):
         t = ui.theme
-        ms = modes.modes()
+        ms = modes.shown(self.ctx)
         foot = round(t.touch * .5)
         area = pygame.Rect(rect.x, rect.y + t.pad, rect.w, rect.h - foot - t.pad)
         tiles = self.grid.layout(area, len(ms), round(t.touch * 3.2), round(t.touch * 2.4))

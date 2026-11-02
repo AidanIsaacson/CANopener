@@ -58,6 +58,9 @@ DEFAULTS: dict = {
     "device.encoder": "auto",           # evdev device for the rotary encoder: auto / none / /dev/input/eventN
     "device.ladder": "",                # IIO channel of a resistor-ladder button stack ("" = none)
     "device.ladder_levels": [0.0, 0.6, 1.2, 1.8, 2.4],     # volts per ladder button (soft keys 1-5)
+    "device.games": False,              # Games on the home screen (System > About, seven times)
+    "games.harness_best": 0,
+    "games.controls": {},               # profile id -> signal bindings (device/game_controls.py)
 }
 
 

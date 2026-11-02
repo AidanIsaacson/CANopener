@@ -6,7 +6,8 @@ a row of hardware buttons. It is a third front-end over the same `core/` as the 
 the CLI, so a fix in the scan, capture or decode code reaches all three.
 
 > **Status:** runs and is tested headless against the simulators at 800x480, 1280x720 and
-> 1280x800. **Not yet run on a Pi, a DSI panel or the real controls.** The pieces that only real
+> 1280x800, and runs full-screen on a Pi 5 with an HDMI screen and a USB CANable (starting at
+> login). **Not yet run on a DSI panel or with the real controls.** The pieces that only real
 > hardware can prove are listed in [Not tested yet](#not-tested-yet).
 
 ![Home: CAN, Meter, Data log and System tiles; soft keys along the top, status strip along the bottom](images/device-home.png)
@@ -66,13 +67,44 @@ the encoder does nothing.
 | **CAN** | **Connect** (source, interface, bitrate or *Auto* via the signal finder, listen-only, profile, connect at power-on, adapter and bus status). **Codes** (J1939 active / stored / full scan with lamps, or OBD-II codes from every module; select a code for details, *Live data* jumps to its sensor). **Live** (every value, tick the ones you want, *Grid* shows them big with a 60 s trace). **Bus** (modules with frame rates, or every CAN ID with changing bytes marked). **Log** (below). |
 | **Meter** | Each measurement channel as a big readout with min / max and a trace; Hold; each source's status ("not detected, retrying"). |
 | **Data log** | Start / stop, timestamps (planned list or as-you-go), undo, save, trim to the stretch around the timestamps, copy to a USB stick, recover a log a power cut interrupted. Records the bus **and every meter channel**. |
-| **System** | Brightness, screen size, picture rotation, which edge the buttons are on, 4 or 5 buttons and what button 5 does, units, sound cues and buzzer, meters, logs folder and USB export, about (temperature, uptime, IP), close / restart / power off. |
+| **System** | Brightness, screen size, picture rotation, which edge the buttons are on, 4 or 5 buttons and what button 5 does, units, sound cues and buzzer, meters, logs folder and USB export, about (temperature, uptime, IP), exit to desktop / restart / power off. |
 
 ![Live Data grid: engine speed, torque and pedal position, big, with traces](images/device-live-grid.png)
 
 Everything is read-only. The device UI only sends J1939 requests and OBD-II reads; it has no
 clear-codes or transmit screen yet. When it gets one, it follows CLAUDE.md: state what it
 changes, default No, never in listen-only.
+
+## Games (hidden)
+
+Open **System > About this device** seven times in a row and a **Games** tile joins the home
+screen (after System, so the soft keys don't change); **System > Show games** hides it again.
+
+**Harness** (`device/harness.py`, the screen is `device/screens/games.py`) is played with the
+handheld turned a quarter turn anticlockwise, so it draws portrait and turns the picture. Wire
+segments fall into a board between two bus bars: the encoder turns a segment, the d-pad's up /
+down (now left / right) move it, its left (now down) drops it, pushing the encoder swaps it for
+the side piece, Back pauses. A wire touching the bars at two points clears with everything joined
+to it: bar to bar scores double, back to the same bar single; wires falling into the gap can
+close a chain.
+
+**Controls from CAN** (`device/game_controls.py`): every control goes through one command
+interface, so the machine's own signals, decoded by the active profile, can play it too: steer
+to turn the piece, the lower switch drops it. Games > Controls from CAN picks a signal on the bus
+for each action. A binding is an **edge** (a threshold, for switches), a **delta** (one step per
+so much change, for a steering angle) or a **position** (the value's range spread across the
+columns). They're kept per profile in `settings.json`:
+
+```json
+"games.controls": {"loader": [
+  {"signal": "Steering angle", "do": "turn", "every": 15},
+  {"signal": "Lower switch", "do": "drop", "above": 0.5},
+  {"signal": "Joystick X", "do": "column", "min": -100, "max": 100}
+]}
+```
+
+Reading only: nothing is sent. The signals are read straight from the session each frame (Live
+Data samples five times a second, too slow for a quick switch).
 
 ## Meters and the data log (the groundwork)
 
