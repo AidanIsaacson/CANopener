@@ -100,6 +100,39 @@ actions, `canopener-cli` commands, folders of profiles and transmit actions. See
 changes a machine must confirm with the user first, and `Session.send_frame` refuses in
 listen-only mode.
 
+### Private plugins: installing from the device, no keyboard
+
+**System → Plugins** on the handheld (and `canopener-cli plugins` anywhere) signs in to GitHub
+and installs plugins from repositories, private ones included. Nothing is typed on the device:
+sign-in uses GitHub's device flow, so the screen shows a code and you approve it at
+`github.com/login/device` on a phone. Then **Add a repository** lists the repositories that
+sign-in can read; picking one clones it to `~/<name>`, runs `pip install -e` into the app's
+environment and offers a restart. **Update all** pulls (fast-forward only) and restarts. Code:
+`core/github.py` (sign-in, token store, API) and `core/plugin_repos.py` (git + pip), screens in
+`device/screens/plugins.py`.
+
+Sign-in needs a **GitHub App** (one-time setup, about two minutes, works from a phone):
+
+1. github.com → your picture → **Settings → Developer settings → GitHub Apps → New GitHub App**.
+2. Name: anything (e.g. "CANopener <your name>"). Homepage URL: this repository's URL. Untick
+   **Webhook → Active**.
+3. Tick **Enable Device Flow**. Untick **Expire user authorization tokens** (refreshing one needs
+   the client secret, which has no place on a device).
+4. **Repository permissions → Contents: Read-only** (Metadata: read-only is added automatically).
+   Nothing else.
+5. **Where can this GitHub App be installed? → Only on this account.** Create it.
+6. On the App's page, **Install App** → your account → **Only select repositories** → pick the
+   plugin repositories (only those).
+7. Copy the **Client ID** (`Iv23...`; public, not a secret) into `DEFAULT_CLIENT_ID` in
+   `core/github.py`, or for one device only set `"github.client_id"` in
+   `~/.config/canopener/settings.json` (or `CANOPENER_GITHUB_CLIENT_ID`).
+
+The token (`~/.config/canopener/github-token.json`, mode 600) can only read the repositories the
+App is installed on. It reaches git through the environment (`GIT_CONFIG_*`), never the command
+line or the checkout's `.git/config`. **System → Plugins → Sign out** forgets it on the device;
+github.com → Settings → Applications → Authorized GitHub Apps revokes it everywhere. Don't name
+private repositories in this public repo: the list lives in the `plugins.sources` setting.
+
 ## Project layout
 
 ```
@@ -133,5 +166,7 @@ docs/        DESIGN.md (hardware + concept), ELECTRONICS.md (prototype electroni
 | `~/canopener/logs/` | Captures from the Log tool, one folder each |
 | `~/canopener/reports/` | Saved reports (plus the raw log alongside) |
 | `~/.config/canopener/profiles/*.json` | Your machine profiles |
+| `~/.config/canopener/github-token.json` | GitHub sign-in for plugin installs (System → Plugins), mode 600 |
+| `~/<repo name>/` | Plugins installed from GitHub (System → Plugins); a non-git copy found there is kept as `.old-<date>` |
 | `~/.config/canopener/profile_list.json` | Which profiles the picker shows, and their order |
 | `~/.config/canopener/spn_names.csv` | Optional extra SPN names, `spn,name` per line |

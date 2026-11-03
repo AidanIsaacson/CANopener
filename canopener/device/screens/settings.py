@@ -121,6 +121,8 @@ class SettingsScreen(Screen):
             Row("About this device", select=self._about),
             Row("Check for updates", __version__, select=self._check_updates,
                 hint="download the newest CANopener from GitHub (needs internet)"),
+            Row("Plugins", self._plugins_summary, select=self._plugins,
+                hint="sign in to GitHub; install and update plugins (private ones too)"),
         ]
         if s.get("device.games"):
             rows.append(Row("Show games", select=lambda: s.set("device.games", False), check=lambda: True,
@@ -248,6 +250,16 @@ class SettingsScreen(Screen):
             self.ctx.toast("Games unlocked: they're on the home screen")
         elif left <= 3:
             self.ctx.toast(f"{left} more...")
+
+    def _plugins(self):
+        from .plugins import PluginsScreen
+        self.app.push(PluginsScreen(self.app))
+
+    @staticmethod
+    def _plugins_summary():
+        from ... import plugins
+        n = len(plugins.loaded())
+        return f"{n} loaded" if n else "none"
 
     # --- updates (core.updates: the same as the desktop app's Help > Check for updates) ---
     def _check_updates(self):

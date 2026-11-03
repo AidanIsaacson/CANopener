@@ -65,6 +65,8 @@ DEFAULTS: dict = {
     "games.harness_best": 0,
     "games.cargo_best": 0,
     "games.controls": {},               # profile id -> signal bindings (device/game_controls.py)
+    "plugins.sources": [],              # GitHub repos to install plugins from (core.plugin_repos)
+    "github.client_id": "",             # GitHub App for sign-in ("" = core.github.DEFAULT_CLIENT_ID)
 }
 
 

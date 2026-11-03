@@ -437,6 +437,64 @@ def cmd_update(a) -> int:
     return 0 if ok else 1
 
 
+def cmd_plugins(a) -> int:
+    """Sign in to GitHub and install / update plugins from repositories (core.plugin_repos)."""
+    from .core import github, plugin_repos
+    from .core.settings import Settings
+    st = Settings()
+    acct = github.load_account()
+    token = acct.token if acct else None
+    try:
+        if a.action == "login":
+            cid = github.client_id(st)
+            dc = github.start_sign_in(cid)
+            print(f"Open {dc.verification_uri} and enter the code:  {dc.user_code}")
+            token = github.wait_for_token(cid, dc)
+            login = github.whoami(token)
+            github.save_account(github.Account(token, login))
+            print(f"Signed in as {login}.")
+            return 0
+        if a.action == "logout":
+            print("Signed out." if github.sign_out() else "Wasn't signed in.")
+            return 0
+        if a.action == "repos":
+            if not token:
+                print("Not signed in: canopener-cli plugins login", file=sys.stderr)
+                return 1
+            for r in github.repositories(token):
+                print(r)
+            return 0
+        if a.action == "add":
+            if not a.repo:
+                print("Which repository? canopener-cli plugins add owner/name", file=sys.stderr)
+                return 2
+            src = plugin_repos.add_source(st, a.repo, a.dir or "")
+            ok, msg = plugin_repos.install(src, token, progress=print)
+            print(msg)
+            return 0 if ok else 1
+        if a.action == "remove":
+            plugin_repos.remove_source(st, a.repo or "")
+            print("Removed from the list (its folder and package were left in place).")
+            return 0
+        srcs = plugin_repos.sources(st)
+        print(f"GitHub: signed in as {acct.login}" if acct else "GitHub: not signed in")
+        if not srcs:
+            print("No plugin repositories yet: canopener-cli plugins add owner/name")
+        rc = 0
+        for src in srcs:
+            if a.action == "update":
+                ok, msg = plugin_repos.update(src, token, progress=print)
+                rc |= 0 if ok else 1
+            else:
+                s = plugin_repos.check(src, token)
+                msg = s.message + "".join(f"\n    * {c}" for c in s.commits)
+            print(f"{src.repo}  ({src.path})\n  {msg}")
+        return rc
+    except (github.GitHubError, ValueError) as e:
+        print(e, file=sys.stderr)
+        return 1
+
+
 def cmd_capture(a) -> int:
     from .core.capture import Capture
     try:
@@ -621,6 +679,14 @@ def main(argv=None) -> int:
     up.add_argument("--check", action="store_true", help="only check, don't install")
     up.add_argument("--yes", action="store_true", help="install without asking")
     up.set_defaults(fn=cmd_update)
+
+    pl = sub.add_parser("plugins", help="plugins from GitHub repositories (private ones too): sign in, add, "
+                        "check, update")
+    pl.add_argument("action", nargs="?", default="list",
+                    choices=["list", "update", "add", "remove", "login", "logout", "repos"])
+    pl.add_argument("repo", nargs="?", help="owner/name (add, remove)")
+    pl.add_argument("--dir", help="add: where to put the checkout (default ~/<name>)")
+    pl.set_defaults(fn=cmd_plugins)
 
     c = sub.add_parser("capture", help="re-generate and print a capture folder's summary (optionally trim it)")
     c.add_argument("folder")

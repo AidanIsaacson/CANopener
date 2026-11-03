@@ -85,6 +85,9 @@ Headless or minimal Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-
   `adapter-setup.sh` adds drivers + the CANable udev rule / slcand unit). Keep the USB IDs in
   `70-canopener.rules` matching `interfaces.USB_SLCAN` (a test checks), and keep
   `docs/install/` in step with the installers.
+* Plugins installed from GitHub (`core/plugin_repos.py`, sign-in `core/github.py`): standard library
+  only, no root, git pull --ff-only, and the token goes to git only through `github.git_env` (never argv
+  or `.git/config`). Never name a private repository in this public repo.
 * Capture logic (tagging rules, saving, summaries) lives in `core/capture*.py` so the future
   on-device UI shares it; `gui/log_panel.py` is only the screen. Captures must stay recoverable:
   write `capture.json` / `markers.csv` on every change while recording.

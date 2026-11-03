@@ -44,6 +44,11 @@ pick **Simulator** (a telehandler) or **OBD-II simulator (car)**, and press **Co
 **Updating:** **Help → Check for updates…**, then **Install update** and **Restart now**.
 (Tick **Help → Check for updates at startup** to be told when there's one.)
 
+**Plugins, no keyboard needed (the handheld):** **System → Plugins → Sign in to GitHub** shows a
+code; open `github.com/login/device` on your phone, enter it and approve. Then **Add a repository**
+installs a plugin, and **Update all** brings plugins up to date. (Setup for whoever runs the
+plugin repository: [docs/DEVELOPING.md](docs/DEVELOPING.md#private-plugins-installing-from-the-device-no-keyboard).)
+
 ## The handheld (in progress)
 
 The same core app runs on desktop and Raspberry Pi. To try it on the laptop: **Settings → Handheld (Pi) screen**
@@ -314,6 +319,8 @@ canopener-cli canopen --iface can0 --info --errors  # CANopen: nodes, state, err
 canopener-cli decode capture.log --csv frames.csv   # decode a saved log
 canopener-cli capture FOLDER --trim 5 2            # trim a capture: 5 min before, 2 min after its timestamps
 canopener-cli update                                # check for and install updates
+canopener-cli plugins login                         # sign in to GitHub (shows a code to approve)
+canopener-cli plugins update                        # update every plugin installed from GitHub
 canopener-cli --help                                # everything else
 ```
 
