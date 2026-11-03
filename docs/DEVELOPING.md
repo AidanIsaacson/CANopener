@@ -63,7 +63,11 @@ edit it. The full format is documented at the top of
 for J1939 addresses), `"emcy": {"0xFF01": "..."}` describes a maker's own EMCY error codes, and
 `"detect": {"nodes": ["0x01", "0x02"]}` recognises the machine from the nodes heard (alongside or
 instead of `"addresses"`). [`sim-canopen.json`](../canopener/profiles/sim-canopen.json) is a
-worked example for the CANopen simulator.
+worked example for the CANopen simulator, and
+[`zapi-combiacx.json`](../canopener/profiles/zapi-combiacx.json) one for a real machine (a Zapi
+COMBIACX pallet truck, decoded from bus captures; marked Unconfirmed until it's been checked on
+more trucks). Fields still being worked out end in `?`, and raw bytes sit in a "Raw (for
+decoding)" group.
 
 Each of those is also a field in the app's **Label…** dialog. A profile signal at the same place as a built-in one replaces it, so a profile can rename and
 regroup standard data too. `"protocol"` picks the screens: `"j1939"` (the default), `"canopen"`

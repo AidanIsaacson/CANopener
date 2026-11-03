@@ -1,0 +1,54 @@
+{
+  "name": "Zapi COMBIACX pallet truck (Unconfirmed)",
+  "protocol": "canopen",
+  "description": "Unconfirmed. Live data for a walkie pallet truck on a Zapi COMBIACX dual controller (AXM master, node 08; AXS secondary, node 09) with a CANopen tiller head (node 60) and display (node 70). Worked out from bus captures of one truck: the message layout is the truck maker's configuration, so another make or software version may differ. Motor frequency, throttle, battery %, the tiller buttons and lift / lower were checked against known actions; the rest is marked '?'.",
+  "nodes": {
+    "0x08": "Zapi AXM (traction master)",
+    "0x09": "Zapi AXS (secondary)",
+    "0x60": "Tiller head",
+    "0x70": "Display"
+  },
+  "detect": {"nodes": ["0x08", "0x09", "0x60", "0x70"], "min_match": 3},
+  "signals": [
+    {"name": "Throttle", "id": "0x1E0", "start": 2, "length": 2, "signed": true, "scale": 0.0244140625,
+     "unit": "%", "decimals": 0, "group": "Tiller", "low": -100, "high": 100},
+    {"name": "Throttle in neutral", "id": "0x1E0", "start": 0, "bit": 0, "bits": 1,
+     "enum": {"0": "No", "1": "Yes"}, "group": "Tiller"},
+    {"name": "Turtle button", "id": "0x1E0", "start": 0, "bit": 2, "bits": 1,
+     "enum": {"0": "Released", "1": "Pressed"}, "group": "Tiller"},
+    {"name": "Horn button", "id": "0x1E0", "start": 0, "bit": 3, "bits": 1,
+     "enum": {"0": "Released", "1": "Pressed"}, "group": "Tiller"},
+    {"name": "Lift button", "id": "0x1E0", "start": 0, "bit": 6, "bits": 1,
+     "enum": {"0": "Released", "1": "Pressed"}, "group": "Tiller"},
+    {"name": "Lower button", "id": "0x1E0", "start": 0, "bit": 7, "bits": 1,
+     "enum": {"0": "Released", "1": "Pressed"}, "group": "Tiller"},
+
+    {"name": "Battery charge", "id": "0x388", "start": 1, "length": 1, "unit": "%", "decimals": 0,
+     "group": "Battery", "low": 30, "high": 100},
+    {"name": "Low battery", "id": "0x388", "start": 5, "bit": 7, "bits": 1,
+     "enum": {"0": "No", "1": "Yes"}, "group": "Battery"},
+    {"name": "Low battery (second flag) ?", "id": "0x388", "start": 5, "bit": 3, "bits": 1,
+     "enum": {"0": "No", "1": "Yes"}, "group": "Battery"},
+
+    {"name": "Motor frequency", "id": "0x388", "start": 2, "length": 2, "order": "big", "signed": true,
+     "scale": 0.01, "unit": "Hz", "decimals": 1, "group": "Traction"},
+    {"name": "Traction active", "id": "0x388", "start": 5, "bit": 4, "bits": 1,
+     "enum": {"0": "No", "1": "Yes"}, "group": "Traction"},
+    {"name": "Direction requested", "id": "0x388", "start": 5, "bit": 5, "bits": 2,
+     "enum": {"0": "None", "1": "Positive (+)", "2": "Negative (-)", "3": "Both ?"}, "group": "Traction"},
+    {"name": "Brake released ?", "id": "0x388", "start": 7, "bit": 2, "bits": 1,
+     "enum": {"0": "No", "1": "Yes"}, "group": "Traction"},
+    {"name": "Controller temperature ?", "id": "0x388", "start": 6, "length": 1, "unit": "°C", "decimals": 0,
+     "group": "Traction"},
+
+    {"name": "Lifting", "id": "0x388", "start": 7, "bit": 3, "bits": 1,
+     "enum": {"0": "No", "1": "Yes"}, "group": "Hydraulics"},
+    {"name": "Lowering", "id": "0x388", "start": 7, "bit": 4, "bits": 1,
+     "enum": {"0": "No", "1": "Yes"}, "group": "Hydraulics"},
+
+    {"name": "AXM state flags (raw)", "id": "0x388", "start": 0, "length": 1, "decimals": 0,
+     "group": "Raw (for decoding)"},
+    {"name": "Display lamps (raw)", "id": "0x270", "start": 0, "length": 1, "decimals": 0,
+     "group": "Raw (for decoding)"}
+  ]
+}
