@@ -25,9 +25,9 @@ from dataclasses import dataclass, field
 
 from . import config
 
-# The CANopener GitHub App's client ID ("Iv23..."). Empty: set "github.client_id" in settings.json
-# or CANOPENER_GITHUB_CLIENT_ID instead.
-DEFAULT_CLIENT_ID = ""
+# The CANopener GitHub App's client ID (public, not a secret). Override per device with
+# "github.client_id" in settings.json or CANOPENER_GITHUB_CLIENT_ID.
+DEFAULT_CLIENT_ID = "Iv23liwB849pTRz6gPCp"
 DEVICE_CODE_URL = "https://github.com/login/device/code"
 TOKEN_URL = "https://github.com/login/oauth/access_token"
 API = "https://api.github.com"

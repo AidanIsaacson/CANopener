@@ -119,12 +119,13 @@ Sign-in needs a **GitHub App** (one-time setup, about two minutes, works from a 
 3. Tick **Enable Device Flow**. Untick **Expire user authorization tokens** (refreshing one needs
    the client secret, which has no place on a device).
 4. **Repository permissions → Contents: Read-only** (Metadata: read-only is added automatically).
-   Nothing else.
+   Nothing else. GitHub also offers a **private key**: it isn't used (device flow needs none);
+   delete it or never download it, and never commit one.
 5. **Where can this GitHub App be installed? → Only on this account.** Create it.
 6. On the App's page, **Install App** → your account → **Only select repositories** → pick the
    plugin repositories (only those).
 7. Copy the **Client ID** (`Iv23...`; public, not a secret) into `DEFAULT_CLIENT_ID` in
-   `core/github.py`, or for one device only set `"github.client_id"` in
+   `core/github.py` (already set for the project's own App), or for one device only set `"github.client_id"` in
    `~/.config/canopener/settings.json` (or `CANOPENER_GITHUB_CLIENT_ID`).
 
 The token (`~/.config/canopener/github-token.json`, mode 600) can only read the repositories the
