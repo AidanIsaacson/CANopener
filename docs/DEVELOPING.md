@@ -58,6 +58,11 @@ edit it. The full format is documented at the top of
 * on an 11-bit CAN ID instead of a PGN (`"id": "0x181"`: a CANopen PDO, or any plain CAN message)
 * high byte first for 2- / 4-byte values (`"order": "big"`; the default is low byte first, as in
   J1939 and CANopen)
+* text (`"type": "text"`, `"length"` 1-8): ASCII from the frame, e.g. a display's messages
+  ("LOW BTRY", "M 185") or a fault string. Live Data shows the latest message (blank frames
+  between blinks are skipped) with the last few others in its tooltip / under the tile; there's no
+  graph or min / max. A capture's summary notes each different message the first time it shows,
+  and `live_data.csv` gets the text. Not offered in the Label… dialog yet: add it in the file
 
 **CANopen machines:** `"nodes": {"0x01": "Traction controller"}` names node IDs (like `"sources"`
 for J1939 addresses), `"emcy": {"0xFF01": "..."}` describes a maker's own EMCY error codes, and

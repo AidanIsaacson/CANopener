@@ -74,7 +74,7 @@ class GamesScreen(Screen):
         seen = {}
         for key in model.order:
             row = model.rows[key]
-            if row.value is not None and row.sig.name not in seen:
+            if row.value is not None and not isinstance(row.value, str) and row.sig.name not in seen:
                 seen[row.sig.name] = row
         if not seen:
             self.ctx.toast("No signals on the bus yet: connect under CAN first")

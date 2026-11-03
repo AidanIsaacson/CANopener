@@ -2,7 +2,9 @@
 
 ``start`` is the 0-based byte index (J1939 documents count from 1). Most standard parameters
 are whole bytes (``length`` = 1, 2 or 4); machine profiles can also describe bit fields
-(``bit`` / ``bits``), signed values, enumerated states and a normal range.
+(``bit`` / ``bits``), signed values, enumerated states, a normal range, and text: ``kind`` =
+``"text"`` decodes ``length`` bytes (1-8) as ASCII, the way controllers send display messages
+("LOW BTRY") or fault strings. A text value is a ``str``; it has no unit, scale, range or graph.
 """
 
 from dataclasses import dataclass
@@ -32,6 +34,11 @@ class Signal:
     high: float | None = None
     can_id: int | None = None   # an 11-bit CAN ID (CANopen PDO, plain CAN) instead of a PGN
     big_endian: bool = False    # whole-byte values only: high byte first (Motorola order)
+    kind: str = ""              # "" = a number; "text" = ``length`` bytes of ASCII
+
+    @property
+    def is_text(self) -> bool:
+        return self.kind == TEXT
 
     @property
     def key(self) -> str:
@@ -58,7 +65,9 @@ class Signal:
             return True
         return sa in self.sa if isinstance(self.sa, tuple) else sa == self.sa
 
-    def decode(self, data) -> float | None:
+    def decode(self, data) -> float | str | None:
+        if self.kind == TEXT:
+            return decode_text(data, self.start, self.length)
         if self.big_endian and not self.bits:
             if self.start + self.length > len(data):
                 return None
@@ -70,17 +79,24 @@ class Signal:
                                 self.signed, self.na_check)
 
     def text(self, value) -> str | None:
-        """Enum text for a decoded value, or None for plain numbers."""
+        """Enum text for a decoded value, the value itself for a text signal, or None for plain
+        numbers."""
+        if isinstance(value, str):
+            return value
         if value is None or not self.enum:
             return None
         raw = round((value - self.offset) / self.scale) if self.scale else int(value)
         return dict(self.enum).get(raw)
 
     def out_of_range(self, value) -> bool:
-        return value is not None and ((self.low is not None and value < self.low)
+        return value is not None and not isinstance(value, str) and ((self.low is not None and value < self.low)
                                       or (self.high is not None and value > self.high))
 
     def encode_into(self, buf: bytearray, value) -> None:
+        if self.kind == TEXT:
+            raw = str(value).encode("ascii", "replace")[:self.length].ljust(self.length, b" ")
+            buf[self.start:self.start + self.length] = raw
+            return
         if self.big_endian and not self.bits:
             tmp = bytearray(self.length)
             Signal.encode_into(_replace_at0(self), tmp, value)
@@ -91,6 +107,20 @@ class Signal:
         else:
             fields.encode_bits(buf, self.start, self.bit, self.width_bits, value, self.scale, self.offset,
                                self.signed)
+
+
+TEXT = "text"
+
+
+def decode_text(data, start: int, length: int) -> str | None:
+    """``length`` bytes from ``start`` as text: printable ASCII kept, anything else shown as '.',
+    trailing spaces / NULs dropped. All blank (or not there) = None: displays that blink a message
+    send blank frames in between, and those shouldn't wipe the last message."""
+    raw = bytes(data[start:start + length])
+    if len(raw) < length:
+        return None
+    text = "".join(chr(b) if 32 <= b < 127 else ("" if b == 0 else ".") for b in raw).rstrip()
+    return text or None
 
 
 def _replace_at0(sig: Signal) -> Signal:

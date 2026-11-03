@@ -23,6 +23,9 @@ def fmt_value(model, row, system: str) -> tuple[str, str, str, bool]:
     flag = getattr(model, "flags", {}).get(row.key, "")
     if row.value is None:
         return (flag or "--"), "", "", bool(flag)
+    if isinstance(row.value, str):          # a text signal: the message, and the others it showed
+        others = [m for m in getattr(row, "recent", ()) if m != row.value]
+        return row.value, "", " · ".join(others[-3:]), False
     text = sig.text(row.value) if getattr(sig, "enum", False) else None
     if text is not None:
         return text, "", "", False

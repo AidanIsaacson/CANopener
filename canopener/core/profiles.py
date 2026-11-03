@@ -32,6 +32,8 @@ Signal keys: ``name``, ``pgn`` (or ``id``, below), ``start`` (0-based byte) are 
   standard PGNs, false for proprietary ones and 11-bit IDs)
 * ``id`` instead of ``pgn``: an 11-bit CAN ID, e.g. a CANopen PDO (``"0x181"`` = TPDO1 of node 1)
 * ``"order": "big"``: a 2- or 4-byte value with its high byte first (default little-endian)
+* ``"type": "text"``: ``length`` (1-8) bytes of ASCII text, e.g. a display message. No scale,
+  unit, range, bit field or enum; the Live views show the latest message and the last few seen
 
 CANopen (11-bit) machines, alongside or instead of J1939::
 
@@ -138,7 +140,18 @@ def parse_signal(s: dict) -> Signal:
     bits = int(s.get("bits", 0))
     bit = int(s.get("bit", 0))
     length = int(s.get("length", 1))
-    if bits:
+    kind = str(s.get("type", "") or "").lower()
+    if kind in ("number", "numeric"):
+        kind = ""
+    if kind not in ("", signals.TEXT):
+        raise ValueError("type must be 'text' (or left out for a number)")
+    if kind == signals.TEXT:
+        if bits or s.get("enum") or s.get("signed") or s.get("scale") not in (None, 1) \
+                or s.get("offset") not in (None, 0) or order == "big":
+            raise ValueError("a text signal is whole bytes of ASCII: no bits, enum, signed, scale, offset or order")
+        if not 1 <= length <= 8 or int(s["start"]) + length > 8:
+            raise ValueError("a text signal is 1-8 bytes and has to fit in the 8-byte frame")
+    elif bits:
         if not 1 <= bits <= 64 or not 0 <= bit <= 7:
             raise ValueError("bits must be 1-64 and bit 0-7")
         length = (bit + bits + 7) // 8
@@ -155,14 +168,14 @@ def parse_signal(s: dict) -> Signal:
     return Signal(
         name=str(s["name"]), pgn=pgn, start=int(s["start"]), length=length,
         scale=float(s.get("scale", 1)), offset=float(s.get("offset", 0)),
-        unit=units.normalize_unit(str(s.get("unit") or "")),
+        unit="" if kind else units.normalize_unit(str(s.get("unit") or "")),
         spn=_int(s["spn"]) if s.get("spn") is not None else None,
         decimals=int(s.get("decimals", 0 if (enum or bits == 1) else 1)), sa=sa,
         # Proprietary payloads don't follow the J1939 'not available' convention.
         na_check=bool(s.get("na_check", can_id is None and not constants.is_proprietary(pgn))),
         bit=bit, bits=bits, signed=bool(s.get("signed", False)), enum=enum,
         group=str(s.get("group", "")), low=_opt_float(s.get("low")), high=_opt_float(s.get("high")),
-        can_id=can_id, big_endian=order == "big" and length > 1,
+        can_id=can_id, big_endian=order == "big" and length > 1, kind=kind,
     )
 
 

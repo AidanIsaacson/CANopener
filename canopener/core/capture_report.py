@@ -63,6 +63,15 @@ class _Analysis:
         self.frames = 0
         self.obd = obd.ObdSniffer()
         self.series: dict[str, ChannelSeries] = {}
+        # Text signals (display messages): the timeline notes each different message once, the
+        # first time it shows (a blinking "LOW BTRY" would otherwise fill it).
+        self.text_by_id = {cid: [s for s in sigs if s.is_text] for cid, sigs in id_signals().items()}
+        self.text_by_id = {cid: sigs for cid, sigs in self.text_by_id.items() if sigs}
+        self.text_by_pgn: dict[int, list] = {}
+        for sig in all_signals():
+            if sig.can_id is None and sig.is_text:
+                self.text_by_pgn.setdefault(sig.pgn, []).append(sig)
+        self.texts_seen: dict[tuple, set] = {}
 
     # --- per frame ---
     def feed(self, fr):
@@ -76,6 +85,8 @@ class _Analysis:
         self.session.feed(fr)
         if not fr.error:
             self.obd.feed(fr.can_id, fr.extended, bytes(fr.data), t)
+            if self.text_by_id or self.text_by_pgn:
+                self._texts(fr)
         if not fr.extended or fr.error or (fr.can_id & 0x1FFF0000) in (0x18DA0000, 0x18DB0000):
             return                      # (29-bit OBD-II traffic isn't J1939 ECUs)
         sa = parse_id(fr.can_id).sa
@@ -90,6 +101,19 @@ class _Analysis:
         if latest and latest[0] != self.dm1_seen_t.get(sa):
             self.dm1_seen_t[sa] = latest[0]
             self._dm1(t, sa, latest[1])
+
+    def _texts(self, fr):
+        if fr.extended:
+            jid = parse_id(fr.can_id)
+            sigs, src = [s for s in self.text_by_pgn.get(jid.pgn, ()) if s.accepts(jid.sa)], jid.sa
+        else:
+            sigs, src = self.text_by_id.get(fr.can_id, ()), canopen.id_src(fr.can_id)
+        for sig in sigs:
+            v = sig.decode(fr.data)
+            seen = self.texts_seen.setdefault((sig.key, src), set())
+            if v and v not in seen:
+                seen.add(v)
+                self.events.append((fr.timestamp, f'{sig.name}: "{v}"'))
 
     def _check_silence(self, t: float):
         for sa, last in self.last_seen.items():
@@ -266,6 +290,12 @@ def measurement_summary(a: _Analysis) -> list[str]:
     return L
 
 
+def _cell(v) -> str:
+    if v is None:
+        return ""
+    return v if isinstance(v, str) else f"{v:.6g}"
+
+
 def write_live_csv(a: _Analysis, path: str):
     c = a.c
     tagged = [(m.t, c.title(i)) for i, m in c.tagged()]
@@ -278,7 +308,7 @@ def write_live_csv(a: _Analysis, path: str):
             prev = t
             wall = datetime.datetime.fromtimestamp(t).strftime("%H:%M:%S.%f")[:-4] if t > 1e9 else f"{t:.1f}"
             row = [wall, f"{t - a.t0:.1f}", " / ".join(events), c.phase_at(t)]
-            row += ["" if values.get(i) is None else f"{values[i]:.6g}" for i in range(len(a.col_titles))]
+            row += [_cell(values.get(i)) for i in range(len(a.col_titles))]
             w.writerow(row)
 
 

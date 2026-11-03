@@ -1,7 +1,7 @@
 {
   "name": "Zapi COMBIACX pallet truck (Unconfirmed)",
   "protocol": "canopen",
-  "description": "Unconfirmed. Live data for a walkie pallet truck on a Zapi COMBIACX dual controller (AXM master, node 08; AXS secondary, node 09) with a CANopen tiller head (node 60) and display (node 70). Worked out from bus captures of one truck: the message layout is the truck maker's configuration, so another make or software version may differ. Motor frequency, throttle, battery %, the tiller buttons and lift / lower were checked against known actions; the rest is marked '?'.",
+  "description": "Unconfirmed. Live data for a walkie pallet truck on a Zapi COMBIACX dual controller (AXM master, node 08; AXS secondary, node 09) with a CANopen tiller head (node 60) and display (node 70). Worked out from bus captures of one truck: the message layout is the truck maker's configuration, so another make or software version may differ. Motor frequency, throttle, battery %, the tiller buttons and lift / lower were checked against known actions; the rest is marked '?'. The display's text (battery %, hour meters, LOW BTRY, TURT, performance mode) shows as a text signal.",
   "nodes": {
     "0x08": "Zapi AXM (traction master)",
     "0x09": "Zapi AXS (secondary)",
@@ -45,6 +45,8 @@
      "enum": {"0": "No", "1": "Yes"}, "group": "Hydraulics"},
     {"name": "Lowering", "id": "0x388", "start": 7, "bit": 4, "bits": 1,
      "enum": {"0": "No", "1": "Yes"}, "group": "Hydraulics"},
+
+    {"name": "Display text", "id": "0x370", "start": 0, "length": 8, "type": "text", "group": "Display"},
 
     {"name": "AXM state flags (raw)", "id": "0x388", "start": 0, "length": 1, "decimals": 0,
      "group": "Raw (for decoding)"},

@@ -42,6 +42,9 @@ class _Value:
 
     def __call__(self, t: float):
         s = self.sig
+        if s.is_text:                           # a few messages in turn, like a display cycling
+            msgs = ["SIM", "TEXT", "12345678", "LOW BAT"]
+            return msgs[int(t / 3 + self.phase) % len(msgs)][:s.length]
         if s.enum:
             keys = [k for k, _ in s.enum]
             raw = keys[int(t / 4 + self.phase) % len(keys)]

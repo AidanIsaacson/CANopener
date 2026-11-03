@@ -85,8 +85,8 @@ def normalize_unit(unit: str) -> str:
 
 
 def convert(value, unit: str, system: str = METRIC):
-    """Return (value, unit) for display in ``system``. None passes through."""
-    if system == METRIC or not unit:
+    """Return (value, unit) for display in ``system``. None and text pass through."""
+    if system == METRIC or not unit or isinstance(value, str):
         return value, unit
     base, _, qualifier = unit.partition(" ")        # "kPa gauge" converts like "kPa"
     src = _SOURCES.get(base)
@@ -115,4 +115,6 @@ def fmt(value, unit: str, decimals: int = 1, system: str = METRIC) -> str:
     v, u = convert(value, unit, system)
     if v is None:
         return "n/a"
+    if isinstance(v, str):
+        return v
     return f"{v:.{display_decimals(unit, u, decimals)}f} {u}".rstrip()

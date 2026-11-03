@@ -164,8 +164,12 @@ class LiveTab(QtWidgets.QWidget):
         for i, key in enumerate(self.order):
             r = self.rows[key]
             chk = QtWidgets.QTableWidgetItem()
-            chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
-            chk.setCheckState(Qt.CheckState.Checked if key in self.plotted else Qt.CheckState.Unchecked)
+            if getattr(r.sig, "is_text", False):        # a message, not a number: nothing to plot
+                chk.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                chk.setToolTip("Text: shows the latest message (hover the value for recent ones)")
+            else:
+                chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+                chk.setCheckState(Qt.CheckState.Checked if key in self.plotted else Qt.CheckState.Unchecked)
             chk.setData(Qt.ItemDataRole.UserRole, key)
             t.setItem(i, C_PLOT, chk)
             name = item(r.sig.name)
@@ -207,7 +211,9 @@ class LiveTab(QtWidgets.QWidget):
             nd = units.display_decimals(sig.unit, unit, sig.decimals)
             age = now - r.t
             stale = not offline and age > STALE_AFTER
-            if sig.enum:
+            if getattr(sig, "is_text", False):
+                cells = {C_VALUE: r.value or "", C_UNIT: "", C_MIN: "", C_MAX: ""}
+            elif sig.enum:
                 cells = {C_VALUE: sig.text(r.value) or _num(r.value, 0), C_UNIT: "",
                          C_MIN: sig.text(r.lo) or _num(r.lo, 0), C_MAX: sig.text(r.hi) or _num(r.hi, 0)}
             else:
@@ -218,6 +224,10 @@ class LiveTab(QtWidgets.QWidget):
                 if it is not None and it.text() != text:
                     it.setText(text)
             it = t.item(i, C_VALUE)
+            if it is not None and getattr(sig, "is_text", False):
+                tip = "Recent messages, newest last:\n" + "\n".join(f"  {m}" for m in r.recent) if r.recent else ""
+                if it.toolTip() != tip:
+                    it.setToolTip(tip)
             if it is not None:
                 if stale:
                     it.setForeground(QtGui.QColor("gray"))
@@ -267,7 +277,7 @@ class LiveTab(QtWidgets.QWidget):
         series = []
         for key in self.plotted:
             r = self.rows.get(key)
-            if r is None:
+            if r is None or getattr(r.sig, "is_text", False):
                 continue
             unit = units.display_unit(r.sig.unit, sysu)
             pts = r.points

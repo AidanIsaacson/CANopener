@@ -20,6 +20,7 @@ from ..j1939.signals import Signal, all_signals, id_signals
 from .canopen import id_src, source_name
 
 HISTORY_SECONDS = 600
+RECENT_TEXTS = 8                # a text signal keeps the last few different messages it showed
 SAMPLES_PER_SECOND = 10         # history depth: HISTORY_SECONDS at up to this rate
 
 
@@ -30,12 +31,21 @@ class LiveRow:
         self.t = 0.0
         self.lo = self.hi = None
         self.points: deque = deque(maxlen=HISTORY_SECONDS * SAMPLES_PER_SECOND)
+        self.recent: deque = deque(maxlen=RECENT_TEXTS)    # text signals: different messages, oldest first
 
     @property
     def key(self):
         return (self.sig.key, self.sa)
 
     def _update(self, t: float, v):
+        if getattr(self.sig, "is_text", False):
+            if v is None:               # a blank frame between blinking messages: keep the last one
+                return
+            self.t, self.value = t, v
+            if v in self.recent:
+                self.recent.remove(v)
+            self.recent.append(v)       # no min / max / graph for text
+            return
         self.t, self.value = t, v
         if v is not None:
             self.lo = v if self.lo is None else min(self.lo, v)
@@ -122,7 +132,11 @@ class LiveData:
 
     def reset_minmax(self):
         for r in self.rows.values():
-            r.lo = r.hi = r.value
+            if isinstance(r.value, str):
+                r.recent.clear()
+                r.recent.append(r.value)
+            else:
+                r.lo = r.hi = r.value
 
     def select(self, key, on: bool = True):
         if on and key not in self.selected and key in self.rows:
