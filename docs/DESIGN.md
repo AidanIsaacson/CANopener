@@ -74,7 +74,7 @@ One-handed hold supported; most-used functions (start/stop log, save snapshot) r
  
 **Two CAN stacks [D]**, each an MCP2518FD + TCAN1051V-Q1, so two buses can be watched at once:
 - **Stack A:** SPI0 CE0, INT on GPIO25 → `can0` (stage 1)
-- **Stack B:** SPI0 CE1, INT on GPIO20 → `can1` (stage 5; D7). The software needs one session per bus for this (ARCHITECTURE.md, readiness item 4)
+- **Stack B:** SPI0 CE1, INT on GPIO20 → `can1` (stage 5; D7). The software needs one session per bus for this (ARCHITECTURE.md, Open work: "Two CAN channels")
 
 **Controller: MCP2518FD** (bare IC, soldered directly to PCB)
 - 2KB RAM buffer eliminates dropped frames under Linux scheduler load; missing a fault frame on a diagnostic tool is unacceptable

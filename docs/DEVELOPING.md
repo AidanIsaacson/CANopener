@@ -1,7 +1,9 @@
 # Developing CANopener
 
-For people changing the code, writing machine profiles or plugins. Using the app is in the
-[README](../README.md); how the code is laid out is in [ARCHITECTURE.md](ARCHITECTURE.md).
+For people changing the code, writing machine profiles or plugins. Using the app is in
+[USAGE.md](USAGE.md); how the code is laid out is in [ARCHITECTURE.md](ARCHITECTURE.md). The
+project rules (layering, what may be sent, no OEM data) are in [CLAUDE.md](../CLAUDE.md): read
+them before a first change.
 
 ## Set up (no hardware needed)
 
@@ -36,10 +38,26 @@ canopener --iface vcan0              # terminal 2: the GUI, over real SocketCAN
 candump vcan0                        # terminal 3: watch the traffic (can-utils)
 ```
 
-### README screenshots
+### Screenshots
 
-`python scripts/readme_screenshots.py` retakes `docs/images/*.png` from the app running offscreen
-against the simulators (about a minute). Or replace any of them with your own.
+`python scripts/readme_screenshots.py` retakes `docs/images/*.png` (used by the README,
+FEATURES.md, USAGE.md and DEVICE.md) from the app running offscreen against the simulators (about
+a minute). Or replace any of them with your own.
+
+### Keeping a Pi branch up to date with main
+
+The handheld UI is part of `main` (since 0.2.0). Work that only makes sense on the Pi, such as
+hardware experiments, can live on a branch: the handheld code is mostly its own files
+(`canopener/device/`, `core/settings.py`, `measure.py`, `meters.py`, `obd_stream.py`,
+`system.py`), so merges from `main` are normally clean.
+
+```bash
+scripts/sync-from-main.sh          # merge origin/main in, then lint + test
+scripts/sync-from-main.sh --push   # and push it if everything passes
+```
+
+It merges rather than rebases, so the branch's history never changes under anyone. Keep handheld
+changes to shared files small so those merges stay clean.
 
 ## Machine profiles
 
@@ -157,7 +175,10 @@ canopener/
              meters, installed options (hardware.py), SYNC clock (sync.py), logic Pico (logic.py)
   sim/       simulated machine (J1939), OBD-II/UDS car and CANopen battery truck
   gui/       desktop GUI (Qt) - a thin front-end over core/
+  device/    handheld UI (Pygame) - another front-end over core/ (docs/DEVICE.md)
+  profiles/  built-in machine profiles (generic, simulator, example machines)
   cli.py     command-line front-end
+  plugins.py plugin loading and hooks; frontends.py switches between the two graphical UIs
 deploy/      Linux installer + USB adapter plug-in rules; Raspberry Pi launcher, service, sudoers,
              config.txt lines for the controls and for each hardware stage
 firmware/    the handheld's coprocessors: meter Pico (MicroPython), logic Pico (stock sigrok-pico),
@@ -165,18 +186,11 @@ firmware/    the handheld's coprocessors: meter Pico (MicroPython), logic Pico (
 hardware/    the custom board (KiCad, to come) and its groundwork notes
 legacy/      the original j1939_codes.py script and the v0.1 Pi app (frozen, for reference)
 tests/       pytest suite, including headless GUI tests
-docs/        DESIGN.md (hardware + concept), ELECTRONICS.md (prototype electronics: pinouts, protection,
-             stages, BOM), DEVICE.md (handheld UI), ARCHITECTURE.md (software), install/ (guides)
+docs/        user guides (FEATURES, INSTALL, USAGE, install/), the handheld (DEVICE, DESIGN,
+             ELECTRONICS) and the software (DEVELOPING, ARCHITECTURE); index in docs/README.md
+scripts/     readme_screenshots.py (retake docs/images), sync-from-main.sh (Pi branches)
 ```
 
 ## Files the app writes
 
-| Path | What |
-|---|---|
-| `~/canopener/logs/` | Captures from the Log tool, one folder each |
-| `~/canopener/reports/` | Saved reports (plus the raw log alongside) |
-| `~/.config/canopener/profiles/*.json` | Your machine profiles |
-| `~/.config/canopener/github-token.json` | GitHub sign-in for plugin installs (System → Plugins), mode 600 |
-| `~/<repo name>/` | Plugins installed from GitHub (System → Plugins); a non-git copy found there is kept as `.old-<date>` |
-| `~/.config/canopener/profile_list.json` | Which profiles the picker shows, and their order |
-| `~/.config/canopener/spn_names.csv` | Optional extra SPN names, `spn,name` per line |
+Listed in [USAGE.md](USAGE.md#where-things-are-saved).

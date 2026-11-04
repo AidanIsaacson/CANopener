@@ -1,8 +1,8 @@
 # CANopener: notes for Claude Code
 
-J1939 / CANopen / OBD-II / CAN diagnostics. Python 3.10+. See README.md (usage, written for mechanics: keep it
-plain), docs/DEVELOPING.md (dev setup, profile format, plugins), docs/DESIGN.md (the hardware device
-this is for) and docs/ARCHITECTURE.md (software structure).
+J1939 / CANopen / OBD-II / CAN diagnostics. Python 3.10+. Every doc is listed in docs/README.md;
+start with docs/ARCHITECTURE.md (software structure, open work) and docs/DEVELOPING.md (dev setup,
+profile format, plugins).
 
 ## Commands
 
@@ -18,6 +18,22 @@ canopener-device --sim           # the handheld UI (Pygame) against the simulato
 ```
 
 Headless or minimal Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libxcb-cursor0` for Qt.
+
+## Docs: where things go
+
+User docs are for mechanics: plain words, menu paths in **bold**, no internals. Say each fact in
+one place and link to it. `tests/test_docs_links.py` checks every relative link and `#anchor`, so
+renaming a heading means fixing its links.
+
+* `README.md`: the front page. Keep it short (what, why, install, connect, links). New features
+  don't go here: what and why in `docs/FEATURES.md`, how in `docs/USAGE.md` (screens, Log tool,
+  what it sends, CLI, file locations).
+* `docs/INSTALL.md`: picking a setup, updating, plugins. Step by step per platform in
+  `docs/install/`; folder reference in `deploy/*/README.md`.
+* The handheld: `docs/DEVICE.md` (UI), `docs/DESIGN.md` and `docs/ELECTRONICS.md` (the owner's
+  hardware notes; edit only what a change makes stale), `hardware/`, `firmware/`.
+* Code: `docs/DEVELOPING.md`, `docs/ARCHITECTURE.md` (move an item out of "Open work" when it lands).
+* Screenshots: `docs/images/`, retaken by `scripts/readme_screenshots.py`.
 
 ## Rules
 

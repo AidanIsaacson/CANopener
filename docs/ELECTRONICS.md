@@ -526,8 +526,8 @@ Quantities for 4 probe channels on one unit, plus spares for the bench.
 - **Started (0.6):** meter line protocol commands for SRC enable, pull-ups, thresholds and ohms (`core/meters.py`, firmware sketch). Front-end confirms and the Component Test screen are still to do.
 - **New (0.6):** installed options (`core/hardware.py`, section 19).
 - Component Test mode under TEST (6.7): templates with wiring diagrams and expected current ranges, the powered-circuit pre-check, quadrature decoding (count, direction, frequency, duty, A-B phase), ratiometric readout as a percentage of measured supply, pass/fail summary to the capture log.
-- Kernel receive timestamps for CAN frames (`SO_TIMESTAMPNS`, ARCHITECTURE.md readiness item 2): until then CAN frames carry user-space `time.time()` and the sync accuracy is limited by that, not by the pulse.
-- Two CAN sessions at once for stack B (ARCHITECTURE.md readiness item 4).
+- Kernel receive timestamps for CAN frames (`SO_TIMESTAMPNS`, ARCHITECTURE.md, Open work: "Kernel receive timestamps"): until then CAN frames carry user-space `time.time()` and the sync accuracy is limited by that, not by the pulse.
+- Two CAN sessions at once for stack B (ARCHITECTURE.md, Open work: "Two CAN channels").
 
 ## 17. Changelog
 

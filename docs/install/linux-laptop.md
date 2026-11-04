@@ -9,8 +9,7 @@ the terminal again.
 connection, and your login password. You don't need the CAN adapter yet.
 
 > **Windows / macOS:** not supported for talking to a real bus yet (CANopener uses Linux's
-> built-in CAN support, "SocketCAN"). The [Raspberry Pi guide](raspberry-pi.md) is the other
-> supported setup.
+> built-in CAN support, "SocketCAN"). Other setups: [Install & update](../INSTALL.md).
 
 ## 1. Open a terminal
 
@@ -60,27 +59,21 @@ the **📝 Log** panel.
    set it up.
 2. Connect the adapter to the machine's diagnostic connector and turn the key on.
 3. In CANopener open **🔌 Connection** (top-left button, or F3) and pick **SocketCAN adapter**.
-   The interface (`can0`) appears below it. Its list shows only adapters that are connected right now, and it looks again
-   every time you open it (or press **⟳**), so plugging in after the app opened is fine.
-4. Pick the bitrate: **250k** for most J1939 machines, **500k** for cars (OBD-II: also pick the
-   **OBD-II vehicle** profile, top right) and some newer
-   machines, or **Auto** to detect it. Auto listens in listen-only mode, so it never disturbs the
-   bus while it searches.
+   The interface (`can0`) appears below it. The list looks again every time you open it (or
+   press **⟳**), so plugging in after the app opened is fine.
+4. Pick the bitrate: **250k** for most J1939 machines, **500k** for cars (also pick the
+   **OBD-II vehicle** profile, top right) and some newer machines, or **Auto** to detect it. Auto
+   only listens, so it never disturbs the bus while it searches.
 5. Press **Connect**, then **Read Active** / **Full Scan**.
 
 Connect sets the bitrate and brings the interface up for you, every time, without a password.
-
-**One-click from then on:** tick **Settings → Connect on startup**. After that, clicking the icon
-with the adapter plugged in opens CANopener already connected. If the adapter isn't plugged in, the
-app just says so in the status bar. With **Auto** bitrate selected as well, it works safely on any
-machine.
-
-Tick **Listen-only** if you want to be certain the laptop sends nothing at all onto the bus.
-
 The **Adapter** and **Bus** lamps at the bottom of the window show whether the adapter is plugged
-in and whether it hears the machine. Probing for the CAN wires? Press **Find signal** in the
-Connection sidebar and go move the probes: it chimes and connects as soon as it hears steady
-traffic. Turn the laptop's volume up.
+in and whether it hears the machine.
+
+**One-click from then on:** tick **Settings → Connect on startup**. Clicking the icon with the
+adapter plugged in then opens CANopener already connected (with **Auto** bitrate, on any machine).
+
+Probing for the CAN wires, listen-only, other adapters: [Connecting](../USAGE.md#connecting).
 
 ## Your USB adapter (CANable 2.0 / 2.0 Pro)
 
@@ -123,20 +116,8 @@ get automatic recovery from bus-off.
 
 ## Updating
 
-In the app: **Help → Check for updates…** shows what's new, **Install update** downloads it, and
-**Restart now** opens the new version. It checks only when you ask, unless you tick **Help → Check
-for updates at startup** (off by default; it stays quiet unless there is an update). If an update also changes
-the system setup (drivers, rules), the window says so and shows the installer command to run once.
-
-From a terminal, the full update (code, drivers, rules and dependencies in one go):
-
-```bash
-~/CANopener/deploy/linux/install.sh --update
-```
-
-This downloads the latest version and re-runs the installer, so new drivers, rules or
-dependencies are picked up too. The menu entry and desktop icon keep working. Your settings,
-captures and profiles are untouched.
+**Help → Check for updates…** in the app, or `~/CANopener/deploy/linux/install.sh --update` in a
+terminal for the full update (drivers and rules too). Details: [Updating](../INSTALL.md#updating).
 
 ## Uninstalling
 

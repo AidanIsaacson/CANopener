@@ -245,9 +245,9 @@ else rotates: the app draws sideways and turns touch coordinates to match.
 
 ## On the Pi
 
+Install with the handheld options (step by step: [Handheld, first steps](install/handheld-stage0.md)):
+
 ```bash
-git clone https://github.com/AidanIsaacson/CANopener.git ~/CANopener
-cd ~/CANopener
 ./deploy/raspberry-pi/install.sh --sudoers --autostart --device
 ```
 
@@ -262,20 +262,6 @@ one with `CANOPENER_UI=device` / `desktop` in the service). Logs go to
 the display, use Raspberry Pi OS's own build instead:
 `sudo apt install python3-pygame`, then recreate the venv with `--system-site-packages` and
 `pip uninstall pygame-ce` in it.
-
-## Keeping a Pi branch up to date with main
-
-The handheld UI is part of `main` (since 0.2.0). Work that only makes sense on the Pi, such as
-hardware experiments, can live on a branch: the handheld code is mostly its own files
-(`canopener/device/`, `core/settings.py`, `measure.py`, `meters.py`, `obd_stream.py`,
-`system.py`), so merges from `main` are normally clean.
-
-```bash
-scripts/sync-from-main.sh          # merge origin/main in, then lint + test
-scripts/sync-from-main.sh --push   # and push it if everything passes
-```
-
-It merges rather than rebases, so the branch's history never changes under anyone.
 
 ## Not tested yet
 

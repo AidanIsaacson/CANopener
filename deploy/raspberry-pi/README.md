@@ -24,16 +24,18 @@ cd ~/CANopener
 | `canopener-autostart.desktop` | Desktop login autostart that starts the service: Raspberry Pi OS's desktop (labwc) never activates `graphical-session.target`, so the service's own `WantedBy=` doesn't fire there. Installed by `install.sh --autostart` as `~/.config/autostart/canopener.desktop`. |
 | `canopener.desktop` | Application-menu entry. |
 
-## SPI-HAT kernel overlay
+## SPI CAN HATs
 
-For an MCP2515 HAT add to `/boot/firmware/config.txt` (oscillator/interrupt depend on the board):
+The overlay lines for an MCP2515 or MCP2518FD HAT are in step 4 of the
+[Raspberry Pi guide](../../docs/install/raspberry-pi.md#4-connect-the-can-hardware); the handheld's
+own CAN stacks are in `config-hardware.txt`.
 
-```
-dtparam=spi=on
-dtoverlay=mcp2515-can0,oscillator=16000000,interrupt=25
-```
-
-For the planned MCP2518FD board: `dtoverlay=mcp251xfd,spi0-0,interrupt=25`.
+An MCP2518FD HAT is the most faithful way to exercise the planned hardware before the custom
+board: it uses the same mainline `mcp251xfd` driver as the CM5 build, so `ip link` behaves the
+same, with CAN FD and bus-off auto-restart (`restart-ms`), which USB dongles can't do. A
+2-channel MCP2518FD HAT also matches the dual-CAN design (add a second
+`dtoverlay=mcp251xfd,spi0-1,interrupt=24` line). Do this on the Pi: there's no clean SocketCAN path
+for a bare MCP2518FD over a USB-SPI bridge, so on a laptop a `gs_usb` dongle is the right tool.
 
 ## Running without a desktop
 
