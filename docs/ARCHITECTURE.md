@@ -140,7 +140,7 @@ Usage, wiring and status are in [DEVICE.md](DEVICE.md).
 * `device/app.py` draws the chrome (soft keys on the buttons' edge, status strip opposite) and
   stacks screens; `device/ui.py` is the drawing kit (sizes in millimetres from the panel's pixel
   density, lists with drag scrolling, procedural icons); `device/screens/` are the pages.
-* `device/themes.py` (no Pygame) is the look: built-in themes and the user's
+* `core/themes.py` is the look (the desktop app's colour themes, `gui/themes.py`, use its palettes): built-in themes and the user's
   `~/.config/canopener/themes/*.json`, resolved to a palette, style switches and font files
   (found by name with `fc-match`). Screens name colours by role (`ui.color("dim")`) and draw
   surfaces with `ui.panel` / `ui.card`, so a theme reaches every page; icons are drawn at 3x and

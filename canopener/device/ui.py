@@ -11,10 +11,10 @@ import math
 
 import pygame
 
-from . import themes
+from ..core import themes
 
-# The Classic palette, for code that wants a colour without a UI to hand. Screens use
-# ``ui.color(name)``, which follows the chosen theme (themes.py).
+# The Basic theme's palette, for code that wants a colour without a UI to hand. Screens use
+# ``ui.color(name)``, which follows the chosen theme (core/themes.py).
 COLORS = {
     "bg": (16, 19, 24), "panel": (30, 35, 43), "panel2": (42, 49, 60), "line": (64, 72, 86),
     "text": (232, 236, 241), "dim": (140, 150, 165), "faint": (90, 98, 112), "accent": (64, 156, 255),

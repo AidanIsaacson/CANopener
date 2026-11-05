@@ -10,8 +10,7 @@ import subprocess
 import time
 
 from ... import __version__
-from ...core import config, hardware, meters, sound, storage, system, units, updates
-from .. import themes
+from ...core import config, hardware, meters, sound, storage, system, themes, units, updates
 from ..input import ACTION_NAMES
 from .base import InfoDialog, Row, RowList, Screen, SoftKey, choose, confirm, cycle, label_of
 

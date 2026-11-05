@@ -1,4 +1,5 @@
-"""Looks for the handheld: colours, fonts and finish (System > Display > Theme).
+"""Looks: colours, fonts and finish for the handheld (System > Display > Theme), and the palettes
+the desktop app's colour themes are made from (gui/themes.py).
 
 A theme is a palette (named colours: ``bg``, ``panel``, ``text``, ``accent``, ``ok``, ...), a few
 style switches (corner size, shadows or outlines, which icon set, how the home tiles look) and the
@@ -10,8 +11,8 @@ fonts to use. Four are built in; more can be added as JSON files in
 Every key is listed in docs/DEVICE.md ("Themes"). ``device.accent`` (System > Display > Accent
 colour) swaps the accent of whichever theme is chosen.
 
-No Pygame here (CLAUDE.md: only app.py, ui.py and screens/ import it): ui.py turns a ``Look``
-into fonts and drawing. Fonts are found by name through fontconfig (``fc-match``), so a theme can
+Standard library only (core/): device/ui.py turns a ``Look`` into fonts and drawing, and
+gui/themes.py into a Qt palette. Fonts are found by name through fontconfig (``fc-match``), so a theme can
 name any installed font; if none of its fonts is installed, Pygame's built-in one is used.
 """
 
@@ -21,9 +22,10 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 
-from ..core import config
+from . import config
 
-DEFAULT = "classic"
+DEFAULT = "element-zero"
+ALIASES = {"classic": "basic", "night": "element-zero"}     # earlier names, still understood
 
 # Every colour a theme has. A user theme names only the ones it changes.
 COLOR_KEYS = (
@@ -50,8 +52,8 @@ STYLE_CHOICES = {"icons": ("classic", "line"), "tile": ("disc", "chip")}
 # bold, ...) or a path to a .ttf / .otf. Empty = Pygame's built-in font.
 FONT_ROLES = ("text", "heading", "numbers")
 
-_CLASSIC = {
-    "name": "Classic",
+_BASIC = {
+    "name": "Basic",
     "colors": {
         "bg": (16, 19, 24), "bar": (30, 35, 43), "panel": (30, 35, 43), "panel2": (42, 49, 60),
         "panel_hi": (36, 42, 52), "line": (64, 72, 86), "text": (232, 236, 241), "dim": (140, 150, 165),
@@ -73,7 +75,21 @@ _MODERN = {"radius": 0.18, "shadow": False, "edge": False, "border": True, "icon
            "trace_fill": True}
 
 BUILTIN: dict[str, dict] = {
-    "classic": _CLASSIC,
+    # Amber on black, like a glowing hologram; easy on eyes adjusted to a dark cab.
+    "element-zero": {
+        "name": "Element Zero",
+        "colors": {
+            "bg": "#000000", "bar": "#0b0702", "panel": "#130d05", "panel2": "#1f1608", "panel_hi": "#191107",
+            "line": "#3a2a12", "text": "#ffb547", "dim": "#b77d2c", "faint": "#6e4b1b",
+            "accent": "#ff9e1b", "accent_dim": "#3a2507", "edge_accent": "#ffc56b", "on_accent": "#0b0702",
+            "focus": "#ffe2a8", "press": "#ffb547", "ok": "#8fbf3a", "wait": "#e6a531", "bad": "#ff4a2b",
+            "on_bad": "#0b0702", "warn": "#ff7a1a", "off": "#6e5a40", "sim": "#c79036", "idle": "#a8743a",
+            "rec": "#ff4a2b", "on": "#8fbf3a", "shadow": "#000000", "edge": "#3a2a12", "edge_bad": "#ff7f66",
+            "white": "#ffe2a8",
+        },
+        "style": dict(_MODERN),
+        "fonts": {"text": _SANS, "heading": _SANS_HEAD, "numbers": _SANS_NUM},
+    },
     # Quieter dark: flat panels with a fine outline, teal accent, proper type.
     "graphite": {
         "name": "Graphite",
@@ -104,21 +120,8 @@ BUILTIN: dict[str, dict] = {
         "fonts": {"text": ["Inter:semibold", "DejaVu Sans:bold", "Liberation Sans:bold"],
                   "heading": ["Inter:bold", "DejaVu Sans:bold", "Liberation Sans:bold"], "numbers": _SANS_NUM},
     },
-    # Amber on black, for a dark cab at night: easy on dark-adapted eyes.
-    "night": {
-        "name": "Night (amber)",
-        "colors": {
-            "bg": "#000000", "bar": "#0b0702", "panel": "#130d05", "panel2": "#1f1608", "panel_hi": "#191107",
-            "line": "#3a2a12", "text": "#ffb547", "dim": "#b77d2c", "faint": "#6e4b1b",
-            "accent": "#ff9e1b", "accent_dim": "#3a2507", "edge_accent": "#ffc56b", "on_accent": "#0b0702",
-            "focus": "#ffe2a8", "press": "#ffb547", "ok": "#8fbf3a", "wait": "#e6a531", "bad": "#ff4a2b",
-            "on_bad": "#0b0702", "warn": "#ff7a1a", "off": "#6e5a40", "sim": "#c79036", "idle": "#a8743a",
-            "rec": "#ff4a2b", "on": "#8fbf3a", "shadow": "#000000", "edge": "#3a2a12", "edge_bad": "#ff7f66",
-            "white": "#ffe2a8",
-        },
-        "style": dict(_MODERN),
-        "fonts": {"text": _SANS, "heading": _SANS_HEAD, "numbers": _SANS_NUM},
-    },
+    # The original look: Pygame's own font, raised panels with shadows, a blue accent.
+    "basic": _BASIC,
 }
 
 # System > Display > Accent colour ("" = the theme's own).
@@ -185,7 +188,7 @@ def _user_files() -> dict[str, str]:
     out = {}
     for n in names:
         stem, ext = os.path.splitext(n)
-        if ext.lower() == ".json" and stem not in BUILTIN:
+        if ext.lower() == ".json" and stem not in BUILTIN and stem not in ALIASES:
             out[stem] = os.path.join(d, n)
     return out
 
@@ -213,7 +216,7 @@ def available() -> list[tuple[str, str]]:
 def load(theme_id: str | None = None, accent: str = "") -> Look:
     """The theme ``theme_id`` (unknown -> the default), with ``accent`` ("#rrggbb") swapped in."""
     problems: list[str] = []
-    tid = theme_id or DEFAULT
+    tid = ALIASES.get(theme_id or DEFAULT, theme_id or DEFAULT)
     spec = BUILTIN.get(tid)
     if spec is None:
         path = _user_files().get(tid)
@@ -227,12 +230,13 @@ def load(theme_id: str | None = None, accent: str = "") -> Look:
                 problems.append(err)
             spec = dict(spec, name=spec.get("name") or tid)
     base_id = spec.get("base", DEFAULT) if tid not in BUILTIN else None
+    base_id = ALIASES.get(base_id, base_id)
     if base_id is not None and base_id not in BUILTIN:
         problems.append(f"{spec.get('name')}: unknown base '{base_id}', using {DEFAULT}")
         base_id = DEFAULT
     base = BUILTIN[base_id] if base_id else {"colors": {}, "style": {}, "fonts": {}}
 
-    colors = {k: parse_color(v) for k, v in _CLASSIC["colors"].items()}
+    colors = {k: parse_color(v) for k, v in _BASIC["colors"].items()}
     for src in (base.get("colors", {}), spec.get("colors", {})):
         if not isinstance(src, dict):
             problems.append(f"{spec.get('name')}: \"colors\" must be an object")

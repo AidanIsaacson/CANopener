@@ -57,7 +57,7 @@ DEFAULTS: dict = {
     "device.button5": "back",           # what a 5th button does: back / soft / log / tag
     "device.long_press_s": 0.7,         # holding Select this long = Back
     "device.fps": 30,
-    "device.theme": "classic",          # the handheld's look: device/themes.py (built-in or a themes/*.json)
+    "device.theme": "element-zero",     # the handheld's look: core/themes.py (built-in or a themes/*.json)
     "device.accent": "",                # "#rrggbb" in place of the theme's accent colour ("" = the theme's)
     "device.keys": {},                  # key name -> action, on top of device.input.DEFAULT_KEYS
     "device.encoder": "auto",           # evdev device for the rotary encoder: auto / none / /dev/input/eventN

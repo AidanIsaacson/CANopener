@@ -69,7 +69,7 @@ def test_context_and_input_dont_need_pygame():
     import subprocess
     import sys
     code = ("import sys; import canopener.device.context, canopener.device.input, canopener.core.meters; "
-            "import canopener.device.themes; "
+            "import canopener.core.themes; "
             "assert 'pygame' not in sys.modules")
     assert subprocess.run([sys.executable, "-c", code]).returncode == 0
 
@@ -745,7 +745,7 @@ def test_no_install_button_when_up_to_date(app_for, monkeypatch):
 
 # --- themes (System > Display > Theme) -------------------------------------------
 def test_builtin_themes_are_complete_and_readable():
-    from canopener.device import themes
+    from canopener.core import themes
     for tid in themes.BUILTIN:
         look = themes.load(tid)
         assert look.id == tid and not look.problems, look.problems
@@ -753,40 +753,43 @@ def test_builtin_themes_are_complete_and_readable():
         c = look.colors
         assert themes.contrast(c["text"], c["bg"]) >= 7 and themes.contrast(c["text"], c["panel"]) >= 7
         assert themes.contrast(c["dim"], c["panel"]) >= 4.5
-        if tid != "classic":                        # classic keeps its look as it was
+        if tid != "basic":                          # basic keeps the original look
             assert themes.contrast(c["on_accent"], c["accent"]) >= 4.5
             assert themes.contrast(c["focus"], c["panel"]) >= 3     # the encoder's ring stands out
 
 
 def test_user_theme_files_build_on_a_builtin_and_report_mistakes():
-    from canopener.device import themes
+    from canopener.core import themes
     os.makedirs(themes.themes_dir())
     with open(os.path.join(themes.themes_dir(), "shop.json"), "w") as f:
         f.write('{"name": "Shop", "base": "daylight", "colors": {"accent": "#f60", "bg": "nope", "glow": "#fff"},'
                 ' "style": {"radius": 0.3, "icons": "fancy"}, "fonts": {"text": "No Such Font"}}')
-    with open(os.path.join(themes.themes_dir(), "classic.json"), "w") as f:
-        f.write('{"name": "Not allowed to replace a built-in one"}')
+    for name in ("basic", "night"):                         # a built-in theme, or its old name
+        with open(os.path.join(themes.themes_dir(), name + ".json"), "w") as f:
+            f.write('{"name": "Not allowed to replace a built-in one"}')
     assert ("Shop", "shop") in themes.available()
-    assert [tid for _, tid in themes.available()].count("classic") == 1
+    ids = [tid for _, tid in themes.available()]
+    assert ids.count("basic") == 1 and "night" not in ids
     look = themes.load("shop")
     assert look.name == "Shop" and look.colors["accent"] == (255, 102, 0)
     assert look.colors["panel"] == themes.load("daylight").colors["panel"]       # the rest from its base
     assert look.style["radius"] == 0.3 and look.style["icons"] == "line"         # a bad choice is ignored
     assert len(look.problems) == 3 and any("bg" in p for p in look.problems)
     assert themes.first_font(look.fonts["text"]) is None                          # -> Pygame's own font
+    assert themes.load("night").id == "element-zero" and themes.load("classic").id == "basic"   # old names
     missing = themes.load("gone")
     assert missing.id == themes.DEFAULT and missing.problems
 
 
 def test_accent_colour_swaps_in_with_readable_text():
-    from canopener.device import themes
+    from canopener.core import themes
     look = themes.load("graphite", "#ff8a1f")
     assert look.colors["accent"] == (255, 138, 31)
     assert themes.contrast(look.colors["on_accent"], look.colors["accent"]) >= 4.5
     assert look.colors["accent_dim"] != themes.load("graphite").colors["accent_dim"]
 
 
-@pytest.mark.parametrize("theme", ["graphite", "daylight", "night"])
+@pytest.mark.parametrize("theme", ["graphite", "daylight", "basic"])
 def test_every_screen_draws_in_every_theme(app_for, theme):
     from canopener.device import modes
     from canopener.device.screens.base import confirm
@@ -805,7 +808,7 @@ def test_every_screen_draws_in_every_theme(app_for, theme):
 
 def test_theme_changes_apply_straight_away(app_for):
     app = app_for()
-    assert app.theme.look.id == "classic"
+    assert app.theme.look.id == "element-zero" and app.theme.look.name == "Element Zero"
     bg = app.canvas.get_at((2, 240))[:3]
     app.ctx.settings.set("device.theme", "daylight")
     app.step([])
@@ -817,4 +820,4 @@ def test_theme_changes_apply_straight_away(app_for):
     theme_row = next(r for r in rows if r.label == "Theme")
     assert theme_row.value_text() == "Daylight"
     theme_row.adjust(1)                                         # d-pad right: the next theme
-    assert app.ctx.settings.get("device.theme") == "night"
+    assert app.ctx.settings.get("device.theme") == "basic"

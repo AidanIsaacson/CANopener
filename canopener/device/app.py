@@ -18,10 +18,10 @@ import traceback
 import pygame
 
 from .. import __version__, plugins
-from ..core import sound
+from ..core import sound, themes
 from ..core.settings import Settings
 from . import input as inp
-from . import modes, themes, ui
+from . import modes, ui
 from .context import DeviceContext
 from .screens.base import Screen, SoftKey
 from .ui import UI, Theme

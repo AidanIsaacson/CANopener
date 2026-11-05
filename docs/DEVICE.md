@@ -82,13 +82,14 @@ it swaps the accent (selected tabs, values you can change, traces) in whichever 
 
 | Theme | For |
 |---|---|
-| **Classic** | The original look (the default). |
-| **Graphite** | A quieter dark look: flat panels with a fine outline, teal accent, rounded line icons. |
+| **Element Zero** | The default: amber on black, like a glowing hologram. Easy on eyes that have adjusted to a dark cab. |
+| **Graphite** | A quieter dark look: flat panels with a fine outline, teal accent. |
 | **Daylight** | Sunlight: dark text on white, strong colours, a black ring on what's selected. |
-| **Night (amber)** | A dark cab at night: amber on black, easy on eyes that have adjusted to the dark. |
+| **Basic** | The original look: raised panels, a blue accent, Pygame's own font. |
 
-The newer themes use the **Inter** font. The installers add it (`fonts-inter`); without it they
-use DejaVu Sans, and Classic uses Pygame's own font either way.
+All but Basic use the **Inter** font and rounded line icons. The installers add the font
+(`fonts-inter`); without it they use DejaVu Sans. The desktop app has matching colours: see
+[USAGE.md](USAGE.md#colour-themes).
 
 **Your own theme:** put a `.json` file in `~/.config/canopener/themes/`. It starts from a
 built-in theme (`base`) and changes only what it names. The file name (without `.json`) is its
