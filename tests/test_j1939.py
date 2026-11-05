@@ -119,4 +119,8 @@ def test_names():
     assert spn_name(100) == "Engine oil pressure"
     assert "Manufacturer-specific" in spn_name(520205)
     assert sa_name(0x00) == "00 Engine #1"
+    # Codes a Kubota-engined forklift set with its MAF/IAT sensor unplugged.
+    assert spn_name(132) == "Intake air mass flow rate (MAF)"
+    assert spn_name(171) == "Ambient air temperature"
+    assert sa_name(0x47) == "47 Chassis controller #1" and sa_name(0x54) == "54 Cab display #2"
     assert pgn_label(0xFF10) == "Proprietary B"
