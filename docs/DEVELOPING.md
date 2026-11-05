@@ -116,9 +116,16 @@ the selected profile** as the source, and Connect. Every signal is broadcast fro
 check a new profile's decoding and layout without the machine (`canopener-cli --profile ID sim
 --iface vcan0` does the same on a SocketCAN bus).
 
-**Keep OEM data private.** Profiles generated from dealer-tool data belong in
-`~/.config/canopener/profiles/` or a private plugin, never in this public repository (a test
-fails if such files appear here).
+**Manufacturer-specific codes are welcome here when they come from a public source.** Use
+something like the maker's published manual or fault-code list, or your own bus captures, and
+write the descriptions in your own words. Put them in a profile for that maker or machine
+(`"spns"` for 516096-524287, `"pgns"`, `"emcy"`), not the built-in tables, which are
+SAE-standard only. Say in the profile's `"description"` where they came from, and end anything
+not yet confirmed with `?`.
+
+**Keep OEM data private.** Profiles generated from dealer-tool data, paid or licensed manuals or
+anything under NDA belong in `~/.config/canopener/profiles/` or a private plugin, never in this
+public repository, however they're reworded (a test fails if dealer-tool files appear here).
 
 ## Plugins
 

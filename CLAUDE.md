@@ -80,10 +80,23 @@ renaming a heading means fixing its links.
   default; the desktop's is Standard (the system look).
 * GUI code must work with both PySide6 and PyQt6: import from `canopener.gui.qt` and use fully
   scoped enums (`Qt.AlignmentFlag.AlignLeft`).
-* Don't invent OEM data. SPN/SA/PGN names in the built-in tables are SAE-standard only. OEM labels
-  belong in profiles, and the sim profile is explicitly marked as simulated. Generic OBD-II code
-  text is `obd/dtc_codes.py`, generated from python-OBD: regenerate it, don't hand-edit it, and
-  never describe manufacturer-specific codes (P1xxx, B/C/U1xxx ...).
+* **Codes and names: write them by hand, from public sources; never invent or copy them.** Short
+  descriptions in our own plain words are the preferred way to cover a code, rather than leaving it
+  out:
+  * **SAE standard** names go in the built-in tables (`j1939/spn.py`, `addresses.py`, ...). Those
+    tables are SAE-standard only. Word the names yourself: the J1939 Digital Annex can't be
+    redistributed.
+  * **Manufacturer-specific** codes go in a profile for that maker or machine, never in the
+    built-in tables. That means J1939 SPNs 516096-524287, proprietary PGNs, and OBD-II
+    P1xxx / B, C, U1xxx and the like: the same number means different things per maker. Use the
+    profile's `"spns"`, `"pgns"` or `"emcy"`. Base them on a **public** source (the maker's
+    published manual, fault-code list or bulletin) or on our own bus captures. Name the source in
+    the profile's `"description"`.
+  * **Never** from dealer-tool data, paid or licensed manuals, or anything under NDA, however it's
+    reworded: those stay in the private plugin. Never copy text word for word, and if a code's
+    meaning isn't confirmed, mark it unconfirmed (`?`) instead of guessing.
+  * Generic OBD-II code text is `obd/dtc_codes.py`, generated from python-OBD: regenerate it,
+    don't hand-edit it. The sim profile is explicitly marked as simulated.
 * **License: GPL-2.0-or-later.** Anything copied in must be GPL-2.0-compatible; keep attribution
   (README "License" and the copied file's header).
 * The simulators' fault codes (J1939 `sim/machine.py`, CANopen `sim/canopen.py`) are asserted by
