@@ -100,7 +100,7 @@ Make sure the Pi logs in to the desktop by itself: `sudo raspi-config` → **Sys
 **Boot / Auto Login** → **Desktop Autologin** (this is usually the default).
 
 To try it without a machine, tick **Connection → Show simulators** (on the handheld screen:
-**System → Show simulators**), then pick **Simulator** as the source and press **Connect**.
+**System → Simulators → Show simulators**), then pick **Simulator** as the source and press **Connect**.
 
 ## Settings for the launcher
 
@@ -119,7 +119,7 @@ Hardware buttons for the Log tool's Start/Stop and Timestamp keys: see
 
 ## Updating
 
-**Help → Check for updates…** on the Pi's screen (**System → Check for updates** on the handheld
+**Help → Check for updates…** on the Pi's screen (**System → Software → Check for updates** on the handheld
 screen), or `canopener-cli update` over SSH. The full update from a terminal:
 
 ```bash

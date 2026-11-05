@@ -90,7 +90,7 @@ class DeviceApp:
         self.clock = pygame.time.Clock()
         self.running = True
         self.switch_to: str | None = None   # another front-end to start once this one has closed
-        self.restart = False                # System > Check for updates: start the new version on closing
+        self.restart = False                # System > Software > Check for updates: start the new version on closing
         self._pressed = None                # the tap area under the finger, drawn lit while it's down
         self._chirped = False               # one touch chirp per frame (a tap can also be a soft key)
         self._touch = None              # (start pos, tap fn, scroller, moved, last pos)
@@ -112,7 +112,7 @@ class DeviceApp:
             self.keymap = inp.KeyMap(self.ctx.settings.get("device.keys"), self.ctx.settings.get("device.button5"))
         elif key in ("device.diagonal_in", "device.theme", "device.accent"):
             self._fit()
-        elif key == "device.window" and not self.fullscreen:     # System > Window size: apply now
+        elif key == "device.window" and not self.fullscreen:     # System > Display > Window size: apply now
             try:
                 size = _size(str(value))
             except ValueError:
@@ -526,13 +526,13 @@ def main(argv=None) -> int:
             pass
         ctx.shutdown()
         pygame.quit()
-    if app.restart:                         # System > Check for updates: the new version
+    if app.restart:                         # System > Software > Check for updates: the new version
         from .. import frontends
         from ..core import updates
         if updates.under_systemd():         # the Pi's service starts us again on this exit code
             return updates.RESTART_EXIT_CODE
         return frontends.switch(frontends.DEVICE, fullscreen=app.fullscreen)
-    if app.switch_to:                       # System > Desktop app instead
+    if app.switch_to:                       # System > Software > Desktop app instead
         from .. import frontends
         return frontends.switch(app.switch_to, fullscreen=app.fullscreen)
     return 0

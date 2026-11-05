@@ -4,7 +4,7 @@
 The choice is the shared setting ``ui`` (``core.settings``): ``"device"`` makes the ``canopener``
 command (and its menu entry, and the Pi's launcher) start the handheld UI instead of the
 desktop window. Both apps can flip it: the desktop app under Settings > Handheld (Pi) screen,
-the handheld under System > Desktop app instead.
+the handheld under System > Software > Desktop app instead.
 
 A switch happens after the current app has closed cleanly, by starting the other one as a
 **fresh process** (``switch``), the same way "Restart now" after an update does: nothing the

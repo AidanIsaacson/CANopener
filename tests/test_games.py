@@ -255,7 +255,8 @@ def test_games_stay_hidden_until_about_is_opened_seven_times(app):
     app.pop()
     assert app.ctx.settings.get("device.games")
     shown = [m.id for m in modes.shown(app.ctx)]
-    assert shown[-1] == "games" and shown[:4] == ["can", "meter", "log", "settings"]   # soft keys unchanged
+    assert shown[-1] == "games" and shown[:4] == ["can", "meter", "log", "settings"]   # games tile last
+    next(r for r in app.top.rows.refresh() if r.label == "Software").select()
     hide = next(r for r in app.top.rows.refresh() if r.label == "Show games")
     hide.select()
     assert "games" not in [m.id for m in modes.shown(app.ctx)]

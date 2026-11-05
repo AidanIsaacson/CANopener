@@ -34,11 +34,11 @@ class MeterScreen(Screen):
     def softkeys(self):
         ctx = self.ctx
         if not ctx.hub.sources():
-            return [SoftKey("Simulated", self.use_sim), None, None, SoftKey("Setup", self.setup)]
+            return [SoftKey("Simulated", self.use_sim), SoftKey("Setup", self.setup)]
         return [SoftKey("Hold", self.toggle_hold, active=self.hold is not None),
-                SoftKey("Reset min/max", ctx.meter_live.reset_minmax),
-                SoftKey("Stop log" if ctx.recording else "Log", ctx.toggle_log, active=ctx.recording),
-                SoftKey("Setup", self.setup)]
+                SoftKey("Setup", self.setup),
+                SoftKey("Reset min/max", ctx.meter_live.reset_minmax),         # where Live has it
+                SoftKey("Stop log" if ctx.recording else "Start log", ctx.toggle_log, active=ctx.recording)]
 
     def use_sim(self):
         self.ctx.settings.set("meters.sim", True)

@@ -171,6 +171,22 @@ def app_for():
     pygame.quit()
 
 
+def system_row(app, label):
+    """A row of System, wherever it is: on the menu, or on one of its pages (left open)."""
+    app.open_mode("settings")
+    menu = app.top
+    for r in menu.rows.refresh():
+        if r.label == label and r.kind != "menu":
+            return r
+    for group in [r for r in menu.rows.refresh() if r.kind == "menu"]:
+        group.select()
+        found = next((r for r in app.top.rows.refresh() if r.label == label), None)
+        if found is not None:
+            return found
+        app.pop()
+    raise AssertionError(f"no System row {label!r}")
+
+
 def key(k, up=False):
     return pygame.event.Event(pygame.KEYUP if up else pygame.KEYDOWN, key=k, mod=0)
 
@@ -188,8 +204,9 @@ def test_home_tiles_keys_and_soft_keys(app_for):
     app = app_for()
     titles = [m.title for m in __import__("canopener.device.modes", fromlist=["modes"]).modes()]
     assert titles[:4] == ["CAN", "Meter", "Data log", "System"]
-    press(app, pygame.K_F2)                               # soft key 2 = Meter
-    assert app.top.title == "Meter"
+    assert [k.label for k in app.softkey_slots()[:4]] == ["Connect", "Codes", "Live data", "Start log"]
+    press(app, pygame.K_F3)                               # soft key 3 = straight to CAN > Live
+    assert app.top.title == "CAN · Live"
     press(app, pygame.K_ESCAPE)
     assert len(app.stack) == 1
     app.step([pygame.event.Event(pygame.MOUSEWHEEL, x=0, y=-1)])     # encoder / wheel moves the focus
@@ -203,8 +220,8 @@ def test_soft_key_and_tile_taps(app_for):
     app = app_for()
     keys, _, content = app.layout()
     slot_w = keys.w // 5
-    tap(app, (keys.x + slot_w * 3 + slot_w // 2, keys.centery))      # 4th soft key on screen
-    assert app.top.title == "System"
+    tap(app, (keys.x + slot_w * 1 + slot_w // 2, keys.centery))      # 2nd soft key on screen: Codes
+    assert app.top.title == "CAN · Codes"
     app.home()
     app.step([])
     tap(app, (content.x + 40, content.centery))                      # first tile
@@ -360,10 +377,8 @@ def test_handheld_system_screen_switches_to_the_desktop_app(app_for, monkeypatch
     from canopener.device.screens.settings import SettingsScreen
     monkeypatch.setattr(frontends, "available", lambda ui: (True, ""))
     app = app_for(ui="device")
-    app.open_mode("settings")
-    screen = app.top
-    assert isinstance(screen, SettingsScreen)
-    row = next(r for r in screen.rows.refresh() if r.label == "Desktop app instead")
+    row = system_row(app, "Desktop app instead")
+    assert isinstance(app.top, SettingsScreen) and app.top.title == "Software"
     row.select()                                        # asks first, No by default
     app.action(inp.SELECT)
     assert app.running and app.switch_to is None
@@ -378,10 +393,8 @@ def test_handheld_exit_to_desktop_closes_without_switching(app_for):
     leaves the chosen UI alone, unlike Desktop app instead."""
     from canopener.device.screens.settings import SettingsScreen
     app = app_for(ui="device")
-    app.open_mode("settings")
-    screen = app.top
-    assert isinstance(screen, SettingsScreen)
-    row = next(r for r in screen.rows.refresh() if r.label == "Exit to desktop")
+    row = system_row(app, "Exit to desktop")
+    assert isinstance(app.top, SettingsScreen) and app.top.title == "System"      # on the menu itself
     row.select()                                        # asks first, No by default
     app.action(inp.SELECT)
     assert app.running
@@ -632,10 +645,10 @@ def test_handheld_simulators_hidden_by_default(ctx):
 def test_system_screen_installed_options(app_for):
     from canopener.core import hardware
     app = app_for()
-    app.open_mode("settings")
+    system_row(app, "Set all from build stage")
     app.step([])
     screen = app.top
-    assert any(r.label == "Set all from build stage" for r in screen.rows.refresh())
+    assert screen.title == "Installed options"
     hw = app.ctx.hardware
     hw.set_stage("2b")
     row = next(r for r in screen.rows.refresh() if r.label.startswith("Meter Pico"))
@@ -663,7 +676,8 @@ def test_event_tones_volume_and_touch_chirps(app_for, monkeypatch):
     assert len(played) == n                         # volume off: the speaker stays quiet
     s.set("sound.volume", 50)
     # touch chirps: off by default, on in System > Sound; once per press, not per soft key too
-    pos = (20, 20)
+    keys, _, _ = app.layout()
+    pos = (keys.x + keys.w // 5 * 2 + keys.w // 10, keys.centery)     # soft key 3: Live data, then Reset min/max
     app.step([pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=pos),
               pygame.event.Event(pygame.MOUSEBUTTONUP, button=1, pos=pos)])
     assert len(played) == n
@@ -683,8 +697,7 @@ def test_tones_screen_picks_and_previews(app_for, monkeypatch):
     app = app_for()
     played = []
     app.ctx.speaker = lambda tone, volume: played.append(tone) or True
-    app.open_mode("settings")
-    row = next(r for r in app.top.rows.refresh() if r.label == "Tones for events")
+    row = system_row(app, "Tones for events")
     row.select()
     assert isinstance(app.top, TonesScreen)
     app.step([])
@@ -719,8 +732,7 @@ def test_check_for_updates_install_and_restart(app_for, monkeypatch):
     monkeypatch.setattr(updates, "check", lambda: st)
     monkeypatch.setattr(updates, "apply", lambda: (True, "Updated. Restart CANopener to use the new version."))
     app = app_for()
-    app.open_mode("settings")
-    next(r for r in app.top.rows.refresh() if r.label == "Check for updates").select()
+    system_row(app, "Check for updates").select()
     assert app.ctx.wait_idle()
     assert isinstance(app.top, InfoDialog) and "- Cargo" in app.top.lines
     install = next(k for k in app.top.softkeys() if k is not None and k.label == "Install")
@@ -737,8 +749,7 @@ def test_no_install_button_when_up_to_date(app_for, monkeypatch):
     from canopener.core import updates
     monkeypatch.setattr(updates, "check", lambda: updates.UpdateStatus(True, "CANopener 0.2.6 is up to date."))
     app = app_for()
-    app.open_mode("settings")
-    next(r for r in app.top.rows.refresh() if r.label == "Check for updates").select()
+    system_row(app, "Check for updates").select()
     assert app.ctx.wait_idle()
     assert [k.label for k in app.top.softkeys() if k is not None] == ["Close"]
 
@@ -815,9 +826,7 @@ def test_theme_changes_apply_straight_away(app_for):
     assert app.theme.look.id == "daylight" and app.canvas.get_at((2, 240))[:3] != bg
     app.ctx.settings.set("device.accent", "#3cbf5c")
     assert app.theme.colors["accent"] == (60, 191, 92)
-    app.open_mode("settings")
-    rows = app.top.rows.refresh()
-    theme_row = next(r for r in rows if r.label == "Theme")
+    theme_row = system_row(app, "Theme")
     assert theme_row.value_text() == "Daylight"
     theme_row.adjust(1)                                         # d-pad right: the next theme
     assert app.ctx.settings.get("device.theme") == "basic"

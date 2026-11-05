@@ -54,7 +54,8 @@ class Row:
     value: object = ""          # text, or a function returning it
     select: object = None       # Select / tap
     adjust: object = None       # adjust(+1 / -1): left / right on the d-pad
-    kind: str = "row"           # row / header / info (not selectable) / action (a button-like row)
+    kind: str = "row"           # row / header / info (not selectable) / action (a button-like row) /
+    #                             menu (opens a page: drawn with a chevron)
     check: object = None        # function -> bool: draw a checkbox
     level: object = None        # function -> lamp level: draw a status dot
     hint: str = ""              # small second line
@@ -65,7 +66,7 @@ class Row:
 
     @property
     def selectable(self) -> bool:
-        return self.kind in ("row", "action") and (self.select is not None or self.adjust is not None)
+        return self.kind in ("row", "action", "menu") and (self.select is not None or self.adjust is not None)
 
 
 class RowList:
@@ -132,9 +133,17 @@ class RowList:
                                    (x + t.pad // 2, inner.centery), t.pad // 1.5)
                 x += t.pad * 2
             value = row.value_text()
+            right = inner.right
+            if row.kind == "menu":                      # a chevron: this opens a page
+                c = ui.color("dim")
+                h = inner.h * .16
+                cx = right - t.pad - h * .5
+                pygame.draw.lines(ui.surface, c, False, [(cx - h * .5, inner.centery - h), (cx + h * .5, inner.centery),
+                                                         (cx - h * .5, inner.centery + h)], max(2, t.pad // 4))
+                right = cx - h - t.pad
             vw = ui.theme.font("body").size(value)[0] if value else 0
             vw = min(vw, inner.w // 2)
-            label_w = inner.right - x - vw - 3 * t.pad
+            label_w = right - x - vw - 3 * t.pad
             if row.hint:
                 ui.text(row.label, (x, inner.y + inner.h * .34), "body", "text", max_w=label_w)
                 ui.text(row.hint, (x, inner.y + inner.h * .74), "small", "dim", max_w=inner.right - x - t.pad)
@@ -142,8 +151,9 @@ class RowList:
                 ui.text(row.label, (x, inner.centery), "body", "text" if row.kind != "info" else "dim",
                         max_w=label_w)
             if value:
-                color = "accent" if row.adjust is not None or row.select is not None else "text"
-                ui.text(value, (inner.right - t.pad, inner.centery if not row.hint else inner.y + inner.h * .34),
+                color = "dim" if row.kind == "menu" else (
+                    "accent" if row.adjust is not None or row.select is not None else "text")
+                ui.text(value, (right - t.pad, inner.centery if not row.hint else inner.y + inner.h * .34),
                         "body", color, align="right", max_w=inner.w // 2)
 
         def tap(i):

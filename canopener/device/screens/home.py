@@ -17,7 +17,21 @@ class HomeScreen(Screen):
         self.grid = GridView()
 
     def softkeys(self):
-        return [SoftKey(m.title, lambda m=m: self.app.open_mode(m.id)) for m in modes.shown(self.ctx)[:4]]
+        """Quick actions (the tiles already open each mode): connect, codes, live data, the log."""
+        ctx = self.ctx
+        connected = ctx.connection is not None
+        return [SoftKey("Disconnect" if connected else "Connect", ctx.disconnect if connected else ctx.connect,
+                        enabled=not ctx.busy and not ctx.finding),
+                SoftKey("Codes", lambda: self._can("Codes")),
+                SoftKey("Live data", lambda: self._can("Live")),
+                SoftKey("Stop log" if ctx.recording else "Start log", ctx.toggle_log, active=ctx.recording)]
+
+    def _can(self, page: str):
+        self.app.open_mode("can")
+        can = self.app.top
+        for i, p in enumerate(getattr(can, "pages", [])):
+            if p.title == page:
+                can._go(i)
 
     def on_action(self, action, n=1):
         g = self.grid

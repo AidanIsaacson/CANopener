@@ -129,7 +129,7 @@ listen-only mode.
 
 ### Private plugins: installing from the device, no keyboard
 
-**System → Plugins** on the handheld (and `canopener-cli plugins` anywhere) signs in to GitHub
+**System → Software → Plugins** on the handheld (and `canopener-cli plugins` anywhere) signs in to GitHub
 and installs plugins from repositories, private ones included. Nothing is typed on the device:
 sign-in uses GitHub's device flow, so the screen shows a code and you approve it at
 `github.com/login/device` on a phone. Then **Add a repository** lists the repositories that
@@ -157,7 +157,7 @@ Sign-in needs a **GitHub App** (one-time setup, about two minutes, works from a 
 
 The token (`~/.config/canopener/github-token.json`, mode 600) can only read the repositories the
 App is installed on. It reaches git through the environment (`GIT_CONFIG_*`), never the command
-line or the checkout's `.git/config`. **System → Plugins → Sign out** forgets it on the device;
+line or the checkout's `.git/config`. **System → Software → Plugins → Sign out** forgets it on the device;
 github.com → Settings → Applications → Authorized GitHub Apps revokes it everywhere. Don't name
 private repositories in this public repo: the list lives in the `plugins.sources` setting.
 

@@ -212,7 +212,7 @@ copies this session's captures and reports onto the stick and ejects it.
 
 The handheld UI runs on the laptop too: **Settings → Handheld (Pi) screen** closes CANopener and
 reopens it as the handheld UI in a window, and it stays that way until you pick **System →
-Desktop app instead**. On the Pi, **System → Exit to desktop** closes it and shows the Pi's
+Software → Desktop app instead**. On the Pi, **System → Exit to desktop** closes it and shows the Pi's
 desktop; open it again from the menu. Keyboard stand-ins for the buttons and everything else:
 [DEVICE.md](DEVICE.md).
 

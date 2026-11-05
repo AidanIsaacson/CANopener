@@ -63,7 +63,7 @@ The 10.1" panel is portrait (1200 x 1920) as it comes, and the handheld is laid 
 1. On the Pi desktop: **Preferences → Screen Configuration**, right-click the DSI screen, set the
    orientation, then **Apply**. Check that touch still lands where you tap [verify: touch should
    turn with the screen].
-2. In CANopener: **System → Screen size → 10.1"**. That sizes buttons to about 10 mm for gloves.
+2. In CANopener: **System → Display → Screen size → 10.1"**. That sizes buttons to about 10 mm for gloves.
    Leave **Rotate picture** at 0°: it's only for running with no desktop.
 
 ### 4. The CANable
@@ -93,10 +93,10 @@ Installed options shows the same).
 
 - [ ] The Pi boots straight into the handheld UI, full screen.
 - [ ] Touch works everywhere, including the soft keys along the edge.
-- [ ] **System → Show simulators**, then **CAN → Connect → Simulator**: codes and live data appear.
+- [ ] **System → Simulators → Show simulators**, then **CAN → Connect → Simulator**: codes and live data appear.
 - [ ] On a bench bus or a real machine: **CAN → Connect** at the right bitrate (or **Auto** with
       candleLight) shows traffic, and a scan reads codes.
-- [ ] A data log records, saves, and copies to a USB stick (**System → Copy all logs**).
+- [ ] A data log records, saves, and copies to a USB stick (**System → Storage → Copy all logs**).
 
 **On a machine, run the Pi from a USB-C power bank, not a mains supply** (ELECTRONICS.md section
 10: battery only when connected to a machine). Most power banks give 3 A, which is fine here. Note
@@ -150,7 +150,7 @@ That adds all twelve controls. The unwired ones are harmless: they sit pulled up
 
 - [ ] `~/canopener-venv/bin/canopener-cli hardware --stage 0b -v`: `controls` reads **ok** and
       counts the buttons and the encoder [verify: the input device names it looks for].
-- [ ] Each wired button does its job in the UI (**System → Key map** lists what each key does).
+- [ ] Each wired button does its job in the UI (**System → Controls → Key map** lists what each key does).
 - [ ] One encoder click moves the focus one row. If it moves two, change `steps-per-period=1` to
       `2` (or `4`) on the `rotary-encoder` line in `/boot/firmware/config.txt` and reboot.
 - [ ] Holding the encoder push goes Back.

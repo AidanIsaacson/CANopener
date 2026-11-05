@@ -133,6 +133,6 @@ the multimeter and the logic analyzer in one:
 * LIN and OBD-I
 * Any other way of gathering data you can imagine
 
-Try its screen on a laptop: **Settings → Handheld (Pi) screen** (and **System → Desktop app
+Try its screen on a laptop: **Settings → Handheld (Pi) screen** (and **System → Software → Desktop app
 instead** to come back). The handheld UI: [DEVICE.md](DEVICE.md). The design:
 [DESIGN.md](DESIGN.md).

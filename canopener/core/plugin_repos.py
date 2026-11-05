@@ -87,7 +87,7 @@ def _git(args, cwd: str | None, token: str | None, timeout=GIT_TIMEOUT, runner=s
 def _why(r) -> str:
     text = (r.stderr or r.stdout or "").strip()
     if re.search(r"could not read Username|Authentication failed|returned error: 40[134]|not found", text, re.I):
-        return ("GitHub refused access. Sign in to GitHub (System > Plugins), and make sure the "
+        return ("GitHub refused access. Sign in to GitHub (System > Software > Plugins), and make sure the "
                 "CANopener GitHub App is installed on this repository.")
     lines = text.splitlines()
     return lines[-1] if lines else f"git exited with {r.returncode}"

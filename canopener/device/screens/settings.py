@@ -43,18 +43,25 @@ def serial_ports() -> list[str]:
 
 UNLOCK_OPENS, UNLOCK_GAP_S = 7, 10.0
 
+# System's groups: page title -> the method building its rows (SettingsScreen._page_<name>)
+SECTIONS = {"Display": "display", "Controls": "controls", "Sound": "sound", "Meters": "meters",
+            "Simulators": "simulators", "Installed options": "installed", "Storage": "storage",
+            "Software": "software"}
+
 
 class SettingsScreen(Screen):
+    """System: a short menu (one row per group, a few things done straight from it); each group
+    opens as its own page (``section``)."""
+
     title = "System"
 
     def __init__(self, app, section: str | None = None):
         super().__init__(app)
+        self.section = section if section in SECTIONS else None
+        if self.section:
+            self.title = self.section
         self.rows = RowList(self._rows)
         self._about_opens: list[float] = []     # Games unlock: About, seven times in a row
-        if section:
-            rows = self.rows.refresh()
-            i = next((i for i, r in enumerate(rows) if r.kind == "header" and r.label == section), 0)
-            self.rows.view.focus = i + 1
 
     def _set(self, key, value, then=None):
         self.ctx.settings.set(key, value)
@@ -71,75 +78,40 @@ class SettingsScreen(Screen):
         s = self.ctx.settings
         return Row(label, select=lambda: self._set(key, not s.get(key), then), check=lambda: s.get(key), hint=hint)
 
+    def _open(self, section: str):
+        self.app.push(SettingsScreen(self.app, section))
+
     def _rows(self):
+        if self.section:
+            return getattr(self, "_page_" + SECTIONS[self.section])()
+        return self._menu()
+
+    # --- the top level ---
+    def _menu(self):
         ctx, s = self.ctx, self.ctx.settings
-        rows = [Row("Display", kind="header"),
-                Row("Theme", lambda: label_of(themes.available(), s.get("device.theme")),
-                    select=lambda: choose(self.app, "Theme", themes.available(), s.get("device.theme"),
-                                          lambda v: self._set("device.theme", v)),
-                    adjust=lambda d: self._set("device.theme", cycle(themes.available(), s.get("device.theme"), d)),
-                    hint=f"add your own in {_home(themes.themes_dir())} (see the manual)"),
-                self._row("Accent colour", "device.accent", themes.ACCENTS)]
-        level = system.brightness()
-        if level is not None:
-            rows.append(Row("Brightness", f"{round(level * 100)}%", adjust=self._brightness,
-                            select=lambda: self._brightness(1)))
-        rows += [
-            self._row("Screen size", "device.diagonal_in", DIAGONALS, hint="sizes touch targets to 10 mm"),
-            self._row("Rotate picture", "device.rotate", ROTATIONS, hint="takes effect at the next start"),
-            self._row("Window size (not full screen)", "device.window", WINDOWS, hint="trying it on a laptop; "
-                      "takes effect at the next start"),
-            Row("Controls", kind="header"),
-            self._row("Hardware buttons on the", "device.softkeys_edge", EDGES, hint="soft-key labels sit by them"),
-            self._row("Number of buttons", "device.buttons", BUTTONS),
-            self._row("Button 5 does", "device.button5", BUTTON5),
-            self._row("Hold Select for Back", "device.long_press_s", LONG_PRESS),
-            Row("Key map", select=self._keymap, hint="which key / button does what"),
-            Row("Units", kind="header"),
+
+        def group(name, summary, hint=""):
+            return Row(name, summary, select=lambda: self._open(name), kind="menu", hint=hint)
+        n_buttons = int(s.get("device.buttons") or 5)
+        meters_on = len(ctx.hub.sources())
+        sims = [n for n, on in (("machine", s.get("show_simulators")), ("meter", s.get("meters.sim"))) if on]
+        rows = [
+            group("Display", lambda: label_of(themes.available(), s.get("device.theme")),
+                  "theme, brightness, screen size, rotation"),
+            group("Controls", lambda: f"{n_buttons} buttons, {s.get('device.softkeys_edge')}",
+                  "where the buttons are, what button 5 does, key map"),
             self._row("Units", "units", UNITS),
-            Row("Sound", kind="header"),
-            self._row("Volume", "sound.volume", VOLUMES, lambda: ctx.play_tone("test"),
-                      hint="the speaker (a buzzer has one loudness)"),
-            self._toggle("Speaker", "sound.speaker"),
-            self._toggle("Chirp on taps and buttons", "sound.touch", lambda: ctx.cue("touch"),
-                         hint="a short tick each time a press registers"),
-            self._toggle("Chime when CAN traffic drops / returns", "sound.link_cues"),
-            Row("Tones for events", select=lambda: self.app.push(TonesScreen(self.app)),
-                hint="pick a sound (or none) for each: log started, codes found, ..."),
-            Row("Buzzer", lambda: s.get("sound.buzzer"), select=self._buzzer, hint="auto, off, or pwm:CHIP:CHANNEL"),
-            Row("Test sound", select=lambda: ctx.play_tone("test")),
-            Row("Simulators", kind="header"),
-            Row("Show simulators", select=lambda: ctx.set_show_simulators(not s.get("show_simulators")),
-                check=lambda: s.get("show_simulators"), hint="a pretend machine and car under CAN > Connect"),
-            Row("Meters", kind="header"),
-            self._toggle("Simulated meter", "meters.sim", ctx.apply_meters, hint="four probes on a pretend sensor"),
-            Row("USB / serial meter", lambda: s.get("meters.serial") or "Off", select=self._serial,
-                hint="Pico / ESP32 bridge, JSON lines"),
-            Row("ADC on the Pi", lambda: s.get("meters.iio") or "Off", select=self._iio, hint="kernel IIO driver"),
-            self._row("ADC input divider", "meters.iio_ratio", RATIOS, ctx.apply_meters),
-        ]
-        for src in ctx.hub.sources():
-            rows.append(Row(src.name, src.status.text, kind="info", level=lambda src=src: src.status.level,
-                            hint=src.status.detail))
-        rows += self._hardware_rows()
-        rows.append(Row("Storage", kind="header"))
-        free = system.disk_free(config.data_dir() if os.path.isdir(config.data_dir()) else os.path.expanduser("~"))
-        rows.append(Row("Logs folder", config.data_dir(), kind="info",
-                        hint=f"{system.fmt_bytes(free[0])} free of {system.fmt_bytes(free[1])}" if free else ""))
-        rows.append(Row("Copy all logs to a USB stick", select=self._export_all))
-        rows += [
-            Row("System", kind="header"),
-            Row("About this device", select=self._about),
-            Row("Check for updates", __version__, select=self._check_updates,
-                hint="download the newest CANopener from GitHub (needs internet)"),
-            Row("Plugins", self._plugins_summary, select=self._plugins,
-                hint="sign in to GitHub; install and update plugins (private ones too)"),
-        ]
-        if s.get("device.games"):
-            rows.append(Row("Show games", select=lambda: s.set("device.games", False), check=lambda: True,
-                            hint="hide them again (System > About brings them back)"))
-        rows += [
-            Row("Desktop app instead", select=self._to_desktop, hint="switch to the laptop window (Qt)"),
+            group("Sound", lambda: "off" if not s.get("sound.speaker") else f"{s.get('sound.volume')}%",
+                  "volume, chirps, tones for events, buzzer"),
+            group("Meters", lambda: f"{meters_on} on" if meters_on else "none on",
+                  "USB / serial meter, the Pi's ADC"),
+            group("Simulators", lambda: ", ".join(sims) if sims else "off",
+                  "a pretend machine, car and meter, to try things"),
+            group("Installed options", "", "what this unit has fitted"),
+            group("Storage", self._free_text, "logs folder, copy logs to USB"),
+            group("Software", __version__, "updates, plugins, desktop app"),
+            Row("About this device", select=self._about, hint="temperature, network, screen"),
+            Row("Power", kind="header"),
             # Exits cleanly, so the Pi's service (Restart=on-failure) leaves the desktop showing.
             Row("Exit to desktop", select=lambda: confirm(
                 self.app, "Exit to the desktop?",
@@ -149,6 +121,115 @@ class SettingsScreen(Screen):
             Row("Restart", select=lambda: self._power("Restart", system.REBOOT)),
             Row("Power off", select=lambda: self._power("Power off", system.POWER_OFF)),
         ]
+        return rows
+
+    # --- the groups ---
+    def _page_display(self):
+        s = self.ctx.settings
+        rows = [Row("Look", kind="header"),
+                Row("Theme", lambda: label_of(themes.available(), s.get("device.theme")),
+                    select=lambda: choose(self.app, "Theme", themes.available(), s.get("device.theme"),
+                                          lambda v: self._set("device.theme", v)),
+                    adjust=lambda d: self._set("device.theme", cycle(themes.available(), s.get("device.theme"), d)),
+                    hint=f"add your own in {_home(themes.themes_dir())} (see the manual)"),
+                self._row("Accent colour", "device.accent", themes.ACCENTS),
+                Row("Screen", kind="header")]
+        level = system.brightness()
+        if level is not None:
+            rows.append(Row("Brightness", f"{round(level * 100)}%", adjust=self._brightness,
+                            select=lambda: self._brightness(1)))
+        rows += [
+            self._row("Screen size", "device.diagonal_in", DIAGONALS, hint="sizes touch targets to 10 mm"),
+            self._row("Rotate picture", "device.rotate", ROTATIONS, hint="takes effect at the next start"),
+            self._row("Window size (not full screen)", "device.window", WINDOWS, hint="trying it on a laptop; "
+                      "takes effect at the next start"),
+        ]
+        return rows
+
+    def _page_controls(self):
+        return [
+            Row("Buttons", kind="header"),
+            self._row("Hardware buttons on the", "device.softkeys_edge", EDGES, hint="soft-key labels sit by them"),
+            self._row("Number of buttons", "device.buttons", BUTTONS),
+            self._row("Button 5 does", "device.button5", BUTTON5),
+            self._row("Hold Select for Back", "device.long_press_s", LONG_PRESS),
+            Row("Key map", select=self._keymap, hint="which key / button does what"),
+        ]
+
+    def _page_sound(self):
+        ctx, s = self.ctx, self.ctx.settings
+        return [
+            Row("Speaker", kind="header"),
+            self._row("Volume", "sound.volume", VOLUMES, lambda: ctx.play_tone("test"),
+                      hint="the speaker (a buzzer has one loudness)"),
+            self._toggle("Speaker", "sound.speaker"),
+            Row("Test sound", select=lambda: ctx.play_tone("test")),
+            Row("When", kind="header"),
+            self._toggle("Chirp on taps and buttons", "sound.touch", lambda: ctx.cue("touch"),
+                         hint="a short tick each time a press registers"),
+            self._toggle("Chime when CAN traffic drops / returns", "sound.link_cues"),
+            Row("Tones for events", select=lambda: self.app.push(TonesScreen(self.app)),
+                hint="pick a sound (or none) for each: log started, codes found, ..."),
+            Row("Buzzer", kind="header"),
+            Row("Buzzer", lambda: s.get("sound.buzzer"), select=self._buzzer, hint="auto, off, or pwm:CHIP:CHANNEL"),
+        ]
+
+    def _page_meters(self):
+        ctx, s = self.ctx, self.ctx.settings
+        rows = [
+            Row("Sources", kind="header"),
+            Row("USB / serial meter", lambda: s.get("meters.serial") or "Off", select=self._serial,
+                hint="Pico / ESP32 bridge, JSON lines"),
+            Row("ADC on the Pi", lambda: s.get("meters.iio") or "Off", select=self._iio, hint="kernel IIO driver"),
+            self._row("ADC input divider", "meters.iio_ratio", RATIOS, ctx.apply_meters),
+            self._toggle("Simulated meter", "meters.sim", ctx.apply_meters, hint="four probes on a pretend sensor"),
+        ]
+        srcs = ctx.hub.sources()
+        if srcs:
+            rows.append(Row("Status", kind="header"))
+        for src in srcs:
+            rows.append(Row(src.name, src.status.text, kind="info", level=lambda src=src: src.status.level,
+                            hint=src.status.detail))
+        return rows
+
+    def _page_simulators(self):
+        ctx, s = self.ctx, self.ctx.settings
+        return [
+            Row("Try it without hardware", kind="header"),
+            Row("Show simulators", select=lambda: ctx.set_show_simulators(not s.get("show_simulators")),
+                check=lambda: s.get("show_simulators"), hint="a pretend machine and car under CAN > Connect"),
+            self._toggle("Simulated meter", "meters.sim", ctx.apply_meters, hint="four probes on a pretend sensor"),
+        ]
+
+    def _page_installed(self):
+        return self._hardware_rows()
+
+    def _free_text(self) -> str:
+        free = system.disk_free(config.data_dir() if os.path.isdir(config.data_dir()) else os.path.expanduser("~"))
+        return f"{system.fmt_bytes(free[0])} free" if free else ""
+
+    def _page_storage(self):
+        free = system.disk_free(config.data_dir() if os.path.isdir(config.data_dir()) else os.path.expanduser("~"))
+        return [
+            Row("Logs", kind="header"),
+            Row("Logs folder", config.data_dir(), kind="info",
+                hint=f"{system.fmt_bytes(free[0])} free of {system.fmt_bytes(free[1])}" if free else ""),
+            Row("Copy all logs to a USB stick", select=self._export_all),
+        ]
+
+    def _page_software(self):
+        s = self.ctx.settings
+        rows = [
+            Row("CANopener", kind="header"),
+            Row("Check for updates", __version__, select=self._check_updates,
+                hint="download the newest CANopener from GitHub (needs internet)"),
+            Row("Plugins", self._plugins_summary, select=self._plugins,
+                hint="sign in to GitHub; install and update plugins (private ones too)"),
+            Row("Desktop app instead", select=self._to_desktop, hint="switch to the laptop window (Qt)"),
+        ]
+        if s.get("device.games"):
+            rows.append(Row("Show games", select=lambda: s.set("device.games", False), check=lambda: True,
+                            hint="hide them again (System > About brings them back)"))
         return rows
 
     def _hardware_rows(self):

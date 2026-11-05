@@ -313,7 +313,7 @@ class MainWindow(QtWidgets.QMainWindow):
         st.addSeparator()
         self.handheld_action = QtGui.QAction("Handheld (Pi) screen", self, checkable=True)
         self.handheld_action.setToolTip("Switch to the Raspberry Pi handheld's touch UI in a window, to try it "
-                                        "here. Its System > Desktop app instead switches back.")
+                                        "here. Its System > Software > Desktop app instead switches back.")
         self.handheld_action.toggled.connect(self._switch_to_handheld)
         st.addAction(self.handheld_action)
         p = m.addMenu("&Profiles")
@@ -1239,8 +1239,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self, "Handheld (Pi) screen",
                 "Switch to the handheld's touch UI? CANopener closes and reopens as the Raspberry Pi "
                 "screen, in a window here (the mouse is your finger, the keyboard the buttons: F1-F5, "
-                "arrows, Enter, mouse wheel for the encoder).\n\nIt opens that way every time until you "
-                "pick System > Desktop app instead on the handheld.") == QtWidgets.QMessageBox.StandardButton.Yes:
+                "arrows, Enter, mouse wheel for the encoder).\n\nIt opens that way every time until you pick "
+                "System > Software > Desktop app instead on the handheld.") == QtWidgets.QMessageBox.StandardButton.Yes:
             settings = Settings()
             settings.set("ui", frontends.DEVICE)
             self.switch_to, self.was_fullscreen = frontends.DEVICE, self.isFullScreen()

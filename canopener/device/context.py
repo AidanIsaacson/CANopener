@@ -29,7 +29,7 @@ from ..core.sync import PpsReader, PulseClock
 SOURCES = [(SOCKETCAN, "CAN adapter"), (SIMULATOR, "Simulator (J1939 machine)"),
            (OBD_SIM, "Simulator (OBD-II car)"), (CANOPEN_SIM, "Simulator (CANopen truck)"),
            (PROFILE_SIM, "Simulate the profile")]
-SIMULATORS = (SIMULATOR, OBD_SIM, CANOPEN_SIM, PROFILE_SIM)     # listed only with System > Show simulators
+SIMULATORS = (SIMULATOR, OBD_SIM, CANOPEN_SIM, PROFILE_SIM)     # listed only with System > Simulators > Show simulators
 BITRATES = [0] + interfaces.BITRATES        # 0 = auto (signal finder)
 SAMPLE_EVERY = 0.2                          # live models: 5 samples a second, like the desktop
 LINK_CHECK_SECS = 1.0

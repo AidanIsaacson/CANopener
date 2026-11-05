@@ -1,4 +1,4 @@
-"""System > Plugins: sign in to GitHub and install / update plugins from repositories, with no
+"""System > Software > Plugins: sign in to GitHub and install / update plugins from repositories, with no
 keyboard. The work is ``core.github`` (sign-in) and ``core.plugin_repos`` (git + pip).
 
 Sign-in shows a short code; the user opens github.com/login/device on a phone, types the code

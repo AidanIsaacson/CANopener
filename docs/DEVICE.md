@@ -10,7 +10,7 @@ the CLI, so a fix in the scan, capture or decode code reaches all three.
 > login). **Not yet run on a DSI panel or with the real controls.** The pieces that only real
 > hardware can prove are listed in [Not tested yet](#not-tested-yet).
 
-![Home: CAN, Meter, Data log and System tiles; soft keys along the top, status strip along the bottom](images/device-home.png)
+![Home in the Element Zero theme: CAN, Meter, Data log and System tiles; quick-action soft keys along the top, status strip along the bottom](images/device-home.png)
 
 **On the Pi:** start with [Handheld, first steps](install/handheld-stage0.md) (Pi 5 + Touch
 Display 2 + USB CANable, then the first buttons and the encoder).
@@ -26,10 +26,10 @@ canopener-device --obd-sim             # a simulated car (OBD-II)
 
 **From the desktop app:** tick **Settings → Handheld (Pi) screen**. CANopener closes (asking
 about an unsaved log as usual) and reopens as the handheld UI in a window. It stays that way,
-from the menu entry and the `canopener` command too, until you pick **System → Desktop app
+from the menu entry and the `canopener` command too, until you pick **System → Software → Desktop app
 instead** on the handheld; a log still recording there is stopped and saved first. The window
 can be resized or maximized (everything scales with it, like a bigger panel) and reopens at the
-size it was closed at; **System → Window size** sets a size directly. `canopener --desktop`
+size it was closed at; **System → Display → Window size** sets a size directly. `canopener --desktop`
 always opens the desktop app (installed with `deploy/linux/install.sh` it isn't on the
 terminal's PATH: run `~/CANopener/.venv/bin/canopener --desktop`). The same switch works on the Pi: the launcher starts whichever
 you last chose.
@@ -52,13 +52,17 @@ Fixed, like a scan tool: nothing reflows or pops up where a thumb doesn't expect
 * **Status strip** on the other edge: Back and Home (for touch), where you are, the CAN lamp
   (adapter / bus, same logic as the desktop app's lamps), the meter's health, **REC** with the
   elapsed time, and the clock. Tapping the CAN or Meter lamp jumps to that mode.
-* **Home** has one tile per mode. More modes slot in later (logic analyzer, scope, ...) through
+* **Home** has one tile per mode, and its soft keys are quick actions: **Connect** (or
+  Disconnect), **Codes** and **Live data** (straight to those CAN pages), **Start log** (or Stop
+  log). More modes slot in later (logic analyzer, scope, ...) through
   `canopener/device/modes.py`, and plugins can add their own with `register_device(api)`.
+* Soft keys that do the same thing sit on the same button: **Reset min/max** is button 3 on Live
+  and Meter, and **Start log** is button 4 on Home and Meter.
 
 Navigation is the same everywhere: **rotate** the encoder to move through a list, **push** it to
 select, **hold** it (0.7 s) to go back; **d-pad up/down** moves like the encoder, **left/right**
 changes page (CAN) or value (System settings). Touch targets are 10 mm on every panel: the size
-is worked out from the screen's pixel density (System > Screen size), not fixed in pixels.
+is worked out from the screen's pixel density (System > Display > Screen size), not fixed in pixels.
 Anything that changes a machine asks first with **No** as the default, so an accidental push of
 the encoder does nothing.
 
@@ -67,7 +71,9 @@ the encoder does nothing.
 | **CAN** | **Connect** (source, interface, bitrate or *Auto* via the signal finder, listen-only, profile, connect at power-on, adapter and bus status). **Codes** (J1939 active / stored / full scan with lamps, or OBD-II codes from every module; select a code for details, *Live data* jumps to its sensor). **Live** (every value, tick the ones you want, *Grid* shows them big with a 60 s trace). **Bus** (modules with frame rates, or every CAN ID with changing bytes marked). **Log** (below). |
 | **Meter** | Each measurement channel as a big readout with min / max and a trace; Hold; each source's status ("not detected, retrying"). |
 | **Data log** | Start / stop, timestamps (planned list or as-you-go), undo, save, trim to the stretch around the timestamps, copy to a USB stick, recover a log a power cut interrupted. Records the bus **and every meter channel**. |
-| **System** | Theme and accent colour ([below](#themes)), brightness, screen size, picture rotation, which edge the buttons are on, 4 or 5 buttons and what button 5 does, units, sound (below), meters, logs folder and USB export, about (temperature, uptime, IP), check for updates, exit to desktop / restart / power off. |
+| **System** | A short menu; each group opens its own page. **Display** (theme and accent colour, [below](#themes); brightness, screen size, picture rotation). **Controls** (which edge the buttons are on, 4 or 5 buttons, what button 5 does, the key map). **Units** (changed right on the menu). **Sound** ([below](#sound)). **Meters** (USB / serial meter, the Pi's ADC). **Simulators** (a pretend machine, car and meter). **Installed options**. **Storage** (logs folder, copy to USB). **Software** (check for updates, plugins, desktop app instead). **About this device** (temperature, uptime, IP), and exit to desktop / restart / power off. |
+
+![System: Display, Controls, Units, Sound, Meters, ... each opening its own page](images/device-system.png)
 
 ![Live Data grid: engine speed, torque and pedal position, big, with traces](images/device-live-grid.png)
 
@@ -140,7 +146,7 @@ within a few milliseconds of the tap. Without an audio device it falls back to `
 
 ## Updates
 
-**System > Check for updates** does what the desktop app's *Help > Check for updates* does
+**System > Software > Check for updates** does what the desktop app's *Help > Check for updates* does
 (`core/updates.py`): fetches from GitHub, lists what's new, and **Install** pulls the new version
 (fast-forward only; local changes stop it) and reinstalls the Python packages if they changed.
 Then it asks to restart: under the Pi's service it exits with the code systemd restarts on,
@@ -151,7 +157,7 @@ otherwise it starts the new version itself. If an update also changes the system
 
 Tap **Show games menu** in the corner of **System > About this device** (or open About seven
 times in a row) and a **Games** tile joins the home screen (after System, so the soft keys don't
-change); the same button, now **Hide games menu**, or **System > Show games** hides it again.
+change); the same button, now **Hide games menu**, or **System > Software > Show games** hides it again.
 
 Both games (the screens are `device/screens/games.py`) are played with the handheld turned a
 quarter turn anticlockwise, so they draw portrait and turn the picture. The encoder turns the
@@ -257,7 +263,7 @@ for GPIO20/21; GPIO19 is the only spare. Their overlay lines are in
 | Control | GPIO | Sends | App action |
 |---|---|---|---|
 | Top button 1-4 | 5, 6, 12, 13 | F1-F4 | Soft keys 1-4 |
-| Top button 5 | 16 | F5 | Back (or soft key 5, start/stop log, timestamp: System > Button 5 does) |
+| Top button 5 | 16 | F5 | Back (or soft key 5, start/stop log, timestamp: System > Controls > Button 5 does) |
 | D-pad up / down / left / right | 17, 27, 22, 23 | arrows | Move / change page |
 | Encoder A / B | 24, 4 | REL_X | Move (rotate) |
 | Encoder push | 26 | Enter | Select (hold: Back) |
@@ -276,7 +282,7 @@ are not short here (twelve of the free ones), so one GPIO each is the recommenda
 
 Change what any key does in `~/.config/canopener/settings.json`, e.g.
 `"device.keys": {"f6": "log", "f7": "tag"}` for two more buttons as dedicated Log / Timestamp
-keys (System > Key map shows the current map).
+keys (System > Controls > Key map shows the current map).
 
 ## Displays
 

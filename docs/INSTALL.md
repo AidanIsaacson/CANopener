@@ -42,7 +42,7 @@ What it installs, your adapter's firmware, and troubleshooting:
 
 **In the app** (laptop or Pi): **Help → Check for updates…** shows what's new, **Install update**
 downloads it, and **Restart now** opens the new version. On the handheld screen it's **System →
-Check for updates**. It only checks when you ask, unless you tick **Help → Check for updates at
+Software → Check for updates**. It only checks when you ask, unless you tick **Help → Check for updates at
 startup** (it stays quiet unless there is one).
 
 If an update also changes the system setup (drivers, plug-in rules), the app says so and shows
@@ -66,7 +66,7 @@ Your settings, captures and profiles are never touched by an update.
 Plugins add machine-specific screens and profiles without changing CANopener. They install
 straight from GitHub repositories, private ones included, with no keyboard needed:
 
-1. **System → Plugins → Sign in to GitHub** (on the handheld screen) shows a code.
+1. **System → Software → Plugins → Sign in to GitHub** (on the handheld screen) shows a code.
 2. On your phone, open `github.com/login/device`, enter the code and approve.
 3. **Add a repository** installs a plugin. **Update all** brings them all up to date.
 
