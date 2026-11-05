@@ -1,7 +1,10 @@
 """Retake the README screenshots (docs/images/) from the real app, offscreen, against the
-built-in simulators:
+built-in simulators, in the Element Zero colour theme:
 
     python scripts/readme_screenshots.py            # writes docs/images/*.png
+    python scripts/readme_screenshots.py OUT standard   # another folder, the system look
+
+Then the handheld's (device-*.png), with scripts/device_screenshots.py.
 
 Each shot is cropped to the part of the window it shows off. The signal finder's attempts are
 fed in by hand (there's no real adapter to search), everything else is the app as it runs.
@@ -16,6 +19,7 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 os.environ["HOME"] = tempfile.mkdtemp()           # throwaway captures and settings
 os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp()
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "..", "docs", "images")
+THEME = sys.argv[2] if len(sys.argv) > 2 else "element-zero"
 
 from canopener.core import capture as cap  # noqa: E402
 from canopener.core import connection, link  # noqa: E402
@@ -28,6 +32,7 @@ from canopener.gui.widgets import fit_columns  # noqa: E402
 app = QtWidgets.QApplication([])
 app.setStyle("Fusion")
 QtCore.QSettings.setPath(QtCore.QSettings.Format.NativeFormat, QtCore.QSettings.Scope.UserScope, tempfile.mkdtemp())
+QtCore.QSettings("CANopener", "CANopener").setValue("view/theme", THEME)      # each window opens in it
 
 _lp.LogPanel.check_pending = lambda self: None                                  # no recovery prompt
 _lp.LogPanel.confirm_unsaved = lambda self: True                                # close without asking
@@ -145,7 +150,7 @@ p.handle_event(link.FinderEvent("locked", "Locked on 250k: 412 good frame(s) in 
 p.show()
 p.setFloating(True)
 p.resize(390, 720)
-pump(0.5)
+pump(1.5)                                        # the adapter lamp is re-checked once a second
 save(p, "signal-finder.png")
 w.close()
 
@@ -196,3 +201,8 @@ d.show()
 pump(0.3)
 save(d, "trim-dialog.png")
 w.close()
+
+# 7. The handheld's screens (a Pygame app: its own process).
+import subprocess  # noqa: E402
+
+subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), "device_screenshots.py"), OUT], check=True)

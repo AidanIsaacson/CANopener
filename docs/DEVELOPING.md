@@ -42,7 +42,9 @@ candump vcan0                        # terminal 3: watch the traffic (can-utils)
 
 `python scripts/readme_screenshots.py` retakes `docs/images/*.png` (used by the README,
 FEATURES.md, USAGE.md and DEVICE.md) from the app running offscreen against the simulators (about
-a minute). Or replace any of them with your own.
+a minute), in the Element Zero colour theme (`... OUT standard` for the system look). It ends by
+running `scripts/device_screenshots.py`, which retakes the handheld's `device-*.png` (pick another
+theme or panel size with `--theme` / `--size`). Or replace any of them with your own.
 
 ### Keeping a Pi branch up to date with main
 
@@ -188,7 +190,7 @@ legacy/      the original j1939_codes.py script and the v0.1 Pi app (frozen, for
 tests/       pytest suite, including headless GUI tests
 docs/        user guides (FEATURES, INSTALL, USAGE, install/), the handheld (DEVICE, DESIGN,
              ELECTRONICS) and the software (DEVELOPING, ARCHITECTURE); index in docs/README.md
-scripts/     readme_screenshots.py (retake docs/images), sync-from-main.sh (Pi branches)
+scripts/     readme_screenshots.py + device_screenshots.py (retake docs/images), sync-from-main.sh (Pi branches)
 ```
 
 ## Files the app writes

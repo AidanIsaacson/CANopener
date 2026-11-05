@@ -33,7 +33,8 @@ renaming a heading means fixing its links.
 * The handheld: `docs/DEVICE.md` (UI), `docs/DESIGN.md` and `docs/ELECTRONICS.md` (the owner's
   hardware notes; edit only what a change makes stale), `hardware/`, `firmware/`.
 * Code: `docs/DEVELOPING.md`, `docs/ARCHITECTURE.md` (move an item out of "Open work" when it lands).
-* Screenshots: `docs/images/`, retaken by `scripts/readme_screenshots.py`.
+* Screenshots: `docs/images/`, retaken by `scripts/readme_screenshots.py` (which runs
+  `scripts/device_screenshots.py` for the handheld's), in the Element Zero theme.
 
 ## Rules
 
@@ -73,6 +74,10 @@ renaming a heading means fixing its links.
 * **Measurements** (meters, probes, anything read besides CAN) go through `core/measure.py`
   (`MeasurementHub`, wall-clock timestamps like `CanFrame`); sources are in `core/meters.py`.
   A capture records them to `measurements.csv` and the report merges them with the CAN data.
+* **Colours come from the theme** (`core/themes.py`): the handheld names them by role
+  (`ui.color("dim")`, `ui.panel` / `ui.card`), the desktop uses the palette or `gui/themes.tint()`
+  / `fill_style()`. Don't hard-code a colour a theme can't reach. Element Zero is the handheld's
+  default; the desktop's is Standard (the system look).
 * GUI code must work with both PySide6 and PyQt6: import from `canopener.gui.qt` and use fully
   scoped enums (`Qt.AlignmentFlag.AlignLeft`).
 * Don't invent OEM data. SPN/SA/PGN names in the built-in tables are SAE-standard only. OEM labels
