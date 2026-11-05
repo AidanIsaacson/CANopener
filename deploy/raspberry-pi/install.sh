@@ -14,6 +14,8 @@ LAUNCHER="$BIN/canopener-launch"
 echo "== System packages"
 sudo apt-get install -y python3-venv can-utils \
     libegl1 libgl1 libfontconfig1 libdbus-1-3 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0
+# The font the handheld's themes use (System > Display > Theme); without it, DejaVu Sans.
+sudo apt-get install -y fonts-inter || echo "(fonts-inter isn't available: the themes use DejaVu Sans)"
 
 echo "== USB CAN adapter drivers"
 sudo "$REPO/deploy/linux/adapter-setup.sh"

@@ -67,13 +67,60 @@ the encoder does nothing.
 | **CAN** | **Connect** (source, interface, bitrate or *Auto* via the signal finder, listen-only, profile, connect at power-on, adapter and bus status). **Codes** (J1939 active / stored / full scan with lamps, or OBD-II codes from every module; select a code for details, *Live data* jumps to its sensor). **Live** (every value, tick the ones you want, *Grid* shows them big with a 60 s trace). **Bus** (modules with frame rates, or every CAN ID with changing bytes marked). **Log** (below). |
 | **Meter** | Each measurement channel as a big readout with min / max and a trace; Hold; each source's status ("not detected, retrying"). |
 | **Data log** | Start / stop, timestamps (planned list or as-you-go), undo, save, trim to the stretch around the timestamps, copy to a USB stick, recover a log a power cut interrupted. Records the bus **and every meter channel**. |
-| **System** | Brightness, screen size, picture rotation, which edge the buttons are on, 4 or 5 buttons and what button 5 does, units, sound (below), meters, logs folder and USB export, about (temperature, uptime, IP), check for updates, exit to desktop / restart / power off. |
+| **System** | Theme and accent colour ([below](#themes)), brightness, screen size, picture rotation, which edge the buttons are on, 4 or 5 buttons and what button 5 does, units, sound (below), meters, logs folder and USB export, about (temperature, uptime, IP), check for updates, exit to desktop / restart / power off. |
 
 ![Live Data grid: engine speed, torque and pedal position, big, with traces](images/device-live-grid.png)
 
 Everything is read-only. The device UI only sends J1939 requests and OBD-II reads; it has no
 clear-codes or transmit screen yet. When it gets one, it follows CLAUDE.md: state what it
 changes, default No, never in listen-only.
+
+## Themes
+
+**System > Display > Theme** picks the look; it changes straight away. **Accent colour** below
+it swaps the accent (selected tabs, values you can change, traces) in whichever theme is on.
+
+| Theme | For |
+|---|---|
+| **Classic** | The original look (the default). |
+| **Graphite** | A quieter dark look: flat panels with a fine outline, teal accent, rounded line icons. |
+| **Daylight** | Sunlight: dark text on white, strong colours, a black ring on what's selected. |
+| **Night (amber)** | A dark cab at night: amber on black, easy on eyes that have adjusted to the dark. |
+
+The newer themes use the **Inter** font. The installers add it (`fonts-inter`); without it they
+use DejaVu Sans, and Classic uses Pygame's own font either way.
+
+**Your own theme:** put a `.json` file in `~/.config/canopener/themes/`. It starts from a
+built-in theme (`base`) and changes only what it names. The file name (without `.json`) is its
+id, and `name` is what the Theme list shows:
+
+```json
+{
+  "name": "Workshop orange",
+  "base": "graphite",
+  "colors": {"accent": "#ff7a1a", "focus": "#ffffff"},
+  "style": {"radius": 0.25},
+  "fonts": {"text": ["Roboto:medium", "DejaVu Sans"]}
+}
+```
+
+* `colors`: `"#rrggbb"` (or `[r, g, b]`). Surfaces: `bg` (behind everything), `bar` (the soft-key
+  and status strips), `panel` (rows, tiles), `panel2` (buttons, a selected row), `panel_hi` (a
+  selected tile), `line` (outlines). Text: `text`, `dim`, `faint`. Accent: `accent`, `accent_dim`
+  (behind accent icons), `on_accent` (text on an accent fill), `edge_accent`. `focus` is the ring
+  on what the encoder is on; `press` lights what a finger is on. Status: `ok`, `wait`, `bad`,
+  `on_bad`, `warn`, `off`, `sim`, `idle`, `rec`, `on`. Finish: `shadow`, `edge`, `edge_bad`.
+* `style`: `radius` (corner size, 0-0.5 of a 10 mm touch target), `shadow`, `edge` (a light line
+  along the top of buttons), `border` (an outline round panels), `trace_fill` (shading under
+  traces) as true / false; `icons` (`classic` or `line`); `tile` (home tiles: `disc` or `chip`);
+  `font_scale` (0.6-1.5).
+* `fonts`: `text` (most text), `heading` (titles), `numbers` (big readouts). Each is a list tried
+  in order: an installed font's name, optionally with a weight (`"Inter:semibold"`), or a path to
+  a `.ttf` / `.otf` file. If none is found, Pygame's own font.
+
+The file is read when you pick it, so to see an edit pick another theme and back. If something
+in it is wrong (a colour that isn't one, a misspelt key), a message says what at the bottom of
+the screen and the rest of the theme still applies. A file can't replace a built-in theme's name.
 
 ## Sound
 

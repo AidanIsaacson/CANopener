@@ -116,7 +116,7 @@ class RowList:
             inner = r.inflate(-t.pad // 2, -t.pad // 3)
             lit = focused and row.selectable
             if row.kind != "info":
-                ui.fill(inner, "panel2" if row.kind == "action" or lit else "panel", t.radius)
+                ui.panel(inner, "panel2" if row.kind == "action" or lit else "panel", t.radius)
             if lit:
                 ui.fill(inner, "focus", t.radius, max(2, t.pad // 3))
                 ui.fill(pygame.Rect(inner.x, inner.y, max(4, t.pad // 2), inner.h), "focus", t.radius)
@@ -271,7 +271,7 @@ class ChoiceDialog(Dialog):
         def draw_row(ui, i, r, focused):
             label, value = self.options[i]
             inner = r.inflate(-t.pad // 2, -t.pad // 3)
-            ui.fill(inner, "accent_dim" if value == self.current else "panel2", t.radius)
+            ui.panel(inner, "accent_dim" if value == self.current else "panel2", t.radius)
             if value == self.current:
                 ui.fill(pygame.Rect(inner.x, inner.y, max(4, t.pad // 2), inner.h), "accent", t.radius)
             if focused:

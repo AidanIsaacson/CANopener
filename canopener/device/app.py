@@ -21,7 +21,7 @@ from .. import __version__, plugins
 from ..core import sound
 from ..core.settings import Settings
 from . import input as inp
-from . import modes, ui
+from . import modes, themes, ui
 from .context import DeviceContext
 from .screens.base import Screen, SoftKey
 from .ui import UI, Theme
@@ -110,7 +110,7 @@ class DeviceApp:
     def _setting_changed(self, key, value):
         if key in ("device.keys", "device.button5"):
             self.keymap = inp.KeyMap(self.ctx.settings.get("device.keys"), self.ctx.settings.get("device.button5"))
-        elif key == "device.diagonal_in":
+        elif key in ("device.diagonal_in", "device.theme", "device.accent"):
             self._fit()
         elif key == "device.window" and not self.fullscreen:     # System > Window size: apply now
             try:
@@ -134,7 +134,12 @@ class DeviceApp:
         pw, ph = self.screen.get_size()
         self.size = (ph, pw) if self.rotate in (90, 270) else (pw, ph)
         self.canvas = pygame.Surface(self.size) if self.rotate else self.screen
-        self.theme = Theme(self.size, float(self.ctx.settings.get("device.diagonal_in") or 7.0))
+        s = self.ctx.settings
+        look = themes.load(s.get("device.theme"), s.get("device.accent") or "")
+        if look.problems and look.problems != getattr(self, "_theme_problems", None):
+            self.ctx.toast(look.problems[0])        # once, not on every resize
+        self._theme_problems = look.problems
+        self.theme = Theme(self.size, float(s.get("device.diagonal_in") or 7.0), look)
         self.ui = UI(self.canvas, self.theme)
         self.content = pygame.Rect(0, 0, *self.size)
 
@@ -332,7 +337,7 @@ class DeviceApp:
     def draw(self):
         u = self.ui
         u.begin(self.canvas)
-        self.canvas.fill(ui.COLORS["bg"])
+        self.canvas.fill(u.color("bg"))
         keys, stat, content = self.layout()
         self.content = content
         # the screens: everything from the top-most full screen up, so a dialog shows over its page
@@ -352,7 +357,7 @@ class DeviceApp:
 
     def _draw_softkeys(self, u: UI, rect):
         t = self.theme
-        u.fill(rect, "panel")
+        u.fill(rect, "bar")
         self._hairline(u, rect)
         slots = self.softkey_slots()
         n = len(slots)
@@ -361,14 +366,17 @@ class DeviceApp:
         for i, key in enumerate(slots):
             r = pygame.Rect(rect.x + gap + i * (w + gap), rect.y + t.pad // 2, w, rect.h - t.pad)
             if key is None:
-                u.fill(r, "panel_hi", t.radius)
+                if t.style["border"]:               # an empty slot: just its outline
+                    u.fill(r, "line", t.radius, 1)
+                else:
+                    u.fill(r, "panel_hi", t.radius)
                 continue
             u.button(r, key.label, (lambda a=inp.SOFT[i]: self.action(a)) if key.fn else None,
                      enabled=key.enabled, active=key.active)
 
     def _draw_status(self, u: UI, rect):
         t, ctx = self.theme, self.ctx
-        u.fill(rect, "panel")
+        u.fill(rect, "bar")
         self._hairline(u, rect)
         x = rect.x + t.pad // 2
         bw = round(t.touch * 1.05)
@@ -383,7 +391,7 @@ class DeviceApp:
             c = ctx.capture
             label = f"REC {int(c.elapsed()) // 60:02d}:{int(c.elapsed()) % 60:02d}"
             r = u.text(label, (right, rect.centery), "body", "rec", align="right")
-            pygame.draw.circle(u.surface, ui.COLORS["rec"], (r.left - t.pad, rect.centery), t.pad * .7)
+            pygame.draw.circle(u.surface, u.color("rec"), (r.left - t.pad, rect.centery), t.pad * .7)
             right = r.left - t.pad * 2.5
         pw = min(round(t.touch * 3.4), (right - x) // 2)
         srcs = ctx.hub.sources()
@@ -405,7 +413,7 @@ class DeviceApp:
     def _hairline(self, u: UI, rect):
         """A thin line where a bar meets the page, so the chrome reads as its own layer."""
         y = rect.bottom - 1 if rect.y == 0 else rect.y
-        pygame.draw.line(u.surface, ui.COLORS["line"], (rect.x, y), (rect.right, y), 1)
+        pygame.draw.line(u.surface, u.color("line"), (rect.x, y), (rect.right, y), 1)
 
     def _draw_toast(self, u: UI, content):
         msg = self.ctx.current_toast()

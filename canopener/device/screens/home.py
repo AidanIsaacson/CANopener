@@ -41,8 +41,12 @@ class HomeScreen(Screen):
         foot = round(t.touch * .5)
         area = pygame.Rect(rect.x, rect.y + t.pad, rect.w, rect.h - foot - t.pad)
         tiles = self.grid.layout(area, len(ms), round(t.touch * 3.2), round(t.touch * 2.4))
+        chip = t.style["tile"] == "chip"
         for i, (m, r) in enumerate(zip(ms, tiles)):
             focused = i == self.grid.focus
+            if chip:
+                self._chip_tile(ui, m, r, focused)
+                continue
             ui.card(r, "panel_hi" if focused else "panel", t.radius * 2)
             if focused:
                 ui.fill(r, "focus", t.radius * 2, max(3, t.pad // 2))
@@ -62,3 +66,23 @@ class HomeScreen(Screen):
                         max_w=r.w - 2 * t.pad)
             ui.hit(r, lambda m=m: self.app.open_mode(m.id))
         ui.text(f"CANopener {__version__}", (rect.right, rect.bottom - foot // 2), "small", "faint", align="right")
+
+    def _chip_tile(self, ui, m, r, focused):
+        """A tile with its icon on a rounded square at the top left, the title and status under it."""
+        t = ui.theme
+        ui.card(r, "panel_hi" if focused else "panel", t.radius * 2)
+        if focused:
+            ui.fill(r, "focus", t.radius * 2, max(3, t.pad // 2))
+        pad = round(t.pad * 1.6)
+        size = round(min(r.h * .34, r.w * .34, t.touch * 1.6))
+        box = pygame.Rect(r.x + pad, r.y + pad, size, size)
+        ui.fill(box, "accent" if focused else "accent_dim", t.radius * 2)
+        icon = box.inflate(-size * .4, -size * .4)
+        m.icon(ui, icon, ui.color("on_accent" if focused else "accent"))
+        status = m.status(self.ctx) if m.status else ""
+        small, big = t.font("small").get_linesize(), t.font("big").get_linesize()
+        y = r.bottom - pad - (small if status else 0) - big
+        ui.text(m.title, (r.x + pad, y), "big", "text", valign="top", max_w=r.w - 2 * pad)
+        if status:
+            ui.text(status, (r.x + pad, y + big), "small", "dim", valign="top", max_w=r.w - 2 * pad)
+        ui.hit(r, lambda m=m: self.app.open_mode(m.id))

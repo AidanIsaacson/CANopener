@@ -268,7 +268,7 @@ class CodesPage(Screen):
         def draw_row(ui, i, r, focused):
             item = self.items[i]
             inner = r.inflate(-t.pad // 2, -t.pad // 3)
-            ui.fill(inner, "panel", t.radius)
+            ui.panel(inner, "panel", t.radius)
             if focused:
                 ui.fill(inner, "focus", t.radius, max(2, t.pad // 3))
             if item[0] == "obd":
@@ -373,7 +373,7 @@ class BusPage(Screen):
         def draw_row(ui, i, r, focused):
             head, sub = self.lines[i]
             inner = r.inflate(-t.pad // 2, -t.pad // 3)
-            ui.fill(inner, "panel", t.radius)
+            ui.panel(inner, "panel", t.radius)
             if focused:
                 ui.fill(inner, "focus", t.radius, max(2, t.pad // 3))
             ui.text(head, (inner.x + t.pad, inner.y + inner.h * .34), "body", "text", max_w=inner.w - 2 * t.pad)
@@ -434,12 +434,12 @@ class CanScreen(Screen):
         for i, (_cls, label, icon) in enumerate(PAGES):
             r = pygame.Rect(rect.x, rect.y + i * h, rail_w, h - t.pad // 2)
             on = i == self.index
-            ui.fill(r, "accent" if on else "panel", t.radius)
+            ui.panel(r, "accent" if on else "panel", t.radius)
             size = round(min(r.h * .5, r.w * .4))
             ir = pygame.Rect(0, 0, size, size)
             ir.midtop = (r.centerx, r.y + r.h * .1)
-            icon(ui, ir, ui.color("text" if on else "dim"))
-            ui.text(label, (r.centerx, r.bottom - r.h * .2), "small", "text" if on else "dim", align="center")
+            icon(ui, ir, ui.color("on_accent" if on else "dim"))
+            ui.text(label, (r.centerx, r.bottom - r.h * .2), "small", "on_accent" if on else "dim", align="center")
             ui.hit(r, lambda i=i: self._go(i))
         page = pygame.Rect(rect.x + rail_w + t.pad, rect.y, rect.w - rail_w - t.pad, rect.h)
         self.page.draw(ui, page)

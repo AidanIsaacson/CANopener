@@ -28,8 +28,8 @@ git clone https://github.com/AidanIsaacson/CANopener.git ~/CANopener
 When it asks for your password, type it and press Enter. Nothing shows while you type, which is
 normal. The installer:
 
-1. installs the system packages: Python, `can-utils`, and the libraries the window needs (without
-   them the app installs but its window never opens);
+1. installs the system packages: Python, `can-utils`, the libraries the window needs (without
+   them the app installs but its window never opens), and the Inter font for the handheld screen;
 2. installs the **USB CAN adapter drivers** (`gs_usb` and `slcan`; on Ubuntu/Mint it adds the
    `linux-modules-extra` package if your kernel doesn't include them) and a plug-in rule so a
    **CANable** becomes `can0` by itself, whichever firmware it has (see

@@ -46,7 +46,7 @@ def trace_points(row, system: str) -> list:
 def draw_value_tile(ui, r, model, row, system: str, focused: bool = False, source: str = ""):
     t = ui.theme
     value, unit, lohi, bad = fmt_value(model, row, system)
-    ui.fill(r, "panel", t.radius * 2)
+    ui.panel(r, "panel", t.radius * 2)
     if focused:
         ui.fill(r, "focus", t.radius * 2, max(3, t.pad // 2))
     pad = t.pad
@@ -59,10 +59,12 @@ def draw_value_tile(ui, r, model, row, system: str, focused: bool = False, sourc
                  max_w=r.w - 2 * pad - t.touch)
     if unit:
         ui.text(unit, (vr.right + pad // 2, vr.bottom - t.pad), "body", "dim", valign="center")
-    spark = pygame.Rect(r.x + pad, r.y + r.h * .7, r.w - 2 * pad, r.h * .22)
+    small = t.font("small").get_linesize()
+    top = r.y + r.h * .68                               # the trace ends above the min - max line
+    spark = pygame.Rect(r.x + pad, top, r.w - 2 * pad, max(4, r.bottom - pad - small - top))
     ui.sparkline(spark, trace_points(row, system), "warn" if bad else "accent")
     if lohi:
-        ui.text(lohi, (r.right - pad, r.bottom - pad), "small", "faint", align="right", valign="center")
+        ui.text(lohi, (r.right - pad, r.bottom - pad - small // 2), "small", "faint", align="right", valign="center")
 
 
 class LivePage(Screen):
@@ -198,7 +200,7 @@ class LivePage(Screen):
             m, k = self.entries[i]
             row = m.rows[k]
             inner = r.inflate(-t.pad // 2, -t.pad // 3)
-            ui.fill(inner, "panel", t.radius)
+            ui.panel(inner, "panel", t.radius)
             if focused:
                 ui.fill(inner, "focus", t.radius, max(2, t.pad // 3))
             box = pygame.Rect(0, 0, t.touch * .5, t.touch * .5)

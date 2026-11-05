@@ -54,6 +54,9 @@ sudo apt-get install -y git python3 python3-venv can-utils \
     libegl1 libgl1 libfontconfig1 libdbus-1-3 libxkbcommon0 libxkbcommon-x11-0 \
     libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
     libxcb-render-util0 libxcb-shape0 libxcb-xkb1
+# The font the handheld screen's themes use (System > Display > Theme). Optional: without it they
+# fall back to DejaVu Sans.
+sudo apt-get install -y fonts-inter || echo "   (fonts-inter isn't available here: the handheld screen uses DejaVu Sans)"
 
 if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))'; then
     echo "CANopener needs Python 3.10 or newer; this system has $(python3 --version). Use Mint 21+," >&2

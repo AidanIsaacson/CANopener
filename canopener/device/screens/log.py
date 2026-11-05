@@ -142,7 +142,7 @@ class LogScreen(Screen):
         t, ctx, c = ui.theme, self.ctx, self.c
         left = pygame.Rect(rect.x, rect.y, round(rect.w * .42), rect.h)
         right = pygame.Rect(left.right + t.pad, rect.y, rect.right - left.right - t.pad, rect.h)
-        ui.fill(left, "panel", t.radius * 2)
+        ui.panel(left, "panel", t.radius * 2)
         x, y = left.x + t.pad * 2, left.y + t.pad * 2
         text, color = STATE_TEXT.get(c.state, ("", "dim"))
         ui.text(text, (x, y), "big", color, valign="top", max_w=left.w - 4 * t.pad)
@@ -176,7 +176,7 @@ class LogScreen(Screen):
         def draw_row(ui, i, r, focused):
             m = c.markers[i]
             inner = r.inflate(-t.pad // 2, -t.pad // 3)
-            ui.fill(inner, "panel2" if m.tagged else "panel", t.radius)
+            ui.panel(inner, "panel2" if m.tagged else "panel", t.radius)
             if focused:
                 ui.fill(inner, "focus", t.radius, max(2, t.pad // 3))
             when = fmt_elapsed(m.t - c.started) if m.tagged and c.started else "not tagged"

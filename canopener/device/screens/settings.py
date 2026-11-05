@@ -11,6 +11,7 @@ import time
 
 from ... import __version__
 from ...core import config, hardware, meters, sound, storage, system, units, updates
+from .. import themes
 from ..input import ACTION_NAMES
 from .base import InfoDialog, Row, RowList, Screen, SoftKey, choose, confirm, cycle, label_of
 
@@ -30,6 +31,11 @@ WINDOWS = [(s, s) for s in ("800x480", "1024x600", "1280x720", "1280x800")]
 VOLUMES = [("Off", 0)] + [(f"{v}%", v) for v in range(10, 101, 10)]
 TONE_OPTIONS = [("Off", sound.OFF)] + [(sound.TONE_LABELS.get(t, t), t) for t in sound.TONES]
 RATIOS = [("1 (straight to the ADC)", 1.0), ("6 (50k / 10k divider)", 6.0), ("11 (100k / 10k)", 11.0)]
+
+
+def _home(path: str) -> str:
+    home = os.path.expanduser("~")
+    return "~" + path[len(home):] if path.startswith(home + os.sep) else path
 
 
 def serial_ports() -> list[str]:
@@ -68,7 +74,13 @@ class SettingsScreen(Screen):
 
     def _rows(self):
         ctx, s = self.ctx, self.ctx.settings
-        rows = [Row("Display", kind="header")]
+        rows = [Row("Display", kind="header"),
+                Row("Theme", lambda: label_of(themes.available(), s.get("device.theme")),
+                    select=lambda: choose(self.app, "Theme", themes.available(), s.get("device.theme"),
+                                          lambda v: self._set("device.theme", v)),
+                    adjust=lambda d: self._set("device.theme", cycle(themes.available(), s.get("device.theme"), d)),
+                    hint=f"add your own in {_home(themes.themes_dir())} (see the manual)"),
+                self._row("Accent colour", "device.accent", themes.ACCENTS)]
         level = system.brightness()
         if level is not None:
             rows.append(Row("Brightness", f"{round(level * 100)}%", adjust=self._brightness,
