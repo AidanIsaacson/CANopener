@@ -19,6 +19,7 @@ SERIES_COLORS = ["#1c7ed6", "#e8590c", "#2f9e44", "#ae3ec9", "#c92a2a", "#0c8599
 
 STATUS_COLORS = {"ok": "#2f9e44", "wait": "#f08c00", "bad": "#e03131", "off": "#868e96", "sim": "#1c7ed6",
                  "idle": "#748ffc"}
+STANDARD_STATUS_COLORS = dict(STATUS_COLORS)     # gui/themes.py swaps STATUS_COLORS for a theme's
 
 
 class StatusLamp(QtWidgets.QLabel):

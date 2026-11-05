@@ -15,17 +15,18 @@ import time
 from ..core import capture as cap
 from ..core import config, report
 from ..core.capture import Capture, fmt_elapsed
+from . import themes
 from .hotkeys import typing
 from .qt import Qt, QtCore, QtGui, QtWidgets, Signal
 
 BIG = "font-size: 13pt; font-weight: bold; padding: 8px;"
-REC_STYLE = BIG + "background: #e03131; color: white; border-radius: 6px;"
-START_STYLE = BIG + "background: #2f9e44; color: white; border-radius: 6px;"
-STAMP_STYLE = BIG + "background: #1c7ed6; color: white; border-radius: 6px;"
-NEXT_BG = QtGui.QColor("#d0ebff")
+
+
+def _solid(kind: str) -> str:
+    """A big solid button in a status / accent colour that follows the colour theme."""
+    return BIG + themes.fill_style(kind) + " border-radius: 6px;"
+
 COL_NUM, COL_NAME, COL_TIME, COL_NOTE = range(4)
-FLASH_BG = QtGui.QColor("#b2f2bb")
-DARK_TEXT = QtGui.QColor("#212529")      # on the light highlights, so a dark theme stays readable
 
 
 class LogPanel(QtWidgets.QDockWidget):
@@ -637,14 +638,14 @@ class LogPanel(QtWidgets.QDockWidget):
         hk = self.hotkeys.label
         if rec:
             self.start_btn.setText(f"■  STOP   ({hk('start_stop')})")
-            self.start_btn.setStyleSheet(REC_STYLE)
+            self.start_btn.setStyleSheet(_solid("bad"))
             self.stamp_btn.setText(f"⏱  TIMESTAMP   ({hk('timestamp')})\nnext: {c.next_title()}")
         else:
             label = "START NEW" if stopped or saved else "START"
             self.start_btn.setText(f"●  {label}   ({hk('start_stop')})")
-            self.start_btn.setStyleSheet(START_STYLE if live else BIG)
+            self.start_btn.setStyleSheet(_solid("ok") if live else BIG)
             self.stamp_btn.setText(f"+  ADD TIMESTAMP   ({hk('timestamp')})" if idle else "⏱  TIMESTAMP")
-        self.stamp_btn.setStyleSheet(STAMP_STYLE if (rec or idle) else BIG)
+        self.stamp_btn.setStyleSheet(_solid("accent") if (rec or idle) else BIG)
         self.start_btn.setEnabled(live or rec)
         self.stamp_btn.setEnabled(rec or idle)
         self.undo_btn.setText(f"↶  Undo last timestamp   ({hk('undo')})")
@@ -695,8 +696,9 @@ class LogPanel(QtWidgets.QDockWidget):
             note = QtWidgets.QTableWidgetItem(m.note)
             for it in (num, title, when, note):
                 if i == nxt and c.state == cap.RECORDING:
-                    it.setBackground(NEXT_BG)
-                    it.setForeground(DARK_TEXT)
+                    bg, fg = themes.tint("info")
+                    it.setBackground(bg)
+                    it.setForeground(fg)
                     f = it.font()
                     f.setBold(True)
                     it.setFont(f)
@@ -756,7 +758,8 @@ class LogPanel(QtWidgets.QDockWidget):
                 for col in range(self.table.columnCount()):
                     it = self.table.item(i, col)
                     if it is not None:
-                        it.setBackground(FLASH_BG)
-                        it.setForeground(DARK_TEXT)
+                        bg, fg = themes.tint("ok")
+                        it.setBackground(bg)
+                        it.setForeground(fg)
                 self._rebuilding = False
 

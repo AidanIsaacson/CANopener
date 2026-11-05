@@ -13,13 +13,14 @@ from ..j1939.addresses import sa_name
 from ..j1939.constants import STATUS_ORDER, pgn_label
 from ..j1939.signals import all_signals
 from ..j1939.spn import PROPRIETARY_SPN_RANGE
+from . import themes
 from .flow import FlowLayout
 from .qt import Qt, QtGui, QtWidgets
 from .widgets import item, setup_table
 
 COLS = ["Status", "Source", "SPN / code", "Description", "FMI / reg.", "Meaning", "Count", "Lamps", "Last seen"]
-STATUS_COLORS = {"Active": "#ffd6d6", "Pending": "#ffe8cc", "Emis. active": "#ffd6d6",
-                 "Stored": "#fff3bf", "Emis. stored": "#fff3bf", "Cleared": "#e9ecef"}
+STATUS_TINTS = {"Active": "bad", "Pending": "warn", "Emis. active": "bad",      # gui/themes.tint()
+                "Stored": "stored", "Emis. stored": "stored", "Cleared": "muted"}
 
 
 def _clock(t: float) -> str:
@@ -245,6 +246,10 @@ class CodesTab(QtWidgets.QWidget):
         return [DtcRow(h.pgn, h.sa, h.spn, h.fmi, h.oc, h.cm, h.alt_spn, h.lamps, h.first, h.last, h.seen)
                 for h in hist]
 
+    def refresh_theme(self):
+        """Settings > Colour theme changed: recolour the rows."""
+        self.rebuild()
+
     def rebuild(self):
         res: ScanResult | None = self.ctx.result
         rows = list(res.rows) if res else []
@@ -313,11 +318,13 @@ class CodesTab(QtWidgets.QWidget):
         self.show_detail()
 
     def _fill(self, i: int, vals: list, status: str):
-        bg = QtGui.QColor(STATUS_COLORS.get(status, "#ffffff"))
+        kind = STATUS_TINTS.get(status)
+        bg, fg = themes.tint(kind) if kind else (None, None)
         for c, v in enumerate(vals):
             it = item(v, c in (2, 4, 6), data=i if c == 0 else None)
-            it.setBackground(bg)
-            it.setForeground(QtGui.QColor("#212529"))
+            if bg is not None:
+                it.setBackground(bg)
+                it.setForeground(fg)
             self.table.setItem(i, c, it)
 
     @staticmethod

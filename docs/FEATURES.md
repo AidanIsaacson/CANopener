@@ -122,6 +122,10 @@ highlighted, for figuring out proprietary data.
 
 All of it also works from the [command line](USAGE.md#command-line), over SSH if you like.
 
+**Colour themes:** Element Zero (amber on black), Graphite and Daylight on both the handheld and
+the desktop app, so a dark cab or a sunny yard each get a screen that suits them; the handheld
+takes your own themes too ([USAGE.md](USAGE.md#colour-themes), [DEVICE.md](DEVICE.md#themes)).
+
 ## Where it's heading: the handheld
 
 The same app runs on a Raspberry Pi, and the plan is a rugged handheld that replaces the laptop,

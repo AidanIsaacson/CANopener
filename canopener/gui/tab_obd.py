@@ -21,14 +21,12 @@ from .. import obd
 from ..core import units
 from ..core.live import ObdLiveData
 from ..core.obd import CLEAR_WARNING, ObdClient
-from .qt import Qt, QtCore, QtGui, QtWidgets, Signal
+from . import themes
+from .qt import Qt, QtCore, QtWidgets, Signal
 from .tab_live import LiveTab
 from .widgets import item, setup_table
 
-BAD = QtGui.QColor("#ffc9c9")
-WARN = QtGui.QColor("#ffec99")
-CAUSE = QtGui.QColor("#d0ebff")
-DARK_TEXT = QtGui.QColor("#212529")
+BAD, WARN, CAUSE = "bad2", "caution", "info"        # row highlights: gui/themes.tint()
 P_CODES, P_LIVE, P_FREEZE, P_READY, P_TESTS, P_RESULTS, P_INFO = range(7)
 POLL_GAP = 0.01         # between live-data requests: ~100/s at most, polite to a busy gateway
 
@@ -305,14 +303,15 @@ class ObdTab(QtWidgets.QWidget):
         return self.model.sniffer.label(ecu)
 
     @staticmethod
-    def _fill(table: QtWidgets.QTableWidget, rows: list[list], colors: dict[int, QtGui.QColor] | None = None):
+    def _fill(table: QtWidgets.QTableWidget, rows: list[list], colors: dict[int, str] | None = None):
         table.setRowCount(len(rows))
         for r, cells in enumerate(rows):
             for c, text in enumerate(cells):
                 it = item(str(text))
                 if colors and r in colors:
-                    it.setBackground(colors[r])
-                    it.setForeground(DARK_TEXT)     # light highlight: keep the text readable in a dark theme
+                    bg, fg = themes.tint(colors[r])
+                    it.setBackground(bg)
+                    it.setForeground(fg)
                 table.setItem(r, c, it)
 
     def tick(self):

@@ -1356,3 +1356,32 @@ def test_canopen_in_the_same_screens(app, monkeypatch):
     assert labeling.own_signals(pid)[0][1]["id"] == "0x182"
     w.disconnect()
     w.close()
+
+
+def test_colour_themes_switch_and_come_back(app, tmp_path):
+    """Settings > Colour theme: the handheld's themes as Qt palettes, kept for next time, and
+    Standard puts the system look back."""
+    from canopener.core import themes as core_themes
+    from canopener.gui import themes, widgets
+    from canopener.gui.main_window import MainWindow
+    w = MainWindow()
+    try:
+        standard = app.palette().color(qt.QtGui.QPalette.ColorRole.Window).name()
+        w._fill_theme_menu()
+        labels = [a.text() for a in w.theme_menu.actions()]
+        assert labels[0].startswith("Standard") and "Element Zero" in labels and "Daylight" in labels
+        w.set_theme("element-zero")
+        ez = core_themes.load("element-zero").colors
+        assert app.palette().color(qt.QtGui.QPalette.ColorRole.Text).getRgb()[:3] == ez["text"]
+        assert w.settings.value(themes.SETTING) == "element-zero" and themes.is_dark()
+        bg, fg = themes.tint("bad")
+        assert bg.lightness() < 100 and fg.getRgb()[:3] == ez["text"]       # no pale rows in a dark theme
+        assert widgets.STATUS_COLORS["ok"] == "#{:02x}{:02x}{:02x}".format(*ez["ok"])
+        assert "background: #" in themes.fill_style("ok")
+        w.set_theme(themes.STANDARD)
+        assert app.palette().color(qt.QtGui.QPalette.ColorRole.Window).name() == standard
+        assert widgets.STATUS_COLORS == widgets.STANDARD_STATUS_COLORS
+        assert themes.tint("bad")[0].name() == "#ffd6d6"
+    finally:
+        themes.apply(app, themes.STANDARD)
+        w.close()

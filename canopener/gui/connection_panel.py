@@ -13,6 +13,7 @@ import time
 
 from ..can import pythoncan
 from ..core import connection, interfaces, link, sound
+from . import themes
 from .qt import Qt, QtCore, QtWidgets, Signal
 from .widgets import STATUS_COLORS, RefreshComboBox, StatusLamp
 
@@ -24,9 +25,7 @@ SIMULATORS = (connection.SIMULATOR, connection.PROFILE_SIM, connection.OBD_SIM,
               connection.CANOPEN_SIM)                                              # listed only when switched on
 AUTO_BITRATE = 0
 HISTORY = 8
-BIG = "font-size: 13pt; font-weight: bold; padding: 8px; border-radius: 6px; color: white;"
-FIND_STYLE = BIG + "background: #2f9e44;"
-STOP_STYLE = BIG + "background: #e03131;"
+BIG = "font-size: 13pt; font-weight: bold; padding: 8px; border-radius: 6px; "
 STATE_LEVEL = {"searching": "wait", "heard": "wait", "error": "wait", "no_adapter": "bad",
                "failed": "bad", "locked": "ok"}
 
@@ -310,7 +309,7 @@ class ConnectionPanel(QtWidgets.QDockWidget):
 
     def _set_running(self, on: bool):
         self.find_btn.setText("■  Stop finding" if on else "▶  Find signal")
-        self.find_btn.setStyleSheet(STOP_STYLE if on else FIND_STYLE)
+        self.find_btn.setStyleSheet(BIG + themes.fill_style("bad" if on else "ok"))
         for wdg in (self.source, self.iface, self.rescan_btn, self.bitrate, self.listen_only,
                     self.setup_btn, self.connect_btn):
             wdg.setEnabled(not on)
@@ -320,9 +319,15 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         if not self.finder_state.text():
             self._show_state("off", "Idle", "Pick the interface (and a bitrate, or Auto), then press Find signal.")
 
+    def refresh_theme(self):
+        """Settings > Colour theme changed: the finder's solid colours follow it."""
+        self.find_btn.setStyleSheet(BIG + themes.fill_style("bad" if self.finding else "ok"))
+        if getattr(self, "_state", None):
+            self._show_state(*self._state)
+
     def _show_state(self, level: str, title: str, detail: str):
-        color = STATUS_COLORS.get(level, STATUS_COLORS["off"])
+        self._state = (level, title, detail)
         self.finder_state.setText(title)
-        self.finder_state.setStyleSheet(f"font-size: 18pt; font-weight: bold; padding: 10px; color: white; "
-                                        f"background: {color}; border-radius: 6px;")
+        self.finder_state.setStyleSheet("font-size: 18pt; font-weight: bold; padding: 10px; border-radius: 6px; "
+                                        + themes.fill_style(level if level in STATUS_COLORS else "off"))
         self.finder_detail.setText(detail)

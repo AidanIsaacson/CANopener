@@ -8,6 +8,7 @@ from .. import __version__
 from ..can import pythoncan
 from ..core import config, connection, interfaces, labeling, link, profiles, report, scan, storage, transmit, units
 from ..core.connection import load_log_session, open_connection
+from . import themes
 from .connection_panel import AUTO_BITRATE, ConnectionPanel
 from .context import AppContext
 from .export_dialog import ExportDialog
@@ -91,6 +92,8 @@ class MainWindow(QtWidgets.QMainWindow):
         transmit.register_standard_actions()
         self.transmitter = transmit.Transmitter(None)   # rebound (and re-disabled) on each connect
         self.settings = QtCore.QSettings("CANopener", "CANopener")
+        if QtWidgets.QApplication.instance() is not None:
+            themes.apply(QtWidgets.QApplication.instance(), str(self.settings.value(themes.SETTING) or themes.STANDARD))
         config.set_data_dir(self.settings.value("data_dir") or None)
         self.setWindowTitle(f"CANopener {__version__}")
         self.setWindowIcon(app_icon())
@@ -300,6 +303,8 @@ class MainWindow(QtWidgets.QMainWindow):
                                               f"Ctrl+{i + 1}") for i, t in enumerate(self.tab_list)}
         st = m.addMenu("&Settings")
         self._action(st, "&Units...", self.edit_units)
+        self.theme_menu = st.addMenu("Colour &theme")
+        self.theme_menu.aboutToShow.connect(self._fill_theme_menu)
         self._action(st, "Log tool &keys...", self.edit_keys)
         self._action(st, "Sound &cues (speaker / buzzer)...", self.edit_sound)
         self._action(st, "&Save folder...", self.log_panel._change_folder)
@@ -334,6 +339,38 @@ class MainWindow(QtWidgets.QMainWindow):
         h.addAction(self.update_on_start)
         h.addSeparator()
         self._action(h, "&About", self._about)
+
+    # --- colour themes (gui/themes.py) ---
+    def _fill_theme_menu(self):
+        """Settings > Colour theme: Standard, then every theme (the handheld's, and the user's files)."""
+        menu = self.theme_menu
+        menu.clear()
+        group = QtGui.QActionGroup(menu)
+        for label, tid in themes.choices():
+            a = QtGui.QAction(label, menu, checkable=True)
+            a.setChecked(tid == themes.current())
+            a.triggered.connect(lambda _=False, t=tid: self.set_theme(t))
+            group.addAction(a)
+            menu.addAction(a)
+
+    def set_theme(self, theme_id: str, save: bool = True):
+        themes.apply(QtWidgets.QApplication.instance(), theme_id)
+        if save:
+            self.settings.setValue(themes.SETTING, theme_id)
+        self._style_detect_bar()
+        self.log_panel._sync()                  # its big Start / Timestamp buttons
+        self.conn_panel.refresh_theme()
+        for tab in self.tab_list:               # rows coloured with the old theme's highlights
+            refresh = getattr(tab, "refresh_theme", None)
+            if refresh:
+                refresh()
+
+    def _style_detect_bar(self):
+        bg, fg = themes.tint("banner")
+        edge = themes.color("wait") or QtGui.QColor("#fab005")
+        self.detect_bar_frame.setStyleSheet(
+            f"QFrame {{ background: {bg.name()}; border: 1px solid {edge.name()}; border-radius: 4px; }}"
+            f"QLabel {{ border: none; color: {fg.name()}; }}")
 
     def _action(self, menu, text, fn, shortcut=None):
         a = QtGui.QAction(text, self)
@@ -392,9 +429,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build_detect_bar(self) -> QtWidgets.QFrame:
         """'Looks like an X - use its profile?' banner, shown when the bus matches a profile."""
-        bar = QtWidgets.QFrame()
-        bar.setStyleSheet("QFrame { background: #fff3bf; border: 1px solid #fab005; border-radius: 4px; }"
-                          "QLabel { border: none; }")
+        bar = self.detect_bar_frame = QtWidgets.QFrame()
+        self._style_detect_bar()
         hl = QtWidgets.QHBoxLayout(bar)
         hl.setContentsMargins(8, 3, 8, 3)
         self.detect_label = QtWidgets.QLabel()

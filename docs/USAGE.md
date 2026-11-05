@@ -208,6 +208,14 @@ copies this session's captures and reports onto the stick and ejects it.
 * **Diagnostics → Transmit a frame** sends a frame you compose: off by default, it shows the exact
   bytes and asks before every send.
 
+## Colour themes
+
+**Settings → Colour theme** changes the desktop app's colours straight away, and it opens that
+way next time. **Standard** follows your system's look (the default). The others match the
+handheld's themes: **Element Zero** (amber on black), **Graphite** (dark grey, teal), **Daylight**
+(dark text on white) and **Basic** (dark, blue). Themes you make for the handheld appear here too
+([DEVICE.md](DEVICE.md#themes)). The handheld picks its own theme, separately.
+
 ## The handheld screen
 
 The handheld UI runs on the laptop too: **Settings → Handheld (Pi) screen** closes CANopener and
