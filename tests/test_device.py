@@ -634,12 +634,12 @@ def test_handheld_connects_through_python_can(ctx):
 
 def test_handheld_simulators_hidden_by_default(ctx):
     kinds = lambda: [k for k, _ in ctx.sources()]   # noqa: E731
-    assert kinds() == ["socketcan"]
+    assert kinds() == ["socketcan", "elm"]
     ctx.set_show_simulators(True)
-    assert "sim" in kinds() and "obd-sim" in kinds()
+    assert "sim" in kinds() and "obd-sim" in kinds() and "elm-sim" in kinds()
     ctx.settings.set("can.source", "obd-sim")
     ctx.set_show_simulators(False)
-    assert kinds() == ["socketcan"] and ctx.settings.get("can.source") == "socketcan"
+    assert kinds() == ["socketcan", "elm"] and ctx.settings.get("can.source") == "socketcan"
 
 
 def test_system_screen_installed_options(app_for):
@@ -830,3 +830,78 @@ def test_theme_changes_apply_straight_away(app_for):
     assert theme_row.value_text() == "Daylight"
     theme_row.adjust(1)                                         # d-pad right: the next theme
     assert app.ctx.settings.get("device.theme") == "basic"
+
+
+# --- Bluetooth OBD on the handheld ---------------------------------------------------
+VLINKER = "00:1D:A5:68:98:8A"
+
+
+def test_context_bluetooth_obd(ctx, fake_bt):
+    from canopener.core.connection import ELM
+    assert (ELM, "Bluetooth OBD") in ctx.sources()
+    ctx.settings.set("can.source", ELM)
+    ctx.connect()                                         # nothing picked yet: says so, doesn't connect
+    assert ctx.connection is None and "Pick a Bluetooth OBD adapter" in ctx.current_toast()
+    ctx.bt_refresh()
+    assert ctx.wait_idle() and ctx.bt_state.powered and ctx.bt_paired == []
+    ctx.bt_scan()
+    assert ctx.wait_idle(20) and ctx.bt_found[0].address == VLINKER and ctx.bt_found[0].kind == "serial"
+    ctx.bt_pair(VLINKER, "1234")
+    assert ctx.wait_idle(20)
+    ctx.wait_idle(10)                                     # the refresh after pairing
+    assert ctx.settings.get("elm.adapter") == VLINKER and ctx.bt_label() == "vLinker MC-Android"
+    assert [a for a, _ in ctx.bt_choices()] == [VLINKER] and not any(d.address == VLINKER for d in ctx.bt_found)
+    ctx.bt_rename(VLINKER, "vLinker (truck)")
+    assert ctx.bt_label() == "vLinker (truck)"
+    ctx._update_link(time.time() + 5)
+    assert ctx.adapter.text == "Bluetooth: vLinker (truck)"
+    ctx.bt_forget(VLINKER)
+    assert ctx.wait_idle(10) and ctx.settings.get("elm.adapter") == ""
+
+
+def test_context_connects_through_the_simulated_adapter(ctx):
+    from canopener.core.connection import ELM_SIM
+    ctx.connect(ELM_SIM)
+    assert ctx.wait_idle(15) and ctx.connection is not None and ctx.protocol == "obd2"
+    assert ctx.obd_client is not None and not ctx.session.listen_only
+    assert ctx.read_codes("active") and ctx.wait_idle(15)
+    assert any("P0420" in kinds["stored"] for kinds in ctx.obd_codes.values())
+    ctx._update_link(time.time() + 5)
+    assert ctx.adapter.level == "sim"
+
+
+def test_connect_page_and_bluetooth_screen(app_for, fake_bt):
+    from canopener.core.connection import ELM
+    from canopener.device.screens.bluetooth import BluetoothScreen, name_choices
+    app = app_for(can__source=ELM)
+    ctx = app.ctx
+    app.open_mode("can")
+    rows = app.top.page.rows.refresh()
+    labels = [r.label for r in rows]
+    assert "Adapter" in labels and "Bluetooth adapters" in labels and "Slower than a wired CAN adapter" in labels
+    assert "Interface" not in labels and "Bitrate" not in labels and "Listen-only (never transmit)" not in labels
+    next(r for r in rows if r.label == "Slower than a wired CAN adapter").select()
+    assert "Transmit aren't available" in app.top.lines[0]
+    app.pop()
+    next(r for r in rows if r.label == "Bluetooth adapters").select()
+    screen = app.top
+    assert isinstance(screen, BluetoothScreen)
+    assert ctx.wait_idle()                                # it checked Bluetooth on the way in
+    app.step([])
+    ctx.bt_scan()
+    assert ctx.wait_idle(20)
+    row = next(r for r in screen.rows.refresh() if r.label == "vLinker MC-Android")
+    row.select()                                          # pick the PIN, then it pairs
+    assert app.top.title == "PIN, if it asks"
+    app.top._pick(0)
+    assert ctx.wait_idle(20)
+    ctx.wait_idle(10)
+    assert fake_bt.state()["paired"] == [VLINKER] and ctx.settings.get("elm.adapter") == VLINKER
+    ble = next(r for r in screen.rows.refresh() if r.label == "vLinker MC-IOS")
+    ble.select()                                          # BLE: explained, not paired
+    assert "Low Energy" in app.top.lines[0]
+    app.pop()
+    assert name_choices("vLinker MC-Android")[:2] == [("vLinker MC-Android", "vLinker MC-Android"),
+                                                     ("vLinker MC (car)", "vLinker MC (car)")]
+    for _ in range(3):
+        app.step([])                                       # draws

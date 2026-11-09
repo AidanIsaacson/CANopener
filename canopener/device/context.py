@@ -16,20 +16,33 @@ from collections import deque
 
 from .. import __version__
 from ..can import pythoncan
+from ..core import bluetooth as bt
 from ..core import capture as cap
 from ..core import config, interfaces, link, meters, profiles, scan, sound, units
 from ..core.capture import Capture
-from ..core.connection import CANOPEN_SIM, OBD_SIM, PROFILE_SIM, SIMULATOR, SOCKETCAN, open_connection
+from ..core.connection import (
+    CANOPEN_SIM,
+    ELM,
+    ELM_SIM,
+    OBD_SIM,
+    PROFILE_SIM,
+    SIMULATOR,
+    SOCKETCAN,
+    open_connection,
+)
 from ..core.hardware import Hardware
 from ..core.live import LiveData, ObdLiveData
 from ..core.measure import MeasurementHub, MeasurementLiveData
 from ..core.settings import Settings
 from ..core.sync import PpsReader, PulseClock
 
-SOURCES = [(SOCKETCAN, "CAN adapter"), (SIMULATOR, "Simulator (J1939 machine)"),
-           (OBD_SIM, "Simulator (OBD-II car)"), (CANOPEN_SIM, "Simulator (CANopen truck)"),
-           (PROFILE_SIM, "Simulate the profile")]
-SIMULATORS = (SIMULATOR, OBD_SIM, CANOPEN_SIM, PROFILE_SIM)     # listed only with System > Simulators > Show simulators
+SOURCES = [(SOCKETCAN, "CAN adapter"), (ELM, "Bluetooth OBD"), (SIMULATOR, "Simulator (J1939 machine)"),
+           (OBD_SIM, "Simulator (OBD-II car)"), (ELM_SIM, "Simulator (Bluetooth OBD car)"),
+           (CANOPEN_SIM, "Simulator (CANopen truck)"), (PROFILE_SIM, "Simulate the profile")]
+SIMULATORS = (SIMULATOR, OBD_SIM, ELM_SIM, CANOPEN_SIM, PROFILE_SIM)    # listed only with System > Simulators
+BLUETOOTH_WARNING = ("Slower than a wired CAN adapter: live data updates a few times a second, and bus "
+                     "monitoring and Transmit aren't available.")
+PINS = ["1234", "0000", "6789", "1111"]     # what adapters ask for, most common first
 BITRATES = [0] + interfaces.BITRATES        # 0 = auto (signal finder)
 SAMPLE_EVERY = 0.2                          # live models: 5 samples a second, like the desktop
 LINK_CHECK_SECS = 1.0
@@ -73,6 +86,10 @@ class DeviceContext:
         self.focus_spn: int | None = None   # a fault code's SPN to show in Live Data
         self.focus_pids: list[int] = []     # the OBD-II equivalent
         self.python_can_found: list[str] = []
+        self.bt_state: bt.ControllerState | None = None     # Bluetooth OBD adapters (core.bluetooth)
+        self.bt_paired: list[bt.Device] = []
+        self.bt_found: list[bt.Device] = []
+        self.bt_scanned = False
         self.speaker = None                 # (tone, volume 0-1) -> bool: the UI's own player (Pygame's mixer)
         self._jobs: queue.Queue = queue.Queue()
         self._last_sample = 0.0
@@ -208,8 +225,12 @@ class DeviceContext:
             if info is None or info.state != "up":
                 self.start_finder(connect_after=True)       # Auto: let the finder pick the bitrate
                 return
+        elm_addr = self.settings.get("elm.adapter") if kind == ELM else "sim"
+        if kind == ELM and not elm_addr:
+            self.toast("Pick a Bluetooth OBD adapter first: Bluetooth adapters, on this page")
+            return
         self.disconnect()
-        if kind == OBD_SIM and self.protocol != profiles.OBD2:
+        if kind in (OBD_SIM, ELM, ELM_SIM) and self.protocol != profiles.OBD2:
             self.apply_profile("obd2")
         elif (kind == SIMULATOR and not profiles.speaks_j1939()) or \
                 (kind == PROFILE_SIM and self.protocol == profiles.OBD2):
@@ -218,6 +239,8 @@ class DeviceContext:
             self.apply_profile("sim-canopen")
 
         def work():
+            if kind in (ELM, ELM_SIM):
+                return open_connection(kind, elm_addr, elm_protocol=self.settings.get("elm.protocol") or "0")
             if kind == SOCKETCAN and bitrate and not name.startswith("vcan") and not python_can:
                 info = next((i for i in interfaces.list_interfaces() if i.name == name), None)
                 if info is None:
@@ -228,7 +251,7 @@ class DeviceContext:
                         raise OSError(f"couldn't bring {name} up: {msg}")
             return open_connection(kind, name, listen_only=listen_only, profile=profiles.active(), bitrate=bitrate)
 
-        self.run_job("Connecting", work, self._connected)
+        self.run_job(f"Connecting to {self.bt_label()}" if kind == ELM else "Connecting", work, self._connected)
 
     def _connected(self, conn):
         self.connection = conn
@@ -280,6 +303,84 @@ class DeviceContext:
             self.python_can_found = found
             self.toast(("Found " + ", ".join(found)) if found else "python-can found no adapters")
         self.run_job("Looking for adapters", pythoncan.detect, done)
+
+    # --- Bluetooth OBD adapters ---
+    def bt_label(self, address: str | None = None) -> str:
+        addr = (address if address is not None else self.settings.get("elm.adapter")) or ""
+        paired = next((d.name for d in self.bt_paired if d.address == addr.upper()), "")
+        return bt.label(self.settings, addr, paired) if addr else "none picked"
+
+    def bt_choices(self) -> list[tuple[str, str]]:
+        """(address, label) for the Adapter picker."""
+        return bt.adapter_choices(self.settings, self.bt_paired)
+
+    def bt_refresh(self, then=None):
+        def load():
+            state = bt.controller()
+            return state, (bt.paired_devices() if state.powered else [])
+
+        def done(result):
+            self.bt_state, self.bt_paired = result
+            if then:
+                then()
+        self.run_job("Checking Bluetooth", load, done)
+
+    def bt_power_on(self):
+        self.run_job("Turning Bluetooth on", bt.power_on, lambda ok: self.bt_refresh())
+
+    def bt_scan(self):
+        def done(found):
+            paired = {d.address for d in self.bt_paired}
+            self.bt_found = [d for d in found if d.address not in paired]
+            self.bt_scanned = True
+            self.toast(f"Found {len(self.bt_found)} device(s)" if self.bt_found
+                       else "Nothing found. Adapter plugged in, key on?")
+        self.run_job(f"Scanning ({bt.SCAN_SECONDS} s)", bt.scan, done)
+
+    def bt_use(self, address: str, name: str = ""):
+        if address.upper() not in bt.names(self.settings):
+            bt.set_name(self.settings, address, name or self.bt_label(address))
+        self.settings.set("elm.adapter", address.upper())
+        self.settings.set("can.source", ELM)
+
+    def bt_pair(self, address: str, pin: str):
+        name = next((d.name for d in self.bt_found if d.address == address), "") or address
+
+        def done(msg):
+            self.bt_found = [d for d in self.bt_found if d.address != address]
+            self.bt_use(address, name)
+            self.toast(f"{msg}: using {self.bt_label(address)}")
+            self.bt_refresh()
+        self.run_job(f"Pairing with {name}", lambda: bt.pair(address, pin), done)
+
+    def bt_rename(self, address: str, name: str):
+        bt.set_name(self.settings, address, name)
+
+    def bt_forget(self, address: str):
+        def done(_):
+            bt.forget_name(self.settings, address)
+            self.toast("Forgotten")
+            self.bt_refresh()
+        self.run_job("Forgetting", lambda: bt.remove(address), done)
+
+    def bt_test(self, address: str, then):
+        """Connect, ask the adapter what it is, disconnect. ``then(lines)`` on the UI thread."""
+        if self.connection is not None and self.connection.kind == ELM and \
+                self.connection.session.backend.channel.upper() == address.upper():
+            self.toast("Disconnect first: it's connected now")
+            return
+
+        def test():
+            from ..can.elm327 import ElmBackend
+            b = ElmBackend(address, protocol=self.settings.get("elm.protocol") or "0")
+            b.open()
+            try:
+                return [f"Adapter: {b.stn or b.version}" + (f" ({b.device})" if b.device else ""),
+                        f"Battery: {b.voltage or 'not reported'}",
+                        f"Vehicle: {b.protocol_name or 'no answer (key on? plugged in?)'}"]
+            finally:
+                b.close()
+        self.run_job(f"Testing {self.bt_label(address)}", test, then)
 
     def describe_connection(self) -> str:
         if self.connection is None:
@@ -587,7 +688,13 @@ class DeviceContext:
         if now - self._link_checked >= LINK_CHECK_SECS:
             self._link_checked = now
             try:
-                self.adapter = link.adapter_status(kind, self.settings.get("can.iface") or "can0")
+                if kind == ELM:
+                    conn = self.connection
+                    backend = conn.session.backend if conn is not None and conn.kind == ELM else None
+                    label = self.bt_label() if self.settings.get("elm.adapter") or backend else ""
+                    self.adapter = link.adapter_status(kind, label, backend=backend)
+                else:
+                    self.adapter = link.adapter_status(kind, self.settings.get("can.iface") or "can0")
             except OSError:
                 self.adapter = link.Status(link.OFF, "Adapter")
         s = self.session

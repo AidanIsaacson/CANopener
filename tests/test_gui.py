@@ -1210,7 +1210,8 @@ def test_simulators_are_hidden_until_switched_on(app):
     Settings().set("show_simulators", False)
     w = MainWindow()
     kinds = lambda: [w.source.itemData(i) for i in range(w.source.count())]   # noqa: E731
-    assert kinds() == [connection.SOCKETCAN, connection.REPLAY] and not w.simulators_action.isChecked()
+    assert kinds() == [connection.SOCKETCAN, connection.ELM, connection.REPLAY]
+    assert not w.simulators_action.isChecked()
     w.simulators_action.setChecked(True)                    # Connection > Show simulators
     assert connection.OBD_SIM in kinds() and Settings().get("show_simulators") is True
     w.source.setCurrentIndex(w.source.findData(connection.OBD_SIM))
@@ -1385,3 +1386,103 @@ def test_colour_themes_switch_and_come_back(app, tmp_path):
     finally:
         themes.apply(app, themes.STANDARD)
         w.close()
+
+
+VLINKER = "00:1D:A5:68:98:8A"
+
+
+def test_bluetooth_obd_source_shows_its_own_boxes(app, fake_bt):
+    from canopener.core import connection
+    from canopener.gui.main_window import MainWindow
+    fake_bt.set(paired=[VLINKER])
+    w = MainWindow()
+    p = w.conn_panel
+    w.source.setCurrentIndex(w.source.findData(connection.ELM))
+    assert not p.bt_adapter.isHidden() and not p.bt_manage_btn.isHidden() and not p.bt_warning.isHidden()
+    assert p.iface.isHidden() and p.bitrate.isHidden() and p.listen_only.isHidden() and p.finder_box.isHidden()
+    assert p.setup_btn.isHidden() and not p.connect_btn.isHidden()
+    assert "slower than a wired CAN interface" in p.bt_warning.text()
+    assert p.bt_manage_btn.text() == "Pair / Manage Adapters…"
+    assert p.bt_adapter.currentData() == VLINKER          # a paired adapter shows up by itself
+    w._update_link_lamps(None)
+    assert "vLinker MC-Android" in w.adapter_lamp.toolTip() + p.status_detail.text() + w._adapter.text
+    w.source.setCurrentIndex(w.source.findData(connection.SOCKETCAN))
+    assert p.bt_adapter.isHidden() and p.bt_warning.isHidden() and not p.iface.isHidden()
+    w.source.setCurrentIndex(w.source.findData(connection.ELM_SIM))
+    assert not p.bt_warning.isHidden() and p.bt_adapter.isHidden()      # the simulator: warning only
+    w.close()
+
+
+def test_bluetooth_obd_simulator_connects_and_reads(app, monkeypatch):
+    from canopener.core import connection, profiles
+    from canopener.gui.main_window import MainWindow
+    w = MainWindow()
+    w.show()
+    w.source.setCurrentIndex(w.source.findData(connection.ELM_SIM))
+    w.connect()                                           # on a worker thread: the window keeps going
+    assert _wait(app, lambda: w.ctx.connection is not None, 15)
+    assert profiles.protocol() == profiles.OBD2 and w.connect_btn.text() == "Disconnect"
+    o = w.obd
+    o.check_codes()
+    assert _wait(app, lambda: not o._jobs and o.codes.rowCount() == 5, 20)
+    told = []
+    monkeypatch.setattr(qt.QtWidgets.QMessageBox, "information", lambda *a, **k: told.append(a[2]))
+    w._open_transmit()
+    assert told and "Transmit needs a CAN interface" in told[0]
+    pump(app, 1.2)
+    assert "answers/s" in w.traffic_label.text()
+    w.disconnect()
+    w.close()
+
+
+def test_bluetooth_connect_without_an_adapter_offers_pairing(app, monkeypatch):
+    from canopener.core import connection
+    from canopener.gui import main_window
+    w = main_window.MainWindow()
+    w.source.setCurrentIndex(w.source.findData(connection.ELM))
+    asked, opened = [], []
+    monkeypatch.setattr(qt.QtWidgets.QMessageBox, "question",
+                        lambda *a, **k: asked.append(a[2]) or qt.QtWidgets.QMessageBox.StandardButton.Yes)
+    monkeypatch.setattr(w, "manage_bluetooth", lambda: opened.append(True))
+    w.connect()
+    assert asked and "Pair one now?" in asked[0] and opened and w.ctx.connection is None
+    w.close()
+
+
+def test_pair_manage_dialog(app, fake_bt, monkeypatch):
+    from canopener.core import bluetooth as bt
+    from canopener.core.settings import Settings
+    from canopener.gui.bluetooth_dialog import BluetoothDialog
+    d = BluetoothDialog()
+    d.wait_idle()
+    assert "Bluetooth is on" in d.state.text() and d.mine.topLevelItemCount() == 0
+    d._scan()
+    d.wait_idle()
+    names = [d.near.topLevelItem(i).text(0) for i in range(d.near.topLevelItemCount())]
+    assert names[0] == "vLinker MC-Android" and "vLinker MC-IOS" in names
+    assert d.near.currentItem().text(1) == VLINKER and d.pair_btn.isEnabled()   # the Classic side, picked
+    ble = next(i for i in range(d.near.topLevelItemCount()) if d.near.topLevelItem(i).text(0) == "vLinker MC-IOS")
+    d.near.setCurrentItem(d.near.topLevelItem(ble))
+    assert not d.pair_btn.isEnabled()                    # BLE: can't be used
+    d.near.setCurrentItem(d.near.topLevelItem(0))
+    monkeypatch.setattr(qt.QtWidgets.QInputDialog, "getText", lambda *a, **k: ("1234", True))
+    d._pair()
+    d.wait_idle()
+    d.wait_idle()
+    assert fake_bt.state()["paired"] == [VLINKER] and Settings().get("elm.adapter") == VLINKER
+    assert d.mine.topLevelItemCount() == 1 and d.mine.topLevelItem(0).text(2) == "✔"
+    d.mine.setCurrentItem(d.mine.topLevelItem(0))
+    monkeypatch.setattr(qt.QtWidgets.QInputDialog, "getText", lambda *a, **k: ("vLinker (truck)", True))
+    d._rename()
+    assert bt.label(Settings(), VLINKER) == "vLinker (truck)" and d.mine.topLevelItem(0).text(0) == "vLinker (truck)"
+    d.busy_address = VLINKER
+    d.mine.setCurrentItem(d.mine.topLevelItem(0))
+    d._update_buttons()
+    assert not d.test_btn.isEnabled()                     # connected right now
+    monkeypatch.setattr(qt.QtWidgets.QMessageBox, "question",
+                        lambda *a, **k: qt.QtWidgets.QMessageBox.StandardButton.Yes)
+    d._forget()
+    d.wait_idle()
+    d.wait_idle()
+    assert fake_bt.state()["paired"] == [] and Settings().get("elm.adapter") == ""
+    d.close()

@@ -83,6 +83,7 @@ PYTHON_CAN_SETUP = ("{what} works with Linux CAN interfaces like can0. A python-
 
 class MainWindow(QtWidgets.QMainWindow):
     _update_found = Signal(object)          # an UpdateStatus from the startup check's thread
+    _elm_opened = Signal(object, object)    # (Connection or None, error): a Bluetooth OBD connect finished
 
     def __init__(self, ctx: AppContext | None = None):
         super().__init__()
@@ -215,6 +216,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setup_btn.clicked.connect(self.setup_interface)
         self.connect_btn.clicked.connect(self.toggle_connect)
         p.finder_starting.connect(self.disconnect)
+        p.bt_manage_btn.clicked.connect(self.manage_bluetooth)
+        p.bt_adapter.currentIndexChanged.connect(self._bt_adapter_changed)
+        self._elm_opened.connect(self._elm_connected)
+        self._elm_connecting = False
         p.sudoers_requested.connect(self._install_sudoers)
         p.locked.connect(self._finder_locked)
 
@@ -269,6 +274,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._action(cn, "Find signal (start / stop)", self._toggle_finder, "F4")
         self._action(cn, "Set up interface", self.setup_interface)
         self._action(cn, "Find other adapters (python-can)…", self.find_python_can)
+        self._action(cn, "Pair / manage Bluetooth OBD adapters…", self.manage_bluetooth)
         cn.addSeparator()
         from ..core.settings import Settings
         self.simulators_action = QtGui.QAction("Show simulators", self, checkable=True)
@@ -736,12 +742,48 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _source_changed(self, *_):
         kind = self.source.currentData()
-        hw = kind == connection.SOCKETCAN
-        for w in (self.iface, self.conn_panel.iface_label, self.rescan_btn, self.bitrate, self.bitrate_label,
-                  self.setup_btn, self.conn_panel.finder_box):
-            w.setVisible(hw)
-        self.listen_only.setVisible(kind != connection.REPLAY)
+        self.conn_panel.show_source(kind)
+        if kind == connection.ELM:
+            self._refresh_bt_adapters()
         self._link_checked = 0.0            # re-check the adapter lamp on the next tick
+
+    # --- Bluetooth OBD ---
+    def _refresh_bt_adapters(self):
+        """Fill the Adapter picker: the adapters you named, plus paired ones that look like OBD adapters."""
+        from ..core import bluetooth as bt
+        from ..core.settings import Settings
+        settings = Settings()
+        try:
+            paired = bt.paired_devices() if bt.available() else []
+        except bt.BluetoothError:
+            paired = []
+        choices = bt.adapter_choices(settings, paired)
+        self._bt_names = dict(choices)
+        self.conn_panel.set_bt_adapters(choices, settings.get("elm.adapter") or "")
+
+    def _bt_adapter_changed(self, *_):
+        from ..core.settings import Settings
+        addr = self.conn_panel.bt_adapter.currentData()
+        if addr:
+            Settings().set("elm.adapter", addr)
+        self._link_checked = 0.0
+
+    def _bt_label(self) -> str:
+        from ..core import bluetooth as bt
+        from ..core.settings import Settings
+        addr = self.conn_panel.bt_adapter.currentData() or ""
+        return bt.label(Settings(), addr, getattr(self, "_bt_names", {}).get(addr, "")) if addr else ""
+
+    def manage_bluetooth(self):
+        """Connection > Pair / manage Bluetooth OBD adapters (also the button under Adapter)."""
+        from .bluetooth_dialog import BluetoothDialog
+        conn = self.ctx.connection
+        busy = conn.session.backend.channel if conn is not None and conn.kind == connection.ELM else ""
+        dlg = BluetoothDialog(busy_address=busy, parent=self)
+        used = dlg.exec()
+        self._refresh_bt_adapters()
+        if used:
+            self.source.setCurrentIndex(self.source.findData(connection.ELM))
 
     def _listen_only_toggled(self, on):
         if self.ctx.session is not None and not self.ctx.session.offline:
@@ -912,7 +954,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     return
                 self._replay_path = path
             channel = self._replay_path
-        if kind == connection.OBD_SIM:
+        if kind in (connection.OBD_SIM, connection.ELM, connection.ELM_SIM):
             self._use_protocol(profiles.OBD2)
         elif kind == connection.SIMULATOR and not profiles.speaks_j1939():
             self._use_protocol(profiles.J1939)
@@ -926,6 +968,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 channel = self.iface.currentText().strip() or "can0"
             if not self._ensure_up(channel):
                 return
+        if kind in (connection.ELM, connection.ELM_SIM):
+            self._connect_elm(kind)
+            return
         try:
             conn = open_connection(kind, channel, listen_only=self.listen_only.isChecked(),
                                    profile=profiles.active(), bitrate=self.bitrate.currentData())
@@ -941,6 +986,60 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ctx.result = None
         self.ctx.set_connection(conn)
         self._replay_path = ""
+
+    def _connect_elm(self, kind: str):
+        """Open a Bluetooth OBD adapter on a worker thread: the Bluetooth link, the adapter's reset
+        and the vehicle's protocol search can take several seconds."""
+        if self._elm_connecting:
+            return
+        from ..core.settings import Settings
+        settings = Settings()
+        addr = self.conn_panel.bt_adapter.currentData() if kind == connection.ELM else "sim"
+        if not addr:
+            r = QtWidgets.QMessageBox.question(
+                self, "Connect", "No Bluetooth OBD adapter is picked yet. Pair one now?",
+                QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+                QtWidgets.QMessageBox.StandardButton.Yes)
+            if r == QtWidgets.QMessageBox.StandardButton.Yes:
+                self.manage_bluetooth()
+            return
+        protocol = settings.get("elm.protocol") or "0"
+        label = self._bt_label() if kind == connection.ELM else "the simulated adapter"
+        self._elm_connecting = True
+        self.connect_btn.setEnabled(False)
+        self.connect_btn.setText("Connecting…")
+        self.statusBar().showMessage(f"Connecting to {label}…")
+
+        def work():
+            try:
+                conn = open_connection(kind, addr, elm_protocol=protocol)
+            except Exception as e:          # reported in the window
+                self._elm_opened.emit(None, (label, e))
+                return
+            self._elm_opened.emit(conn, None)
+        import threading
+        threading.Thread(target=work, name="elm-connect", daemon=True).start()
+
+    def _elm_connected(self, conn, error):
+        self._elm_connecting = False
+        self.connect_btn.setEnabled(True)
+        self.connect_btn.setText("Connect")
+        if conn is None:
+            label, e = error
+            self.statusBar().clearMessage()
+            QtWidgets.QMessageBox.critical(
+                self, "Connect", f"Couldn't connect to {label}:\n{e}\n\nIs the adapter plugged into the vehicle "
+                "and paired with this computer (Pair / Manage Adapters)? Some adapters only wake with the key on.")
+            return
+        if self.ctx.connection is not None:     # connected to something else meanwhile
+            conn.close()
+            return
+        self.ctx.bitrate = getattr(conn.session.backend, "bitrate", 0) or 500000
+        self.ctx.result = None
+        self.ctx.set_connection(conn)
+        b = conn.session.backend
+        self.statusBar().showMessage(f"Connected: {conn.describe()}" + (f", battery {b.voltage}" if b.voltage else "")
+                                     + (f", {b.protocol_name}" if b.protocol_name else ""), 8000)
 
     def disconnect(self):
         self.ctx.set_connection(None)       # the Log tool stops a running capture by itself
@@ -1067,6 +1166,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 "profile": self.profile.currentData() or "none", "units": self.ctx.units}
         if self.ctx.connection is not None and self.ctx.connection.kind == connection.SOCKETCAN:
             meta.update(interface=self.iface.currentText(), bitrate=self.ctx.bitrate)
+        elif self.ctx.connection is not None and self.ctx.connection.kind in (connection.ELM, connection.ELM_SIM):
+            b = self.ctx.connection.session.backend
+            meta.update(adapter=b.channel, adapter_chip=b.stn or b.version, vehicle_protocol=b.protocol_name,
+                        timestamps="taken on this computer when each answer arrived over Bluetooth")
         if s is not None:
             meta["listen_only"] = s.listen_only
         return meta
@@ -1075,6 +1178,12 @@ class MainWindow(QtWidgets.QMainWindow):
     # periodic updates
     # ------------------------------------------------------------------
     def _open_transmit(self):
+        conn = self.ctx.connection
+        if conn is not None and getattr(conn.session.backend, "answers_only", False):
+            QtWidgets.QMessageBox.information(
+                self, "Transmit a frame", "Transmit needs a CAN interface. A Bluetooth OBD adapter only sends "
+                "OBD-II and UDS requests (Diagnostics → Read a module works through it).")
+            return
         TransmitDialog(self.ctx, self.transmitter, self).exec()
 
     def _open_uds(self):
@@ -1088,7 +1197,7 @@ class MainWindow(QtWidgets.QMainWindow):
         offline = session is not None and session.offline
         self.connect_btn.setText("Disconnect" if (live or offline) else "Connect")
         self._bus_session, self._bus_level, self._bus_was_ok = session, link.OFF, False
-        for w in (self.source, self.iface, self.rescan_btn, self.bitrate):
+        for w in (self.source, self.iface, self.rescan_btn, self.bitrate, self.conn_panel.bt_adapter):
             w.setEnabled(not live)
         if live:
             self.conn_label.setText(self.ctx.connection.describe()
@@ -1150,8 +1259,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._last_counts = (now, s.rx_count, s.bytes_count)
             who = f"{len(self.obd.model.sniffer.modules())} module(s)" if self._protocol == profiles.OBD2 \
                 else self._module_count(s)
-            self.traffic_label.setText(f"{getattr(self, '_fps', 0):.0f} frames/s  ~{self._bus_load:.0f}% load  {who}")
             backend = s.backend
+            if getattr(backend, "answers_only", False):     # no bus load to show: only our own answers
+                rt = f", last answer {backend.last_round_trip * 1000:.0f} ms" if backend.last_round_trip else ""
+                self.traffic_label.setText(f"{getattr(self, '_fps', 0):.0f} answers/s{rt}  {who}")
+            else:
+                fps = getattr(self, "_fps", 0)
+                self.traffic_label.setText(f"{fps:.0f} frames/s  ~{self._bus_load:.0f}% load  {who}")
             if getattr(backend, "finished", False):
                 self.traffic_label.setText("Replay finished")
         else:
@@ -1174,9 +1288,13 @@ class MainWindow(QtWidgets.QMainWindow):
         kind = self.source.currentData()
         if self.ctx.connection is not None:
             kind = self.ctx.connection.kind
-        if now - self._link_checked >= LINK_CHECK_SECS:
+        if now - self._link_checked >= LINK_CHECK_SECS or kind == connection.ELM:
             self._link_checked = now
-            self._adapter = link.adapter_status(kind, self.iface.currentText().strip())
+            if kind == connection.ELM:
+                backend = self.ctx.connection.session.backend if self.ctx.connection is not None else None
+                self._adapter = link.adapter_status(kind, self._bt_label(), backend=backend)
+            else:
+                self._adapter = link.adapter_status(kind, self.iface.currentText().strip())
         adapter = self._adapter
         if self.conn_panel.finding:
             bus = link.Status(link.WAIT, "Bus: finding signal…", "The signal finder is listening; see Connection.")

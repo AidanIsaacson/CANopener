@@ -17,12 +17,16 @@ from . import themes
 from .qt import Qt, QtCore, QtWidgets, Signal
 from .widgets import STATUS_COLORS, RefreshComboBox, StatusLamp
 
-SOURCES = [("SocketCAN adapter", connection.SOCKETCAN), ("Simulator", connection.SIMULATOR),
+SOURCES = [("SocketCAN adapter", connection.SOCKETCAN), ("Bluetooth OBD", connection.ELM),
+           ("Simulator", connection.SIMULATOR),
            ("Simulate the selected profile", connection.PROFILE_SIM),
            ("OBD-II simulator (car)", connection.OBD_SIM),
+           ("Bluetooth OBD simulator (car)", connection.ELM_SIM),
            ("CANopen simulator (battery truck)", connection.CANOPEN_SIM), ("Replay log file", connection.REPLAY)]
-SIMULATORS = (connection.SIMULATOR, connection.PROFILE_SIM, connection.OBD_SIM,
+SIMULATORS = (connection.SIMULATOR, connection.PROFILE_SIM, connection.OBD_SIM, connection.ELM_SIM,
               connection.CANOPEN_SIM)                                              # listed only when switched on
+BLUETOOTH_WARNING = ("Bluetooth OBD adapters are slower than a wired CAN interface: live data updates a few "
+                     "times a second, and bus monitoring and Transmit aren't available.")
 AUTO_BITRATE = 0
 HISTORY = 8
 BIG = "font-size: 13pt; font-weight: bold; padding: 8px; border-radius: 6px; "
@@ -99,6 +103,20 @@ class ConnectionPanel(QtWidgets.QDockWidget):
                                  "is transmitted) until valid traffic is seen", Qt.ItemDataRole.ToolTipRole)
         self.bitrate_label = QtWidgets.QLabel("Bitrate")
         form.addRow(self.bitrate_label, self.bitrate)
+        # Bluetooth OBD: the paired adapter, the pairing dialog, and what to expect from one.
+        self.bt_adapter = QtWidgets.QComboBox()
+        self.bt_adapter.setMinimumWidth(110)
+        self.bt_adapter.setToolTip("Your Bluetooth OBD adapters (ELM327-style), by the names you gave them")
+        self.bt_adapter_label = QtWidgets.QLabel("Adapter")
+        form.addRow(self.bt_adapter_label, self.bt_adapter)
+        self.bt_manage_btn = QtWidgets.QPushButton("Pair / Manage Adapters…")
+        self.bt_manage_btn.setToolTip("Find and pair a Bluetooth OBD adapter, or rename, test or forget one")
+        form.addRow(self.bt_manage_btn)
+        self.bt_warning = QtWidgets.QLabel(BLUETOOTH_WARNING)
+        self.bt_warning.setWordWrap(True)
+        self._style_bt_warning()
+        form.addRow(self.bt_warning)
+
         self.listen_only = QtWidgets.QCheckBox("Listen-only")
         self.listen_only.setToolTip("Transmit nothing at all. DM1 and live data still work (they're broadcast).")
         form.addRow(self.listen_only)
@@ -319,8 +337,36 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         if not self.finder_state.text():
             self._show_state("off", "Idle", "Pick the interface (and a bitrate, or Auto), then press Find signal.")
 
+    def _style_bt_warning(self):
+        bg, fg = themes.tint("caution")
+        self.bt_warning.setStyleSheet(f"background: {bg.name()}; color: {fg.name()}; padding: 4px 6px; "
+                                      "border-radius: 4px;")
+
+    def set_bt_adapters(self, choices: list[tuple[str, str]], selected: str):
+        """Fill the Adapter picker with (address, label) pairs and select ``selected``."""
+        self.bt_adapter.blockSignals(True)
+        self.bt_adapter.clear()
+        for addr, label in choices:
+            self.bt_adapter.addItem(label if label == addr else f"{label}  ({addr})", addr)
+        if not choices:
+            self.bt_adapter.addItem("(none paired yet)", "")
+        self.bt_adapter.setCurrentIndex(max(0, self.bt_adapter.findData(selected.upper())))
+        self.bt_adapter.blockSignals(False)
+
+    def show_source(self, kind: str):
+        """Show the boxes that go with this Source, hide the rest."""
+        hw = kind == connection.SOCKETCAN
+        for w in (self.iface, self.iface_label, self.rescan_btn, self.bitrate, self.bitrate_label,
+                  self.setup_btn, self.finder_box):
+            w.setVisible(hw)
+        for w in (self.bt_adapter, self.bt_adapter_label, self.bt_manage_btn):
+            w.setVisible(kind == connection.ELM)
+        self.bt_warning.setVisible(kind in (connection.ELM, connection.ELM_SIM))
+        self.listen_only.setVisible(kind not in (connection.REPLAY, connection.ELM, connection.ELM_SIM))
+
     def refresh_theme(self):
         """Settings > Colour theme changed: the finder's solid colours follow it."""
+        self._style_bt_warning()
         self.find_btn.setStyleSheet(BIG + themes.fill_style("bad" if self.finding else "ok"))
         if getattr(self, "_state", None):
             self._show_state(*self._state)

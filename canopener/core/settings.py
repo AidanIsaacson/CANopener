@@ -25,11 +25,14 @@ DEFAULTS: dict = {
     "units.custom": {},
     "profile": "generic",
     "data_dir": "",
-    "can.source": "socketcan",          # core.connection kinds: socketcan / sim / obd-sim / profile-sim
+    "can.source": "socketcan",          # core.connection kinds: socketcan / elm / sim / obd-sim / profile-sim ...
     "can.iface": "can0",
     "can.bitrate": 250000,              # 0 = auto (the signal finder picks it)
     "can.listen_only": False,
     "can.connect_on_start": False,
+    "elm.adapter": "",                  # Bluetooth OBD: the adapter's address (core.bluetooth, can.elm327)
+    "elm.protocol": "0",                # its ATSP protocol: "0" searches, "6" = CAN 11-bit 500k ...
+    "bluetooth.names": {},              # address -> the name you gave the adapter
     "show_simulators": False,           # list the simulators as sources (off: a shorter, adapter-only list)
     "sound.speaker": True,
     "sound.buzzer": "auto",

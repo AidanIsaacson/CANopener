@@ -3,6 +3,7 @@
 Two quick, read-only checks the front-ends show as lamps:
 
 * ``adapter_status``: is the CAN adapter plugged into this computer (does its interface exist)?
+  For a Bluetooth OBD adapter: is one picked, and is the link up?
 * ``bus_status``: is the connected adapter hearing good traffic from the machine?
 
 ``SignalFinder`` is a background loop for back-probing a harness: it keeps listening, cycling
@@ -18,7 +19,7 @@ from dataclasses import dataclass
 
 from ..can import pythoncan
 from . import interfaces
-from .connection import REPLAY, SOCKETCAN
+from .connection import ELM, ELM_SIM, REPLAY, SOCKETCAN
 
 OK, WAIT, BAD, OFF, SIM = "ok", "wait", "bad", "off", "sim"      # lamp colours: green / amber / red / grey / blue
 IDLE = "idle"           # quiet but fine: a gatewayed OBD-II port with nobody asking (indigo, no chime)
@@ -32,11 +33,17 @@ class Status:
     detail: str = ""        # a sentence for the tooltip / panel
 
 
-def adapter_status(kind: str, name: str, found: list | None = None, usb: list | None = None) -> Status:
+def adapter_status(kind: str, name: str, found: list | None = None, usb: list | None = None,
+                   backend=None) -> Status:
     """Is the adapter for this connection plugged in? ``found`` / ``usb`` are the current
-    ``interfaces.list_interfaces()`` / ``usb_adapters()``, looked up if not given."""
+    ``interfaces.list_interfaces()`` / ``usb_adapters()``, looked up if not given. For a Bluetooth
+    OBD adapter ``name`` is its label and ``backend`` the connected ``ElmBackend`` (or None)."""
     if kind == REPLAY:
         return Status(SIM, "Log file", "Replaying a log file: no adapter needed.")
+    if kind == ELM_SIM:
+        return Status(SIM, "Simulator", "A simulated Bluetooth OBD adapter in a simulated car: nothing to pair.")
+    if kind == ELM:
+        return bluetooth_status(name, backend)
     if kind != SOCKETCAN:
         return Status(SIM, "Simulator", "Using a simulated bus: no adapter needed.")
     if pythoncan.is_spec(name):
@@ -59,6 +66,27 @@ def adapter_status(kind: str, name: str, found: list | None = None, usb: list | 
                   "of adapter (PEAK, Kvaser, Vector ...)? Try Find other adapters, under Connection.")
 
 
+def bluetooth_status(label: str, backend=None) -> Status:
+    """The adapter lamp for a Bluetooth OBD adapter (``can.elm327.ElmBackend``)."""
+    if backend is None:
+        if not label:
+            return Status(BAD, "No adapter picked", "Pick a Bluetooth OBD adapter, or pair one with "
+                          "Pair / Manage Adapters.")
+        return Status(OFF, f"Bluetooth: {label}", f"{label} is picked. Connect opens the Bluetooth link "
+                      "(the adapter has to be plugged into the vehicle).")
+    if backend.link_error and not backend.is_open:
+        return Status(BAD, "Bluetooth: lost", f"Lost the link to {label or backend.channel}: "
+                      f"{backend.link_error}. Out of range, or unplugged?")
+    parts = [backend.stn or backend.version or "ELM327"]
+    if backend.voltage:
+        parts.append(f"battery {backend.voltage}")
+    if backend.protocol_name:
+        parts.append(backend.protocol_name)
+    if backend.last_round_trip:
+        parts.append(f"last answer took {backend.last_round_trip * 1000:.0f} ms")
+    return Status(OK, f"Bluetooth: {label or backend.channel}", ", ".join(parts) + ".")
+
+
 def bus_status(session, now: float | None = None, quiet: float = QUIET_SECS, last_answer: float = 0.0,
                polling: bool = False) -> Status:
     """Is the connected adapter hearing the machine? ``session`` may be None (not connected).
@@ -77,6 +105,19 @@ def bus_status(session, now: float | None = None, quiet: float = QUIET_SECS, las
         return Status(BAD, "Bus: link error", f"The adapter reported: {h.link_error}. Unplugged?")
     if session.last_rx_t and now - session.last_rx_t <= quiet:
         return Status(OK, "Bus: traffic", "Good CAN traffic from the machine.")
+    if getattr(session.backend, "answers_only", False):
+        if h.last_error and now - h.last_error_t <= quiet:
+            return Status(BAD, "Bus: adapter error", f"{h.last_error}. A loose plug in the OBD port, or a "
+                          "vehicle that isn't a CAN car?")
+        if session.last_rx_t and polling:
+            return Status(WAIT, "Bus: no answer", "Asking, but the modules stopped answering. Key off? "
+                          "Adapter loose in the OBD port?")
+        if session.last_rx_t:
+            return Status(IDLE, "Bus: answering", "Modules have answered. A Bluetooth OBD adapter only "
+                          "hears answers to its own requests: Stream or Check codes to ask.")
+        msg = getattr(session.backend, "last_message", "")
+        return Status(WAIT, "Bus: no answer yet", "Connected to the adapter, no module has answered yet"
+                      + (f" (the adapter says {msg})" if msg else "") + ". Key on? Then Check codes or Stream.")
     if h.last_error and now - h.last_error_t <= quiet:
         return Status(BAD, "Bus: errors only", f"Only error frames ({h.last_error}): wrong bitrate, or "
                       "CAN-H / CAN-L swapped or on the wrong wires?")

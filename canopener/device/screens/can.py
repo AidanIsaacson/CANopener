@@ -12,12 +12,12 @@ import pygame
 
 from ...can import pythoncan
 from ...core import interfaces, j1939_clear, profiles
-from ...core.connection import SOCKETCAN
+from ...core.connection import ELM, ELM_SIM, SOCKETCAN
 from ...j1939.addresses import sa_name
 from ...obd import describe_dtc, pids_for_dtc
 from .. import input as inp
 from .. import ui as icons
-from ..context import BITRATES, bitrate_label, source_label
+from ..context import BITRATES, BLUETOOTH_WARNING, bitrate_label, source_label
 from ..ui import ListView
 from .base import InfoDialog, Row, RowList, Screen, SoftKey, choose, confirm
 from .live import LivePage
@@ -66,6 +66,17 @@ class ConnectPage(Screen):
                             select=lambda: pick("Bitrate", "can.bitrate", [(bitrate_label(b), b) for b in BITRATES])))
             rows.append(Row("Listen-only (never transmit)", select=lambda: self._toggle("can.listen_only"),
                             check=lambda: s.get("can.listen_only")))
+        if kind == ELM:
+            choices = ctx.bt_choices()
+            rows.append(Row("Adapter", ctx.bt_label, hint="" if choices else "none paired yet: Bluetooth adapters",
+                            select=lambda: pick("Adapter", "elm.adapter", [(lb, a) for a, lb in choices])
+                            if choices else self._bluetooth()))
+            rows.append(Row("Bluetooth adapters", kind="menu", select=self._bluetooth,
+                            hint="Pair, rename, test or forget an adapter"))
+        if kind in (ELM, ELM_SIM):
+            rows.append(Row("Slower than a wired CAN adapter", level=lambda: "wait",
+                            hint="Live data a few times a second; no bus monitor", select=lambda: self.app.push(
+                                InfoDialog(self.app, "Bluetooth OBD", [BLUETOOTH_WARNING]))))
         found = profiles.arrange(profiles.available_profiles()[0])
         rows.append(Row("Profile", ctx.profile_name, select=lambda: choose(
             self.app, "Machine profile", [(p.name, p.id) for p in found], s.get("profile"), self._profile)))
@@ -82,6 +93,10 @@ class ConnectPage(Screen):
         for line in list(ctx.finder_log)[-4:]:
             rows.append(Row(line, kind="info"))
         return rows
+
+    def _bluetooth(self):
+        from .bluetooth import BluetoothScreen
+        self.app.push(BluetoothScreen(self.app))
 
     def _toggle(self, key):
         s = self.ctx.settings

@@ -140,8 +140,13 @@ class ObdClient:
         return self.addressing or obd.ELEVEN_BIT
 
     def detect_addressing(self) -> obd.Addressing | None:
-        """Try 11-bit, then 29-bit, with the 'supported PIDs' request every OBD-II ECU answers."""
-        for addr in (obd.ELEVEN_BIT, obd.TWENTY_NINE_BIT):
+        """Try 11-bit, then 29-bit, with the 'supported PIDs' request every OBD-II ECU answers.
+        An OBD adapter (``can.elm327``) that has already found the vehicle's protocol says which."""
+        order = (obd.ELEVEN_BIT, obd.TWENTY_NINE_BIT)
+        backend = getattr(self.session, "backend", None)
+        if getattr(backend, "answers_only", False) and getattr(backend, "protocol", ""):
+            order = (obd.TWENTY_NINE_BIT,) if backend.extended else (obd.ELEVEN_BIT,)
+        for addr in order:
             if self._transact(addr, None, 0x01, 0x00, b"", self.timeout, False):
                 self.addressing = addr
                 self.read_ecu_names()

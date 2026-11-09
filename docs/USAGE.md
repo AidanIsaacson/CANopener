@@ -47,7 +47,8 @@ data still work, because the machine broadcasts them.
 CANopener already connected. With **Auto** bitrate it's safe on any machine.
 
 **Simulators:** tick **Connection → Show simulators**, then pick **Simulator** (a telehandler,
-J1939), **CANopen simulator (battery truck)** or **OBD-II simulator (car)** and press **Connect**.
+J1939), **CANopen simulator (battery truck)**, **OBD-II simulator (car)** or **Bluetooth OBD
+simulator (car)** and press **Connect**.
 
 ### Other adapters
 
@@ -61,6 +62,48 @@ driver, then **Connection → Find other adapters**, or type the adapter under I
 `interface:channel`, e.g. `pcan:PCAN_USBBUS1`, `kvaser:0` or `slcan:/dev/ttyACM0`, and pick its
 bitrate. This goes through [python-can](https://python-can.readthedocs.io), which the installer
 includes.
+
+### Bluetooth OBD adapters
+
+A Bluetooth OBD dongle (ELM327-style: vLinker MC+, OBDLink MX+ and the like) plugs into a car's
+OBD port and talks to CANopener over Bluetooth, no wires. It suits **cars and light trucks**: it
+reads codes, live data and everything else on the OBD-II pages, and modules through **Diagnostics
+→ Read a module (UDS)**. It's slower than a wired adapter (see below), and it only answers
+questions, so the bus monitor, **Transmit**, **Find signal**, listen-only, J1939 and CANopen need a
+wired adapter.
+
+**Which kind:** it has to have **Classic Bluetooth** (sold for Android / Windows; "BT3.0" on the
+box). One that does both Classic and Low Energy (for iPhones) is fine. An iPhone-only / BLE-only
+one won't work.
+
+**Pair it once:**
+
+1. Plug the adapter into the vehicle's OBD port. Some only wake with the key on.
+2. **🔌 Connection** → **Source: Bluetooth OBD** → **Pair / Manage Adapters…** (also under the
+   **Connection** menu).
+3. **Scan**, pick the adapter and press **Pair…**. A dual-mode adapter can be listed twice: pick the
+   one marked **serial port** (or **Classic**), not **Low Energy only**. The PIN is usually
+   **1234** (some use 0000).
+4. It's now picked under **Adapter**. **Rename…** gives it a name (e.g. *vLinker (truck)*), **Test**
+   checks it answers and shows the battery voltage, **Forget…** unpairs it.
+
+**Connect:** pick it under **Adapter** and press **Connect**. The first connect takes a few seconds
+while the adapter finds the vehicle's protocol; CANopener switches to the **OBD-II vehicle**
+profile by itself. The **Adapter** lamp is the Bluetooth link; the **Bus** lamp says whether the
+vehicle is answering.
+
+**How fast:** each request makes a round trip over Bluetooth, so live data updates a few times a
+second per value. Watch fewer values (**Hide unticked** on Live Data) and each one updates
+faster. To measure your adapter on your vehicle: `canopener-cli obd --elm --bench 10`.
+
+**Logs:** the Log tool records the answers as usual. Their times are when each answer reached the
+laptop, a few hundredths of a second late, so fine for a test drive but not for timing work.
+
+**Trouble:** "Bluetooth is off" → turn it on in the dialog, the desktop's Bluetooth menu, or
+`rfkill unblock bluetooth`. "Bluetooth tools aren't installed" → `sudo apt install bluez`. "isn't
+answering" → the adapter is out of range, unpowered, or connected to a phone. CANopener talks to
+CAN vehicles only (most cars from 2008 on); an older car on J1850 or ISO 9141 gets a message saying
+so.
 
 ## Equipment and trucks (J1939)
 
@@ -96,8 +139,9 @@ say so.
 
 ## Cars and light trucks (OBD-II)
 
-Pick the **OBD-II vehicle** profile (top right; connecting the OBD-II simulator does it for you),
-usually at **500k**. The screen becomes one row of pages:
+Pick the **OBD-II vehicle** profile (top right; connecting the OBD-II simulator or a
+[Bluetooth OBD adapter](#bluetooth-obd-adapters) does it for you), usually at **500k**. The screen
+becomes one row of pages:
 
 | Page | What you get |
 |---|---|
@@ -207,6 +251,8 @@ copies this session's captures and reports onto the stick and ejects it.
   listen-only.
 * **Diagnostics → Transmit a frame** sends a frame you compose: off by default, it shows the exact
   bytes and asks before every send.
+* **A Bluetooth OBD adapter** sends the standard "which values do you support" request when it
+  connects, to find the vehicle's protocol, and only ever asks; it can't be listen-only.
 
 ## Colour themes
 
@@ -235,6 +281,10 @@ canopener-cli scan --iface can0 --full --units imperial
 canopener-cli clear --iface can0 --stored           # J1939: clear stored codes (asks first)
 canopener-cli obd --iface can0 --all                # car: codes, readiness, freeze frame, live data
 canopener-cli obd --iface can0 --clear              # car: clear codes (asks first)
+canopener-cli bluetooth scan                        # Bluetooth OBD adapters nearby; then: pair ADDRESS
+canopener-cli bluetooth                             # your adapters (rename, use, test, forget too)
+canopener-cli obd --elm --all                       # car, through the picked Bluetooth OBD adapter
+canopener-cli obd --elm --bench 10                  # how fast it answers on this vehicle
 canopener-cli canopen --iface can0 --info --errors  # CANopen: nodes, state, errors, identity
 canopener-cli interfaces                            # what adapters it sees, and why one isn't working
 canopener-cli decode capture.log --csv frames.csv   # decode a saved log

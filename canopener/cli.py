@@ -10,6 +10,9 @@
     canopener-cli setup --iface can0 --bitrate auto   # configure + bring up (listen-only probe)
     canopener-cli find --iface can0 --sound           # keep listening while probing; chime on lock
     canopener-cli hardware --stage 2b --set can_b=auto  # installed options: what's fitted, what's found
+    canopener-cli bluetooth scan                      # Bluetooth OBD adapters nearby (then: pair, rename, test)
+    canopener-cli obd --elm                           # OBD-II through the picked Bluetooth OBD adapter
+    canopener-cli obd --elm sim --bench 10            # how fast an adapter answers (here: the simulated one)
 """
 
 import argparse
@@ -109,15 +112,55 @@ def cmd_clear(a) -> int:
         conn.close()
 
 
+def _elm_channel(spec: str) -> str:
+    """--elm's value: 'sim', an address / tcp: / /dev/ path, a name you gave an adapter, or ''
+    for the adapter picked in Settings (or with 'bluetooth use')."""
+    from .can import elm327
+    from .core import bluetooth
+    from .core.settings import Settings
+    if spec == "sim":
+        return spec
+    settings = Settings()
+    if not spec:
+        spec = settings.get("elm.adapter") or ""
+        if not spec:
+            sys.exit("No Bluetooth OBD adapter picked. Find and pair one: canopener-cli bluetooth scan, "
+                     "then bluetooth pair ADDRESS (or pass --elm AA:BB:CC:DD:EE:FF).")
+    try:
+        elm327.parse_channel(spec)
+        return spec
+    except ValueError:
+        pass
+    for addr, name in bluetooth.names(settings).items():
+        if name.lower() == spec.lower():
+            return addr
+    sys.exit(f"--elm: {spec!r} is not an adapter name, a Bluetooth address, tcp:HOST:PORT or a /dev/ path.")
+
+
+def _open_obd(a):
+    """The connection for obd / uds: --elm (a Bluetooth OBD adapter), --sim, or --iface."""
+    if a.elm is not None:
+        channel = _elm_channel(a.elm)
+        kind = connection.ELM_SIM if channel == "sim" else connection.ELM
+    else:
+        channel, kind = a.iface, connection.OBD_SIM if a.sim else connection.SOCKETCAN
+    try:
+        return connection.open_connection(kind, channel, bitrate=a.bitrate, elm_protocol=a.elm_protocol)
+    except OSError as e:
+        print(f"Could not open {channel}: {e}", file=sys.stderr)
+        return None
+
+
 def cmd_obd(a) -> int:
     from . import obd as obdlib
     from .core.obd import CLEAR_WARNING, ObdClient
-    kind = connection.OBD_SIM if a.sim else connection.SOCKETCAN
-    try:
-        conn = connection.open_connection(kind, a.iface, bitrate=a.bitrate)
-    except OSError as e:
-        print(f"Could not open {a.iface}: {e}", file=sys.stderr)
+    conn = _open_obd(a)
+    if conn is None:
         return 2
+    backend = conn.session.backend
+    if getattr(backend, "answers_only", False):
+        print(f"{conn.describe()}" + (f", battery {backend.voltage}" if backend.voltage else ""),
+              file=sys.stderr)
     c = ObdClient(conn.session)
     try:
         if not c.available:
@@ -125,8 +168,12 @@ def cmd_obd(a) -> int:
             return 2
         time.sleep(0.3)
         if c.detect_addressing() is None:
-            print("No OBD-II module answered (key on? 500k bus?).", file=sys.stderr)
+            print("No OBD-II module answered (key on? 500k bus?)."
+                  + (f" Adapter: {conn.session.health.tx_error}" if conn.session.health.tx_error else ""),
+                  file=sys.stderr)
             return 1
+        if a.bench:
+            return _obd_bench(c, conn, a.bench)
         if a.clear:
             if not _confirm(CLEAR_WARNING, a.yes):
                 return 1
@@ -194,6 +241,53 @@ def cmd_obd(a) -> int:
     return 0
 
 
+def _obd_bench(c, conn, seconds: float) -> int:
+    """How fast does this connection answer? Single-PID live-data requests to the first module
+    for ``seconds``, then a few 'every module' requests: round-trip times and rates."""
+    pids = c.live_pids()
+    if not pids:
+        print("No live PIDs answered: nothing to time.", file=sys.stderr)
+        return 1
+    ecu = pids[0][0]
+    todo = [p for e, p in pids if e == ecu][:12]
+    print(f"Timing {conn.describe()} for {seconds:g} s: {len(todo)} live value(s) from {c.ecu_label(ecu)}, "
+          "one per request...", flush=True)
+    times, misses = [], 0
+    end = time.time() + seconds
+    while time.time() < end:
+        for pid in todo:
+            t0 = time.perf_counter()
+            ok = c.read_pid(ecu, pid) is not None
+            dt = time.perf_counter() - t0
+            if ok:
+                times.append(dt)
+            else:
+                misses += 1
+            if time.time() >= end:
+                break
+    if not times:
+        print("No answers.", file=sys.stderr)
+        return 1
+    times.sort()
+    total = sum(times)
+
+    def ms(x):
+        return f"{x * 1000:.0f} ms"
+
+    print(f"  answers: {len(times)} ({misses} missed), {len(times) / seconds:.1f} values/s")
+    print(f"  round trip: fastest {ms(times[0])}, typical {ms(times[len(times) // 2])}, "
+          f"95% under {ms(times[int(len(times) * 0.95) - 1 if len(times) > 1 else 0])}, slowest {ms(times[-1])}")
+    print(f"  each value refreshes: watching 1 -> {1 / (total / len(times)):.0f}/s, "
+          f"6 -> {1 / (6 * total / len(times)):.1f}/s, 12 -> {1 / (12 * total / len(times)):.1f}/s")
+    funcs = []
+    for _ in range(3):
+        t0 = time.perf_counter()
+        c.query_all(0x01, 0x00)
+        funcs.append(time.perf_counter() - t0)
+    print(f"  'every module' request (codes, readiness): typical {ms(sorted(funcs)[1])}")
+    return 0
+
+
 def _obd_value(v, unit: str, system: str) -> str:
     if isinstance(v, (int, float)) and unit:
         return units.fmt(v, unit, 3 if unit == "V" else 1, system=system)
@@ -203,11 +297,8 @@ def _obd_value(v, unit: str, system: str) -> str:
 def cmd_uds(a) -> int:
     from . import uds as udslib
     from .core.uds import UdsClient
-    kind = connection.OBD_SIM if a.sim else connection.SOCKETCAN
-    try:
-        conn = connection.open_connection(kind, a.iface, bitrate=a.bitrate)
-    except OSError as e:
-        print(f"Could not open {a.iface}: {e}", file=sys.stderr)
+    conn = _open_obd(a)
+    if conn is None:
         return 2
     req_id = int(a.module, 16)
     client = UdsClient(conn.session, request_id=req_id)
@@ -545,6 +636,80 @@ def cmd_hardware(a) -> int:
     return 0
 
 
+def cmd_bluetooth(a) -> int:
+    """Bluetooth OBD adapters: list, scan, pair, rename, use, test, forget (core.bluetooth)."""
+    from .core import bluetooth as bt
+    from .core.settings import Settings
+    settings = Settings()
+    act = a.action
+    if act in ("pair", "rename", "use", "test", "forget") and not a.address:
+        print(f"bluetooth {act} needs an ADDRESS (AA:BB:CC:DD:EE:FF)", file=sys.stderr)
+        return 2
+    addr = (a.address or "").upper()
+    try:
+        if act in ("list", "scan", "pair"):
+            problem = bt.controller().problem()
+            if problem:
+                print(problem, file=sys.stderr)
+                return 2
+        if act == "list":
+            chosen = (settings.get("elm.adapter") or "").upper()
+            rows = bt.adapter_choices(settings, bt.paired_devices())
+            if not rows:
+                print("No Bluetooth OBD adapters yet. canopener-cli bluetooth scan, then bluetooth pair ADDRESS.")
+            for address, label in rows:
+                print(f"{'*' if address == chosen else ' '} {address}  {label}")
+            return 0
+        if act == "scan":
+            print(f"Looking for {bt.SCAN_SECONDS} s (plug the adapter into the vehicle first)...", flush=True)
+            found = bt.scan()
+            for d in found:
+                tags = [t for t in ("OBD?" if d.looks_like_obd else "", "paired" if d.paired else "") if t]
+                print(f"  {d.address}  {d.name or '(no name)':28} {d.kind_text}"
+                      + (f"  [{', '.join(tags)}]" if tags else ""))
+            if not found:
+                print("  nothing found")
+            return 0
+        if act == "pair":
+            print(bt.pair(addr, a.pin))
+            if a.name:
+                bt.set_name(settings, addr, a.name)
+            settings.set("elm.adapter", addr)
+            print(f"{bt.label(settings, addr)} is now the Bluetooth OBD adapter (obd --elm uses it).")
+            return 0
+        if act == "rename":
+            bt.set_name(settings, addr, a.name or "")
+            print(f"{addr}: {bt.label(settings, addr)}")
+            return 0
+        if act == "use":
+            settings.set("elm.adapter", addr)
+            print(f"Using {bt.label(settings, addr)}")
+            return 0
+        if act == "forget":
+            if not _confirm(f"Unpair {bt.label(settings, addr)} ({addr})?", a.yes):
+                return 1
+            bt.remove(addr)
+            bt.forget_name(settings, addr)
+            print("Forgotten")
+            return 0
+        if act == "test":
+            from .can.elm327 import ElmBackend
+            b = ElmBackend(addr, protocol=settings.get("elm.protocol") or "0")
+            print(f"Connecting to {bt.label(settings, addr)}...", flush=True)
+            b.open()
+            try:
+                print(f"  adapter: {b.stn or b.version}" + (f" ({b.device})" if b.device else ""))
+                print(f"  battery: {b.voltage or 'not reported'}")
+                print(f"  vehicle: {b.protocol_name or 'no answer (key on? plugged in?)'}")
+            finally:
+                b.close()
+            return 0
+    except (bt.BluetoothError, OSError) as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    return 2
+
+
 def cmd_profiles(a) -> int:
     found, errors = profiles.available_profiles()
     for p in found:
@@ -553,6 +718,15 @@ def cmd_profiles(a) -> int:
         print(f"!! {e}", file=sys.stderr)
     print(f"\nUser profiles live in {profiles.user_dir()}")
     return 0
+
+
+def _elm_args(p):
+    p.add_argument("--elm", nargs="?", const="", metavar="ADAPTER",
+                   help="use a Bluetooth OBD adapter (ELM327-style): the picked one, or a name / address / "
+                   "tcp:HOST:PORT / /dev/rfcomm0, or 'sim' for the simulated one. Slower than a CAN interface.")
+    p.add_argument("--elm-protocol", default="0", metavar="N",
+                   help="with --elm: the adapter's protocol, 0 = search (default), 6 = CAN 11-bit 500k, "
+                   "7 = 29-bit 500k, 8 / 9 = 250k")
 
 
 IFACE_HELP = "a Linux CAN interface (can0), or a python-can adapter as interface:channel (pcan:PCAN_USBBUS1)"
@@ -610,6 +784,16 @@ def main(argv=None) -> int:
     f.set_defaults(fn=cmd_find)
     sub.add_parser("profiles", help="list machine profiles").set_defaults(fn=cmd_profiles)
 
+    b = sub.add_parser("bluetooth", help="Bluetooth OBD adapters (ELM327-style): list, scan, pair, rename, use, "
+                       "test, forget")
+    b.add_argument("action", nargs="?", default="list",
+                   choices=["list", "scan", "pair", "rename", "use", "test", "forget"])
+    b.add_argument("address", nargs="?", help="the adapter's Bluetooth address, AA:BB:CC:DD:EE:FF")
+    b.add_argument("--name", help="pair / rename: a name for it (e.g. 'vLinker (truck)')")
+    b.add_argument("--pin", default="1234", help="pair: the PIN if it asks (default 1234; some use 0000)")
+    b.add_argument("--yes", action="store_true", help="forget without asking")
+    b.set_defaults(fn=cmd_bluetooth)
+
     hw = sub.add_parser("hardware", help="installed options on the handheld: what's fitted and whether it's found")
     hw.add_argument("--stage", help="mark everything up to this build stage installed, the rest not (1, 2a ... 8)")
     hw.add_argument("--set", action="append", metavar="ID=STATE", help="one option: yes / no / auto (repeatable)")
@@ -639,6 +823,8 @@ def main(argv=None) -> int:
     o.add_argument("--tests", action="store_true", help="also read on-board test results (Mode 06)")
     o.add_argument("--all", action="store_true", help="freeze frame and test results too")
     o.add_argument("--watch", type=float, metavar="SECONDS", help="keep printing live data this long")
+    o.add_argument("--bench", type=float, metavar="SECONDS", help="time how fast the connection answers, this long")
+    _elm_args(o)
     g = o.add_mutually_exclusive_group()
     g.add_argument("--clear", action="store_true", help="clear codes on every module (Mode 04; asks first)")
     g.add_argument("--evap-test", action="store_true", help="start the EVAP leak test (Mode 08; asks first)")
@@ -651,6 +837,7 @@ def main(argv=None) -> int:
     ud.add_argument("--sim", action="store_true", help="read the built-in simulator instead")
     ud.add_argument("--module", default="7E0", help="module request CAN ID in hex (default 7E0)")
     ud.add_argument("--did", help="also read this data identifier (hex, e.g. F190)")
+    _elm_args(ud)
     ud.set_defaults(fn=cmd_uds)
 
     co = sub.add_parser("canopen", help="CANopen nodes: who's on the bus, state, errors (EMCY and error "

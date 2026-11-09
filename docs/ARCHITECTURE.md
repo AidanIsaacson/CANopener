@@ -22,7 +22,8 @@ Dev setup and the profile format are in [DEVELOPING.md](DEVELOPING.md).
 ┌───────────────┴──────────────────┐   ┌───────────────────────────────────┐
 │ can/  backends: SocketCAN,       │   │ pure protocol libraries:          │
 │       python-can (opt.), virtual,│   │ j1939/  obd/  uds/  canopen/      │
-│       replay; candump read/write │   │ (IDs, codes, transport, signals)  │
+│       replay, ELM327 (Bluetooth  │   │ (IDs, codes, transport, signals)  │
+│       OBD); candump read/write   │   │                                   │
 └──────────────────────────────────┘   └───────────────────────────────────┘
                 ▲
           sim/  simulated machine, car and battery truck (another user of the same bus)
@@ -90,6 +91,30 @@ decoded log file, and the capture report. Polling only puts requests on the bus;
 functional requests and keeps every ECU's answer (keyed by response ID), detects the addressing,
 and polls live data with physical requests. `sim/obd.py` is a two-module car (ECM + TCM) that
 answers all of it, on 11- or 29-bit IDs.
+
+### Bluetooth OBD adapters (ELM327)
+
+An ELM327 is a scan tool spoken to in text, not a CAN interface. `can/elm327.py`'s `ElmBackend`
+makes one look like a bus anyway, so `ObdClient`, `UdsClient`, live data, captures and the Log tool
+run unchanged: `send()` takes the single-frame ISO-TP requests the clients build, sets the
+adapter's header (`ATSH`, `ATCP`) and receive filter (`ATCRA` / `ATAR`), and sends the payload as
+hex; every reply line (headers on) becomes a received `CanFrame`. Flow control frames from the
+clients are dropped (the adapter does its own); multi-frame requests, non-ISO-TP frames and
+anything on the wrong ID width raise `ElmError` (an `OSError`, so `Session.send_frame` reports it
+in `health.tx_error`). `answers_only = True` tells `core.link` to word the lamps for it, and
+`ObdClient.detect_addressing` to use the protocol the adapter found. Speed: a single-PID request
+to one module ends with the response-count digit (`010C1`) so the adapter returns at the first
+answer; clear / test / reset requests raise the adapter timeout (`ATSTFF`) for 'response pending'.
+Timestamps are host-side. Streams: `AF_BLUETOOTH` RFCOMM (Classic SPP), TCP (Wi-Fi dongles) or a
+serial device, all standard library. `sim/elm.py` speaks the adapter's text protocol over a
+socket pair in front of `sim/obd.py`, so tests and `--sim` exercise the real backend.
+
+Pairing is `core/bluetooth.py`: BlueZ's `bluetoothctl` (scan, `info` to tell a dual-mode adapter's
+Classic serial side from its BLE side, an interactive `pair` answering the PIN prompt, `remove`),
+no root and no extra packages. Adapter names live in the shared settings (`bluetooth.names`,
+`elm.adapter`, `elm.protocol`). The desktop's Pair / Manage dialog (`gui/bluetooth_dialog.py`)
+and the handheld's Bluetooth screen (`device/screens/bluetooth.py`, PIN and names picked from
+lists) are only screens over it.
 
 ## Threading model
 
@@ -200,6 +225,8 @@ these by name.
   `info.py`, include it in a preset in `core/scan.py`, and render it in `core/report.py`.
 * **A new bus type** (CAN FD, a second channel, a serial gateway on the ESP32): implement
   `can.backends.CanBackend` (`open`, `close`, `send`, `recv`) and add it to `core/connection.py`.
+  An ELM327 reached through the ESP32 later only needs a new `can.elm327.Stream` (the backend
+  above it stays the same).
   First check whether python-can already covers it: `can/pythoncan.py` opens any adapter python-can
   supports (optional `adapters` extra), named `interface:channel` in the same Interface box as can0.
 * **CANopen** is a profile protocol like OBD-II: `"canopen"` turns the J1939 tabs into CANopen
