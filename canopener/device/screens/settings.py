@@ -11,6 +11,7 @@ import time
 
 from ... import __version__
 from ...core import config, hardware, meters, sound, storage, system, themes, units, updates
+from ...core.connection import SIM_CARS
 from ..input import ACTION_NAMES
 from .base import InfoDialog, Row, RowList, Screen, SoftKey, choose, confirm, cycle, label_of
 
@@ -199,6 +200,8 @@ class SettingsScreen(Screen):
             Row("Show simulators", select=lambda: ctx.set_show_simulators(not s.get("show_simulators")),
                 check=lambda: s.get("show_simulators"), hint="a pretend machine and car under CAN > Connect"),
             self._toggle("Simulated meter", "meters.sim", ctx.apply_meters, hint="four probes on a pretend sensor"),
+            self._row("Bluetooth OBD simulator plays", "elm.sim_vehicle", SIM_CARS,
+                      hint="which kind of car: CAN, or an older J1850 / K-line one"),
         ]
 
     def _page_installed(self):

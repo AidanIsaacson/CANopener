@@ -109,6 +109,9 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         self.bt_adapter.setToolTip("Your Bluetooth OBD adapters (ELM327-style), by the names you gave them")
         self.bt_adapter_label = QtWidgets.QLabel("Adapter")
         form.addRow(self.bt_adapter_label, self.bt_adapter)
+        self.bt_vehicle = QtWidgets.QComboBox()         # filled by set_bt_vehicle (plugins can add buses)
+        self.bt_vehicle_label = QtWidgets.QLabel("Vehicle")
+        form.addRow(self.bt_vehicle_label, self.bt_vehicle)
         self.bt_manage_btn = QtWidgets.QPushButton("Pair / Manage Adapters…")
         self.bt_manage_btn.setToolTip("Find and pair a Bluetooth OBD adapter, or rename, test or forget one")
         form.addRow(self.bt_manage_btn)
@@ -353,6 +356,17 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         self.bt_adapter.setCurrentIndex(max(0, self.bt_adapter.findData(selected.upper())))
         self.bt_adapter.blockSignals(False)
 
+    def set_bt_vehicle(self, current: str):
+        """Fill the Vehicle picker (``core.adapter_buses.choices``) and select ``current``."""
+        from ..core import adapter_buses
+        self.bt_vehicle.blockSignals(True)
+        self.bt_vehicle.clear()
+        for label, value, tip in adapter_buses.choices():
+            self.bt_vehicle.addItem(label, value)
+            self.bt_vehicle.setItemData(self.bt_vehicle.count() - 1, tip, Qt.ItemDataRole.ToolTipRole)
+        self.bt_vehicle.setCurrentIndex(max(0, self.bt_vehicle.findData(current)))
+        self.bt_vehicle.blockSignals(False)
+
     def show_source(self, kind: str):
         """Show the boxes that go with this Source, hide the rest."""
         hw = kind == connection.SOCKETCAN
@@ -361,8 +375,11 @@ class ConnectionPanel(QtWidgets.QDockWidget):
             w.setVisible(hw)
         for w in (self.bt_adapter, self.bt_adapter_label, self.bt_manage_btn):
             w.setVisible(kind == connection.ELM)
-        self.bt_warning.setVisible(kind in (connection.ELM, connection.ELM_SIM))
-        self.listen_only.setVisible(kind not in (connection.REPLAY, connection.ELM, connection.ELM_SIM))
+        bt = kind in (connection.ELM, connection.ELM_SIM)
+        for w in (self.bt_warning, self.bt_vehicle, self.bt_vehicle_label):
+            w.setVisible(bt)
+        j1939 = (self.bt_vehicle.currentData() or "").startswith("A|")   # a truck can be listen-only; a car can't
+        self.listen_only.setVisible(kind != connection.REPLAY and (not bt or j1939))
 
     def refresh_theme(self):
         """Settings > Colour theme changed: the finder's solid colours follow it."""

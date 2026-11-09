@@ -905,3 +905,26 @@ def test_connect_page_and_bluetooth_screen(app_for, fake_bt):
                                                      ("vLinker MC (car)", "vLinker MC (car)")]
     for _ in range(3):
         app.step([])                                       # draws
+
+
+def test_handheld_vehicle_choice_j1939_and_battery_channel(app_for):
+    from canopener.core.connection import ELM_SIM
+    app = app_for(show_simulators=True, can__source=ELM_SIM)
+    ctx = app.ctx
+    app.open_mode("can")
+    rows = {r.label: r for r in app.top.page.rows.refresh()}
+    assert rows["Vehicle"].value_text() == "Car or light truck (OBD-II)"
+    assert "Listen-only (never transmit)" not in rows
+    ctx.settings.set("elm.protocol", "A")
+    rows = {r.label: r for r in app.top.page.rows.refresh()}
+    assert rows["Vehicle"].value_text() == "Truck or equipment (J1939, 250k)" and "Listen-only (never transmit)" in rows
+    ctx.connect()
+    assert ctx.wait_idle(15) and ctx.connection is not None and ctx.session.backend.j1939
+    assert ctx.protocol != "obd2"
+    end = time.time() + 5
+    while time.time() < end and ctx.hub.latest("obd.battery") is None:
+        ctx.tick()
+        time.sleep(0.05)
+    assert ctx.hub.latest("obd.battery").value == 12.6
+    ctx.disconnect()
+    assert not any(s.id == "obd" for s in ctx.hub.sources())

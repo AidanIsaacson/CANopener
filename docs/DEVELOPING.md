@@ -27,7 +27,10 @@ for Qt. The GUI works with PySide6 (installed by `pip install -e ".[gui]"`) or t
 (SA 27): it warms up, revs, throws an intermittent low-oil-pressure code at idle, and answers
 requests exactly like a real ECU (single frame, BAM and RTS/CTS transport). *OBD-II simulator
 (car)* is a two-module car (engine + transmission) answering every OBD-II mode, on 11- or 29-bit
-IDs. *Simulate the selected profile* broadcasts a profile's signals (below).
+IDs. *Bluetooth OBD simulator (car)* is that car (or an older J1850 / K-line one, or the J1939
+machine) behind a simulated ELM327 adapter that speaks the adapter's real text protocol
+([BLUETOOTH-OBD.md](BLUETOOTH-OBD.md#testing-it-yourself)). *Simulate the selected profile*
+broadcasts a profile's signals (below).
 
 ### Testing against a virtual bus
 
@@ -131,7 +134,8 @@ public repository, however they're reworded (a test fails if dealer-tool files a
 
 Separately installed Python packages can extend CANopener without changing this repository: a
 package declares an entry point in the `canopener.plugins` group and can then add tabs and menu
-actions, `canopener-cli` commands, folders of profiles and transmit actions. See
+actions, `canopener-cli` commands, folders of profiles, transmit actions and bus setups for
+Bluetooth OBD adapters (`adapter_buses()`: adapter commands only). See
 [`canopener/plugins.py`](../canopener/plugins.py) for the hooks. Anything a plugin sends that
 changes a machine must confirm with the user first, and `Session.send_frame` refuses in
 listen-only mode.
@@ -178,11 +182,12 @@ canopener/
   obd/       OBD-II (J1979) protocol: ISO-TP, PIDs, DTCs, readiness, Mode 06, passive decoder
   uds/       UDS (ISO 14229) protocol: services, NRCs, DTC status, request builders
   canopen/   CANopen (CiA 301) protocol: COB-IDs, NMT, EMCY, SDO, standard objects, passive sniffer
-  can/       bus backends (SocketCAN, python-can (optional), virtual, log replay) and candump log files
+  can/       bus backends (SocketCAN, python-can (optional), virtual, log replay, ELM327 Bluetooth OBD
+             adapters + their probe) and candump log files
   core/      session engine, scans, live-data model, OBD/UDS clients, transmit, reports, profiles,
              units, link status + signal finder, sound cues, self-update; for the handheld:
              meters, installed options (hardware.py), SYNC clock (sync.py), logic Pico (logic.py)
-  sim/       simulated machine (J1939), OBD-II/UDS car and CANopen battery truck
+  sim/       simulated machine (J1939), OBD-II/UDS car, CANopen battery truck, ELM327 adapter
   gui/       desktop GUI (Qt) - a thin front-end over core/
   device/    handheld UI (Pygame) - another front-end over core/ (docs/DEVICE.md)
   profiles/  built-in machine profiles (generic, simulator, example machines)

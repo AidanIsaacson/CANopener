@@ -31,6 +31,8 @@ class AppContext(QtCore.QObject):
         self.busy = False
         self.bitrate = 250000
         self.capture = None                   # the Log tool's current capture (core.capture.Capture)
+        from ..core.measure import MeasurementHub
+        self.hub = MeasurementHub()           # measurements beside the bus (the OBD adapter's battery voltage)
         self.saved_paths: list[str] = []      # captures / reports saved this session, for Export Logs
         # Set by the main window: the id of the user profile labels go into (it may ask the user
         # to name a new one), or None if they cancelled.
@@ -64,10 +66,14 @@ class AppContext(QtCore.QObject):
     # --- session lifecycle ---
     def set_connection(self, conn: Connection | None):
         """Switch to a new live connection (None = disconnect), closing the old one."""
+        from ..core import meters
+        self.hub.remove_source(meters.ObdVoltageSource.id)
         if self.connection is not None:
             self.connection.close()
         self.connection = conn
         self.session = conn.session if conn else None
+        if conn is not None and getattr(conn.session.backend, "kind", "") == "elm327":
+            self.hub.add_source(meters.ObdVoltageSource(conn.session.backend))
         self.session_changed.emit(self.session)
 
     def set_offline_session(self, session: Session, result: ScanResult):

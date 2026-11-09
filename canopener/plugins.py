@@ -17,6 +17,8 @@ The module may define any of these; all are optional:
   ``set_defaults(fn=...)``, the function gets the parsed args and returns an exit code)
 * ``register_gui(api)``: add tabs / menu actions to the desktop app; ``api`` is a
   ``canopener.gui.main_window.PluginApi``
+* ``adapter_buses() -> list[dict]``: ways to put a Bluetooth OBD adapter onto another bus
+  (``core.adapter_buses``, fields of ``can.elm327.BusSetup``): adapter commands only (AT / ST)
 * ``register_device(api)``: add a mode (a home-screen tile and its screens) to the handheld UI
   with ``api.register_mode(canopener.device.modes.Mode(...))``; ``api`` is a
   ``canopener.device.modes.DeviceApi``. Keep the logic in Qt- and Pygame-free modules so both

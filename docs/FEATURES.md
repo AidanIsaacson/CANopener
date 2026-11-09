@@ -118,10 +118,11 @@ result against its limits; VIN and calibration IDs. Clears codes (after asking).
 the module (after asking).
 
 **Or with a Bluetooth OBD dongle:** a cheap ELM327-style adapter (vLinker, OBDLink ...) in the
-car's OBD port does the OBD-II and UDS reads with no wires to the laptop or the handheld. Slower
-than a wired adapter, so live data updates a few times a second, and it can't watch the whole bus,
-but it lives in the glovebox and is there when the CAN adapter isn't
-([how](USAGE.md#bluetooth-obd-adapters)).
+car's OBD port does the OBD-II and UDS reads with no wires to the laptop or the handheld, on
+newer CAN cars and on 1996-2007 ones that predate CAN, and listens to J1939 trucks too. It logs the
+battery voltage alongside. Slower than a wired adapter, so live data updates a few times a second,
+and it can miss frames on a busy bus, but it lives in the glovebox and is there when the CAN
+adapter isn't ([how](USAGE.md#bluetooth-obd-adapters)).
 
 **Any CAN bus:** a bus monitor with every raw frame, or one row per ID with the changing bytes
 highlighted, for figuring out proprietary data.

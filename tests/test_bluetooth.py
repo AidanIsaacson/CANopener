@@ -96,3 +96,22 @@ def test_cli_elm_needs_an_adapter():
         cli.main(["obd", "--elm"])
     with pytest.raises(SystemExit, match="not an adapter name"):
         cli.main(["obd", "--elm", "my truck"])
+
+
+def test_cli_probe_console_and_j1939_scan(capsys, monkeypatch):
+    import io
+    assert cli.main(["bluetooth", "probe", "sim", "--protocols"]) == 0
+    out = capsys.readouterr().out
+    assert "Chip / version" in out and "SAE J1850 VPW (10.4 kbaud)" in out and "BLUETOOTH-OBD.md" in out
+    assert cli.main(["bluetooth", "probe", "sim:vpw"]) == 0
+    assert "SAE J1850 VPW" in capsys.readouterr().out
+    monkeypatch.setattr("sys.stdin", io.StringIO("ATI\n0100\nATPP 0C SV 23\nquit\n"))
+    assert cli.main(["bluetooth", "console", "sim"]) == 0
+    out = capsys.readouterr().out
+    assert "ELM327 v2.1" in out and out.count("refused") == 2
+    assert cli.main(["scan", "--elm", "sim"]) == 0             # J1939 through the simulated adapter
+    out = capsys.readouterr().out
+    assert "SPN" in out or "spn" in out.lower()
+    assert cli.main(["obd", "--elm", "sim:iso9141"]) == 0
+    out = capsys.readouterr().out
+    assert "P0420" in out and "engine (0x10)" in out

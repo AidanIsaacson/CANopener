@@ -183,15 +183,149 @@ def test_29_bit_vehicles():
         car.stop()
 
 
-def test_a_non_can_vehicle_is_refused_with_a_reason():
-    car, backend = _manual()
-    plain = car.adapter._at
-    car.adapter._at = lambda a: ["A3"] if a == "DPN" else plain(a)      # ISO 9141-2 found
+@pytest.mark.parametrize("vehicle,protocol", [("pwm", "1"), ("vpw", "2"), ("iso9141", "3"), ("kwp", "5")])
+def test_non_can_cars_read_like_can_ones(vehicle, protocol):
+    conn = connection.open_connection(connection.ELM_SIM, f"sim:{vehicle}")
+    c = ObdClient(conn.session)
     try:
-        with pytest.raises(elm327.ElmError, match="CAN vehicles only"):
-            backend.open()
+        b = conn.session.backend
+        assert b.noncan and b.protocol == protocol and not b.extended
+        assert c.detect_addressing() is obd.ELEVEN_BIT
+        assert c.read_vin() == "1HGCM82633A004352"          # five numbered messages, put back together
+        by_ecu = c.read_dtcs_by_ecu()
+        assert by_ecu[ECM]["stored"] == ["P0133", "P0420"] and by_ecu[TCM]["stored"] == ["P0730"]
+        assert c.ecu_label(ECM) == "ECM (engine (0x10))" and c.ecu_label(TCM) == "TCM (transmission (0x18))"
+        assert {r.name for r in c.read_live()} >= {"Engine speed", "Vehicle speed"}
+        assert c.read_readiness()[ECM].mil
+        assert c.read_test_results() == []                  # Mode 06's older layout: not asked for
+        assert "Mode 06" in conn.session.health.tx_error
+        assert c.clear_dtcs()[ECM] == (True, "cleared") and conn.simulator.cleared
+        u = UdsClient(conn.session, timeout=0.3)
+        with pytest.raises(uds.UdsError):
+            u.read_dtcs()                                   # UDS needs a CAN car
+        u.close()
+        assert "UDS" in conn.session.health.tx_error
+        if protocol in "345":
+            assert "BUS INIT" not in " ".join(conn.simulator.adapter.commands)   # (a reply line, not a command)
     finally:
-        car.stop()
+        c.close()
+        conn.close()
+
+
+def test_noncan_messages_become_can_answers():
+    from canopener.obd import noncan
+    assert noncan.parse_message("48 6B 10 41 0C 1A F8 C3") == (0x10, bytes.fromhex("410C1AF8"))
+    assert noncan.parse_message("85 F1 10 41 0C 1A F8 00 00 C3", "5") is None   # KWP length says 5, there are 6
+    assert noncan.parse_message("NO DATA") is None
+    codes = noncan.normalize(b"\x03", [(0x10, bytes.fromhex("43013304200171")),
+                                       (0x10, bytes.fromhex("43017100000000")),
+                                       (0x18, bytes.fromhex("43000000000000"))])
+    assert codes == {0x10: bytes.fromhex("43040133042001710171"), 0x18: bytes.fromhex("4300")}
+    assert noncan.normalize(b"", [(0x10, bytes.fromhex("4901 05".replace(" ", "")))]) == {}   # message counts
+    assert noncan.normalize(b"", [(0x10, bytes.fromhex("490001543F0000"))])[0x10] == bytes.fromhex("4900543F0000")
+    assert noncan.normalize(b"", [(0x10, bytes.fromhex("7F0112"))])[0x10] == bytes.fromhex("7F0112")
+    ids = noncan.IdMap()
+    assert [ids.response_id(a) for a in (0x18, 0x10, 0x33)] == [0x7E9, 0x7E8, 0x7EC]
+    assert ids.label(0x7EC) == "module 0x33" and ids.label(0x7E9) == "transmission (0x18)"
+    for body in (bytes.fromhex("430201330420"), bytes([0x49, 0x02, 0x01]) + b"1HGCM82633A004352",
+                 bytes.fromhex("410C1AF8"), bytes([0x49, 0x0A, 0x01]) + b"ECM\x00-EngineControl".ljust(20, b"\x00")):
+        assert noncan.normalize(b"", [(0x10, m) for m in noncan.to_noncan(body)])[0x10] == body
+
+
+# --- J1939 through the adapter (protocol A) --------------------------------------------
+def test_j1939_listening_and_requests():
+    conn = connection.open_connection(connection.ELM_SIM, "sim:j1939")
+    s, b = conn.session, conn.session.backend
+    try:
+        assert b.j1939 and b.protocol == "A" and b.extended and not b.answers_only and not s.listen_only
+        deadline = time.time() + 5
+        while (len(s.ecus) < 2 or not s.latest_for(0xF004)) and time.time() < deadline:
+            time.sleep(0.05)
+        assert "ATCAF0" in conn.simulator.adapter.commands and "ATMA" in conn.simulator.adapter.commands
+        assert {0x00, 0x27} <= set(s.ecus) and s.latest_for(0xF004)       # broadcasts heard
+        assert s.request(0xFEDA, 0x00)                       # software ID: a multi-packet answer
+        deadline = time.time() + 5
+        while not s.latest_for(0xFEDA) and time.time() < deadline:
+            time.sleep(0.05)
+        assert s.latest_for(0xFEDA)[0][2].startswith(b"\x02EMR4")
+        assert b.read_voltage() == "12.6V"                   # monitoring pauses for it, then carries on
+        n = s.rx_count
+        time.sleep(0.5)
+        assert s.rx_count > n
+        assert not s.send_frame(CanFrame(0x18FF00F9, bytes(8), extended=True))     # only Requests
+        assert "only sends Requests" in s.health.tx_error
+        assert link.adapter_status(connection.ELM, "Truck", backend=b).level == link.OK
+        assert link.bus_status(s).level == link.OK
+    finally:
+        conn.close()
+
+
+def test_j1939_listen_only_sends_nothing():
+    conn = connection.open_connection(connection.ELM_SIM, "sim:j1939", listen_only=True)
+    try:
+        s = conn.session
+        assert s.listen_only and not s.request(0xFEDA, 0x00)
+        assert not any(c.startswith("ATSH") for c in conn.simulator.adapter.commands)
+    finally:
+        conn.close()
+
+
+def test_a_car_connection_is_never_listen_only():
+    conn = connection.open_connection(connection.ELM_SIM, "sim", listen_only=True)
+    try:
+        assert not conn.session.listen_only
+    finally:
+        conn.close()
+
+
+# --- probe and console -----------------------------------------------------------------
+def test_probe_reports_what_the_adapter_does(elm):
+    from canopener.can import elm_probe
+    b = elm.session.backend
+    items = elm_probe.probe(b, protocols=True, listen=0.3)
+    got = {(i.section, i.name): i for i in items}
+    assert got[("Adapter", "Chip / version")].status == "ELM327 v2.1"
+    assert got[("Adapter", "STN (OBDLink-style) commands")].status == "no"
+    assert got[("Adapter", "Battery voltage at the OBD port")].status == "12.6V"
+    assert got[("Commands", "J1939 protocol (ATSP A, 250k)")].status == "yes"
+    assert got[("Commands", "'Expect one answer' digit (faster live data)")].status == "yes"
+    assert got[("Protocols", "ISO 15765-4 CAN (11 bit, 500 kbaud)")].status == "yes"
+    assert got[("Protocols", "SAE J1850 VPW (10.4 kbaud)")].status == "no"
+    assert got[("Listening", "ISO 15765-4 CAN (11 bit, 500 kbaud)")].status.endswith("IDs")
+    text = "\n".join(elm_probe.report_lines(items))
+    assert text.startswith("Adapter") and "\nProtocols\n" in text
+    c = ObdClient(elm.session)                             # the adapter still works afterwards
+    try:
+        c.detect_addressing()
+        assert c.read_vin() == "1HGCM82633A004352"
+    finally:
+        c.close()
+
+
+def test_console_allows_adapter_commands_only():
+    assert elm327.console_refusal("ATI") == "" and elm327.console_refusal("st di") == ""
+    assert "Only adapter commands" in elm327.console_refusal("0100")
+    assert "Only adapter commands" in elm327.console_refusal("14 FF FF FF")
+    assert "stored settings" in elm327.console_refusal("AT PP 0C SV 23")
+    assert "serial speed" in elm327.console_refusal("ATBRD 23")
+    assert "transmits" in elm327.console_refusal("STPX h:7E0, d:0101")
+    assert elm327.is_monitor_command("AT MA") and elm327.is_monitor_command("ATMP FECA")
+    assert not elm327.is_monitor_command("ATI")
+
+
+def test_the_battery_voltage_is_a_meter_channel(elm):
+    from canopener.core import meters
+    from canopener.core.measure import MeasurementHub
+    hub = MeasurementHub()
+    src = meters.ObdVoltageSource(elm.session.backend, rate=20)
+    hub.add_source(src)
+    deadline = time.time() + 3
+    while hub.latest("obd.battery") is None and time.time() < deadline:
+        time.sleep(0.05)
+    hub.remove_source("obd")
+    assert hub.latest("obd.battery").value == 12.6 and src.status.text == "Reading"
+    assert meters.parse_volts("12.6V") == 12.6 and meters.parse_volts(" 13.9 V") == 13.9
+    assert meters.parse_volts("?") is None and meters.parse_volts("") is None
 
 
 def test_a_dropped_link_shows_on_the_lamps(elm):
@@ -254,3 +388,67 @@ def test_key_off_search_isnt_repeated_for_every_request():
     finally:
         backend.close()
         car.stop()
+
+
+# --- adapter bus setups from plugins ---------------------------------------------------------
+@pytest.fixture
+def bus_plugin(monkeypatch):
+    from canopener import plugins
+    monkeypatch.setenv("CANOPENER_PLUGINS", "fake_bus_plugin")
+    plugins.discover(refresh=True)
+    yield
+    monkeypatch.delenv("CANOPENER_PLUGINS")
+    plugins.discover(refresh=True)
+
+
+def test_plugin_bus_setups(bus_plugin):
+    from canopener.core import adapter_buses
+    from canopener.core.settings import Settings
+    values = [v for _, v, _ in adapter_buses.choices()]
+    assert values[:2] == [adapter_buses.CAR, adapter_buses.J1939] and "6|demo" in values and "B|empty" in values
+    assert "(not filled in yet)" in dict((v, lb) for lb, v, _ in adapter_buses.choices())["B|empty"]
+    s = Settings()
+    adapter_buses.choose(s, "6|demo")
+    assert (s.get("elm.protocol"), s.get("elm.bus")) == ("6", "demo") and adapter_buses.label(s) == "Demo second bus"
+
+    car = SimulatedCar()
+    car.start()
+    b = elm327.ElmBackend("t", stream=elm327.SocketStream(car.adapter.host_socket), bus=adapter_buses.find("demo"))
+    try:
+        b.open()                                            # its commands run, then its protocol
+        cmds = car.adapter.commands
+        assert cmds.index("ATI", cmds.index("ATRV")) < cmds.index("ATSP6") and b.protocol == "6"
+        b.close()
+        assert car.adapter.commands[-1] == "ATD"            # undone on close
+    finally:
+        car.stop()
+    with pytest.raises(elm327.ElmError, match="haven't been filled in"):
+        _open_with_bus(adapter_buses.find("empty"))
+    with pytest.raises(elm327.ElmError, match="refused"):
+        _open_with_bus(elm327.BusSetup("bad", "Bad", commands=["0100"]))
+    with pytest.raises(elm327.ElmError, match="is the plugin"):
+        connection.open_connection(connection.ELM, "AA:BB:CC:DD:EE:FF", elm_bus="nope")
+
+
+def _open_with_bus(bus):
+    car = SimulatedCar()
+    car.start()
+    try:
+        elm327.ElmBackend("t", stream=elm327.SocketStream(car.adapter.host_socket), bus=bus).open()
+    finally:
+        car.stop()
+
+
+def test_raw_trace(tmp_path, monkeypatch):
+    path = tmp_path / "trace.txt"
+    monkeypatch.setenv(elm327.TRACE_ENV, str(path))
+    conn = connection.open_connection(connection.ELM_SIM, "sim:vpw")
+    try:
+        c = ObdClient(conn.session)
+        c.detect_addressing()
+        c.read_vin()
+        c.close()
+    finally:
+        conn.close()
+    text = path.read_text()
+    assert "> ATZ" in text and "> 0902" in text and "< 486B10490201" in text

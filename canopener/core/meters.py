@@ -7,6 +7,8 @@
   protocol below.
 * ``IioSource``: an ADC the Linux kernel already drives (an ADS1115 via ``dtoverlay=ads1115``,
   an MCP3008, ...), read from sysfs: probe voltages on a bench Pi before the Pico board exists.
+* ``ObdVoltageSource``: the battery voltage at the OBD port, read by a Bluetooth OBD adapter
+  (``can.elm327``, ATRV) about once a second while it's connected.
 
 Every source keeps a ``status`` the front-ends show ("not detected, retrying" and so on), the
 subsystem-fault pattern from DESIGN.md: a meter that drops out is reported and retried, and
@@ -450,6 +452,72 @@ class IioSource(MeasurementSource):
             self._thread.join(timeout=1.0)
         self._thread = None
         super().stop()
+
+
+class ObdVoltageSource(MeasurementSource):
+    """The battery voltage at the OBD port, from a connected ELM327-style adapter (ATRV): the
+    cranking dip, the charging voltage, a battery going flat with the key on. Each read costs the
+    adapter a round trip (and pauses J1939 listening for it), so it's once a second, or every 5 s
+    on J1939. Its accuracy is the adapter's own (often +/- 0.1-0.2 V; docs/BLUETOOTH-OBD.md)."""
+
+    id = "obd"
+    name = "OBD adapter"
+    CHANNEL = Channel("obd.battery", "Battery (OBD port)", "V", "obd", 1, "voltage", 11.8, 14.8)
+
+    def __init__(self, backend, rate: float | None = None):
+        super().__init__()
+        self.backend = backend
+        self.rate = rate or (0.2 if getattr(backend, "j1939", False) else 1.0)
+        self._stop = threading.Event()
+        self._thread = None
+
+    def channels(self) -> list[Channel]:
+        return [self.CHANNEL]
+
+    def read_once(self, now: float | None = None) -> float | None:
+        try:
+            text = self.backend.read_voltage()
+        except OSError as e:
+            self.status = SourceStatus(BAD, "Adapter lost", str(e))
+            self.emit(self.CHANNEL.id, None, now, "adapter lost")
+            return None
+        v = parse_volts(text)
+        if v is None:
+            self.status = SourceStatus(WAIT, "No reading", "The adapter didn't give a voltage" +
+                                       (f" ({text!r})" if text else "") + ".")
+            self.emit(self.CHANNEL.id, None, now, "no reading")
+            return None
+        self.status = SourceStatus(OK, "Reading", f"{v:.1f} V at the OBD port")
+        self.emit(self.CHANNEL.id, v, now)
+        return v
+
+    def start(self, sink):
+        super().start(sink)
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, name="obd-volts", daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        while not self._stop.is_set():
+            self.read_once()
+            self._stop.wait(1.0 / self.rate)
+
+    def stop(self):
+        self._stop.set()
+        if self._thread is not None and self._thread is not threading.current_thread():
+            self._thread.join(timeout=3.0)
+        self._thread = None
+        super().stop()
+
+
+def parse_volts(text: str) -> float | None:
+    """'12.6V' / '12.6 V' / '12.6' -> 12.6; None for anything else."""
+    t = (text or "").strip().upper().rstrip("V").strip()
+    try:
+        v = float(t)
+    except ValueError:
+        return None
+    return v if 0.0 <= v <= 40.0 else None
 
 
 def sources_from_settings(settings, hardware=None, pulse_clock=None) -> list[MeasurementSource]:

@@ -218,6 +218,7 @@ class MainWindow(QtWidgets.QMainWindow):
         p.finder_starting.connect(self.disconnect)
         p.bt_manage_btn.clicked.connect(self.manage_bluetooth)
         p.bt_adapter.currentIndexChanged.connect(self._bt_adapter_changed)
+        p.bt_vehicle.currentIndexChanged.connect(self._bt_vehicle_changed)
         self._elm_opened.connect(self._elm_connected)
         self._elm_connecting = False
         p.sudoers_requested.connect(self._install_sudoers)
@@ -283,6 +284,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.simulators_action.setChecked(bool(Settings().get("show_simulators")))
         self.simulators_action.toggled.connect(self.show_simulators)
         cn.addAction(self.simulators_action)
+        from ..core.connection import SIM_CARS
+        sim_menu = cn.addMenu("Bluetooth OBD simulator plays")
+        group = QtGui.QActionGroup(self)
+        current = Settings().get("elm.sim_vehicle") or "11"
+        for label, vehicle in SIM_CARS:
+            act = sim_menu.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(vehicle == current)
+            group.addAction(act)
+            act.triggered.connect(lambda _=False, v=vehicle: Settings().set("elm.sim_vehicle", v))
         lg = m.addMenu("&Log")
         toggle = self.log_panel.toggleViewAction()
         toggle.setShortcut(QtGui.QKeySequence("F2"))
@@ -743,8 +754,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def _source_changed(self, *_):
         kind = self.source.currentData()
         self.conn_panel.show_source(kind)
-        if kind == connection.ELM:
+        if kind in (connection.ELM, connection.ELM_SIM):
             self._refresh_bt_adapters()
+            self.conn_panel.show_source(kind)
         self._link_checked = 0.0            # re-check the adapter lamp on the next tick
 
     # --- Bluetooth OBD ---
@@ -760,6 +772,8 @@ class MainWindow(QtWidgets.QMainWindow):
         choices = bt.adapter_choices(settings, paired)
         self._bt_names = dict(choices)
         self.conn_panel.set_bt_adapters(choices, settings.get("elm.adapter") or "")
+        from ..core import adapter_buses
+        self.conn_panel.set_bt_vehicle(adapter_buses.current(settings))
 
     def _bt_adapter_changed(self, *_):
         from ..core.settings import Settings
@@ -767,6 +781,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if addr:
             Settings().set("elm.adapter", addr)
         self._link_checked = 0.0
+
+    def _bt_vehicle_changed(self, *_):
+        from ..core import adapter_buses
+        from ..core.settings import Settings
+        adapter_buses.choose(Settings(), self.conn_panel.bt_vehicle.currentData() or adapter_buses.CAR)
+        self.conn_panel.show_source(self.source.currentData())
 
     def _bt_label(self) -> str:
         from ..core import bluetooth as bt
@@ -954,8 +974,12 @@ class MainWindow(QtWidgets.QMainWindow):
                     return
                 self._replay_path = path
             channel = self._replay_path
-        if kind in (connection.OBD_SIM, connection.ELM, connection.ELM_SIM):
+        from ..core.settings import Settings
+        elm_j1939 = (Settings().get("elm.protocol") or "0").upper() == "A"
+        if kind == connection.OBD_SIM or (kind in (connection.ELM, connection.ELM_SIM) and not elm_j1939):
             self._use_protocol(profiles.OBD2)
+        elif kind in (connection.ELM, connection.ELM_SIM) and not profiles.speaks_j1939():
+            self._use_protocol(profiles.J1939)
         elif kind == connection.SIMULATOR and not profiles.speaks_j1939():
             self._use_protocol(profiles.J1939)
         elif kind == connection.PROFILE_SIM and profiles.protocol() == profiles.OBD2:
@@ -994,7 +1018,9 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         from ..core.settings import Settings
         settings = Settings()
-        addr = self.conn_panel.bt_adapter.currentData() if kind == connection.ELM else "sim"
+        protocol = settings.get("elm.protocol") or "0"
+        addr = self.conn_panel.bt_adapter.currentData() if kind == connection.ELM else (
+            "sim:j1939" if protocol.upper() == "A" else f"sim:{settings.get('elm.sim_vehicle') or '11'}")
         if not addr:
             r = QtWidgets.QMessageBox.question(
                 self, "Connect", "No Bluetooth OBD adapter is picked yet. Pair one now?",
@@ -1003,8 +1029,8 @@ class MainWindow(QtWidgets.QMainWindow):
             if r == QtWidgets.QMessageBox.StandardButton.Yes:
                 self.manage_bluetooth()
             return
-        protocol = settings.get("elm.protocol") or "0"
         label = self._bt_label() if kind == connection.ELM else "the simulated adapter"
+        bus = settings.get("elm.bus") or ""
         self._elm_connecting = True
         self.connect_btn.setEnabled(False)
         self.connect_btn.setText("Connecting…")
@@ -1012,7 +1038,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         def work():
             try:
-                conn = open_connection(kind, addr, elm_protocol=protocol)
+                conn = open_connection(kind, addr, elm_protocol=protocol, listen_only=self.listen_only.isChecked(),
+                                       elm_bus=bus if kind == connection.ELM else "")
             except Exception as e:          # reported in the window
                 self._elm_opened.emit(None, (label, e))
                 return
@@ -1179,7 +1206,7 @@ class MainWindow(QtWidgets.QMainWindow):
     # ------------------------------------------------------------------
     def _open_transmit(self):
         conn = self.ctx.connection
-        if conn is not None and getattr(conn.session.backend, "answers_only", False):
+        if conn is not None and getattr(conn.session.backend, "kind", "") == "elm327":
             QtWidgets.QMessageBox.information(
                 self, "Transmit a frame", "Transmit needs a CAN interface. A Bluetooth OBD adapter only sends "
                 "OBD-II and UDS requests (Diagnostics → Read a module works through it).")
@@ -1197,7 +1224,8 @@ class MainWindow(QtWidgets.QMainWindow):
         offline = session is not None and session.offline
         self.connect_btn.setText("Disconnect" if (live or offline) else "Connect")
         self._bus_session, self._bus_level, self._bus_was_ok = session, link.OFF, False
-        for w in (self.source, self.iface, self.rescan_btn, self.bitrate, self.conn_panel.bt_adapter):
+        for w in (self.source, self.iface, self.rescan_btn, self.bitrate, self.conn_panel.bt_adapter,
+                  self.conn_panel.bt_vehicle):
             w.setEnabled(not live)
         if live:
             self.conn_label.setText(self.ctx.connection.describe()
@@ -1260,9 +1288,14 @@ class MainWindow(QtWidgets.QMainWindow):
             who = f"{len(self.obd.model.sniffer.modules())} module(s)" if self._protocol == profiles.OBD2 \
                 else self._module_count(s)
             backend = s.backend
-            if getattr(backend, "answers_only", False):     # no bus load to show: only our own answers
-                rt = f", last answer {backend.last_round_trip * 1000:.0f} ms" if backend.last_round_trip else ""
-                self.traffic_label.setText(f"{getattr(self, '_fps', 0):.0f} answers/s{rt}  {who}")
+            if getattr(backend, "kind", "") == "elm327":     # an OBD adapter: no bus load to show
+                volts = self.ctx.hub.latest("obd.battery")
+                bat = f"  battery {volts.value:.1f} V" if volts is not None and volts.value is not None else ""
+                if backend.answers_only:
+                    rt = f", last answer {backend.last_round_trip * 1000:.0f} ms" if backend.last_round_trip else ""
+                    self.traffic_label.setText(f"{getattr(self, '_fps', 0):.0f} answers/s{rt}{bat}  {who}")
+                else:                       # J1939: listening through the adapter
+                    self.traffic_label.setText(f"{getattr(self, '_fps', 0):.0f} frames/s (Bluetooth){bat}  {who}")
             else:
                 fps = getattr(self, "_fps", 0)
                 self.traffic_label.setText(f"{fps:.0f} frames/s  ~{self._bus_load:.0f}% load  {who}")

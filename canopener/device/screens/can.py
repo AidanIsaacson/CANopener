@@ -11,7 +11,7 @@ import time
 import pygame
 
 from ...can import pythoncan
-from ...core import interfaces, j1939_clear, profiles
+from ...core import adapter_buses, interfaces, j1939_clear, profiles
 from ...core.connection import ELM, ELM_SIM, SOCKETCAN
 from ...j1939.addresses import sa_name
 from ...obd import describe_dtc, pids_for_dtc
@@ -74,6 +74,11 @@ class ConnectPage(Screen):
             rows.append(Row("Bluetooth adapters", kind="menu", select=self._bluetooth,
                             hint="Pair, rename, test or forget an adapter"))
         if kind in (ELM, ELM_SIM):
+            proto = (s.get("elm.protocol") or "0").upper()
+            rows.append(Row("Vehicle", lambda: adapter_buses.label(s), select=self._vehicle))
+            if proto == "A":
+                rows.append(Row("Listen-only (never transmit)", select=lambda: self._toggle("can.listen_only"),
+                                check=lambda: s.get("can.listen_only")))
             rows.append(Row("Slower than a wired CAN adapter", level=lambda: "wait",
                             hint="Live data a few times a second; no bus monitor", select=lambda: self.app.push(
                                 InfoDialog(self.app, "Bluetooth OBD", [BLUETOOTH_WARNING]))))
@@ -93,6 +98,14 @@ class ConnectPage(Screen):
         for line in list(ctx.finder_log)[-4:]:
             rows.append(Row(line, kind="info"))
         return rows
+
+    def _vehicle(self):
+        ctx = self.ctx
+        if ctx.connection is not None or ctx.finding:
+            ctx.toast("Disconnect first")
+            return
+        choose(self.app, "Vehicle", [(lb, v) for lb, v, _ in adapter_buses.choices()],
+               adapter_buses.current(ctx.settings), lambda v: adapter_buses.choose(ctx.settings, v))
 
     def _bluetooth(self):
         from .bluetooth import BluetoothScreen

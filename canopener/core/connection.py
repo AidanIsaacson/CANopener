@@ -19,6 +19,10 @@ CANOPEN_SIM = "canopen-sim"
 REPLAY = "replay"
 ELM = "elm"                 # a Bluetooth (or Wi-Fi / USB) ELM327-style OBD adapter: can.elm327
 ELM_SIM = "elm-sim"         # the simulated adapter plugged into the OBD-II simulator
+# The cars the Bluetooth OBD simulator can play (settings: elm.sim_vehicle; sim.elm.VEHICLES)
+SIM_CARS = [("CAN, 11-bit (most cars)", "11"), ("CAN, 29-bit", "29"), ("J1850 VPW (older GM)", "vpw"),
+            ("J1850 PWM (older Ford)", "pwm"), ("ISO 9141-2 (older Chrysler, Asian, European)", "iso9141"),
+            ("KWP2000, slow start", "kwp-slow"), ("KWP2000, fast start", "kwp")]
 
 
 @dataclass
@@ -44,7 +48,9 @@ class Connection:
         if self.kind == REPLAY:
             return f"Replay: {self.session.backend.channel}"
         if self.kind == ELM_SIM:
-            return "Bluetooth OBD simulator (virtual adapter and car)"
+            what = getattr(self.simulator, "vehicle", "11")
+            return ("Bluetooth OBD simulator (virtual adapter and "
+                    + ("J1939 machine)" if what == "j1939" else "car)" if what in ("11", "29") else f"{what} car)"))
         if self.kind == ELM:
             return self.session.backend.describe()
         if self.session.backend.kind == pythoncan.PythonCanBackend.kind:
@@ -54,14 +60,17 @@ class Connection:
 
 def open_connection(kind: str, channel: str = "can0", *, listen_only: bool = False,
                     replay_speed: float = 1.0, replay_loop: bool = False, sim_seed=None,
-                    profile=None, bitrate: int | None = 250000, elm_protocol: str = "0") -> Connection:
+                    profile=None, bitrate: int | None = 250000, elm_protocol: str = "0",
+                    elm_bus: str = "") -> Connection:
     """Open a bus and start a session. Raises OSError / BackendError on failure.
 
     For SOCKETCAN, ``channel`` is a Linux interface (can0, already up at its bitrate) or an
     ``interface:channel`` adapter name for python-can (``can.pythoncan``), which ``bitrate``
     configures. For ELM it's the adapter: a Bluetooth address, ``tcp:host:port`` or a serial
-    device (``can.elm327.parse_channel``), and ``elm_protocol`` its ATSP protocol ("0" = search).
-    An ELM adapter only works by asking, so ``listen_only`` doesn't apply to it."""
+    device (``can.elm327.parse_channel``), and ``elm_protocol`` its ATSP protocol ("0" = search,
+    "A" = J1939). A car only works by asking, so ``listen_only`` applies to J1939 only. ELM_SIM's
+    channel picks the simulated vehicle: "sim", "sim:29", "sim:vpw", "sim:iso9141", "sim:j1939" ...
+    (``sim.elm.VEHICLES``)."""
     sim = None
     if kind == SOCKETCAN and pythoncan.is_spec(channel):
         backend = pythoncan.PythonCanBackend(channel, bitrate, listen_only)
@@ -96,15 +105,25 @@ def open_connection(kind: str, channel: str = "can0", *, listen_only: bool = Fal
     elif kind == REPLAY:
         backend = LogReplayBackend(channel, speed=replay_speed, loop=replay_loop)
     elif kind == ELM:
-        backend = elm327.ElmBackend(channel, protocol=elm_protocol)
-        listen_only = False
+        bus = None
+        if elm_bus:
+            from .adapter_buses import find
+            bus = find(elm_bus)
+            if bus is None:
+                raise elm327.ElmError(f"No adapter bus {elm_bus!r}: is the plugin that adds it installed?")
+            elm_protocol = bus.protocol or "0"
+        backend = elm327.ElmBackend(channel, protocol=elm_protocol, bus=bus)
+        listen_only = listen_only and elm_protocol.upper() == elm327.J1939_PROTOCOL   # a car only works by asking
     elif kind == ELM_SIM:
         from ..sim.elm import SimulatedCar
-        sim = SimulatedCar(seed=sim_seed)
+        vehicle = channel.partition(":")[2] if ":" in (channel or "") else "11"
+        if vehicle == "j1939" and elm_protocol == "0":
+            elm_protocol = elm327.J1939_PROTOCOL        # the automatic search never picks J1939
+        sim = SimulatedCar(seed=sim_seed, vehicle=vehicle)
         sim.start()
         backend = elm327.ElmBackend("simulated", protocol=elm_protocol,
                                     stream=elm327.SocketStream(sim.adapter.host_socket))
-        listen_only = False
+        listen_only = listen_only and elm_protocol.upper() == elm327.J1939_PROTOCOL
     else:
         raise ValueError(f"unknown connection kind {kind!r}")
     session = Session(backend)

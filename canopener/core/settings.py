@@ -31,8 +31,11 @@ DEFAULTS: dict = {
     "can.listen_only": False,
     "can.connect_on_start": False,
     "elm.adapter": "",                  # Bluetooth OBD: the adapter's address (core.bluetooth, can.elm327)
-    "elm.protocol": "0",                # its ATSP protocol: "0" searches, "6" = CAN 11-bit 500k ...
+    "elm.protocol": "0",                # its ATSP protocol: "0" searches, "6" = CAN 11-bit 500k, "A" = J1939 ...
+    "elm.bus": "",                      # a plugin's bus setup id (core.adapter_buses), "" = none
     "bluetooth.names": {},              # address -> the name you gave the adapter
+    "elm.sim_vehicle": "11",            # which car the Bluetooth OBD simulator plays: 11 / 29 / pwm / vpw /
+    #                                     iso9141 / kwp-slow / kwp (sim.elm.VEHICLES; J1939 follows elm.protocol)
     "show_simulators": False,           # list the simulators as sources (off: a shorter, adapter-only list)
     "sound.speaker": True,
     "sound.buzzer": "auto",

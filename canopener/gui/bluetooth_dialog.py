@@ -8,7 +8,7 @@ the shared settings, so the handheld shows the same ones.
 import threading
 import time
 
-from ..can import elm327
+from ..can import elm327, elm_probe
 from ..core import bluetooth as bt
 from ..core.settings import Settings
 from .qt import Qt, QtCore, QtGui, QtWidgets, Signal
@@ -246,17 +246,35 @@ class BluetoothDialog(QtWidgets.QDialog):
             b = elm327.ElmBackend(addr, protocol=self.settings.get("elm.protocol") or "0")
             b.open()
             try:
-                return b.stn or b.version, b.device, b.voltage, b.protocol_name
+                return elm_probe.report_lines(elm_probe.probe(b))
             finally:
                 b.close()
 
-        def show(r):
-            chip, device, volts, proto = r
-            QtWidgets.QMessageBox.information(
-                self, "Adapter test", f"{bt.label(self.settings, addr)} answered.\n\n"
-                f"Adapter: {chip}" + (f" ({device})" if device else "") + f"\nBattery: {volts or 'not reported'}\n"
-                f"Vehicle: {proto or 'no answer (key on? plugged into the OBD port?)'}")
+        def show(lines):
+            self.show_report(f"{bt.label(self.settings, addr)}: what it can do", lines)
         self._run(f"Testing {bt.label(self.settings, addr)}", test, show)
+
+    def show_report(self, title: str, lines: list[str]):
+        """The probe report as selectable text, to copy into docs/BLUETOOTH-OBD.md."""
+        d = QtWidgets.QDialog(self)
+        d.setWindowTitle(title)
+        lay = QtWidgets.QVBoxLayout(d)
+        text = QtWidgets.QPlainTextEdit("\n".join(lines))
+        text.setReadOnly(True)
+        text.setFont(QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.SystemFont.FixedFont))
+        lay.addWidget(text)
+        note = QtWidgets.QLabel("For the full check (each protocol, listening): "
+                                "canopener-cli bluetooth probe --protocols --listen 5")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+        box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Close)
+        copy = box.addButton("Copy", QtWidgets.QDialogButtonBox.ButtonRole.ActionRole)
+        copy.clicked.connect(lambda: QtWidgets.QApplication.clipboard().setText(text.toPlainText()))
+        box.rejected.connect(d.reject)
+        lay.addWidget(box)
+        d.resize(720, 520)
+        self._report = d                        # tests look at it
+        d.show()
 
     def _scan(self):
         self._run(f"Scanning for {bt.SCAN_SECONDS} s", bt.scan, self._show_found)

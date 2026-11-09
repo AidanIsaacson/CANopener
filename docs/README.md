@@ -28,5 +28,6 @@
 |---|---|
 | [DEVELOPING.md](DEVELOPING.md) | Dev setup, simulators, machine profile format, plugins, project layout |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the software is built, what maps to the handheld, open work |
+| [BLUETOOTH-OBD.md](BLUETOOTH-OBD.md) | Bluetooth OBD adapters: **gaps to fill**, adapters tried, how to test it yourself |
 | [../deploy/linux/README.md](../deploy/linux/README.md) | The Linux installer's files and adapter rules |
 | [../CLAUDE.md](../CLAUDE.md) | Project rules (written for Claude Code, useful for anyone) |

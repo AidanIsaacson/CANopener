@@ -225,13 +225,17 @@ class DeviceContext:
             if info is None or info.state != "up":
                 self.start_finder(connect_after=True)       # Auto: let the finder pick the bitrate
                 return
-        elm_addr = self.settings.get("elm.adapter") if kind == ELM else "sim"
+        elm_j1939 = (self.settings.get("elm.protocol") or "0").upper() == "A"
+        elm_addr = self.settings.get("elm.adapter") if kind == ELM else (
+            "sim:j1939" if elm_j1939 else f"sim:{self.settings.get('elm.sim_vehicle') or '11'}")
         if kind == ELM and not elm_addr:
             self.toast("Pick a Bluetooth OBD adapter first: Bluetooth adapters, on this page")
             return
         self.disconnect()
-        if kind in (OBD_SIM, ELM, ELM_SIM) and self.protocol != profiles.OBD2:
+        if (kind == OBD_SIM or (kind in (ELM, ELM_SIM) and not elm_j1939)) and self.protocol != profiles.OBD2:
             self.apply_profile("obd2")
+        elif kind in (ELM, ELM_SIM) and elm_j1939 and not profiles.speaks_j1939():
+            self.apply_profile("generic")
         elif (kind == SIMULATOR and not profiles.speaks_j1939()) or \
                 (kind == PROFILE_SIM and self.protocol == profiles.OBD2):
             self.apply_profile("generic")
@@ -240,7 +244,9 @@ class DeviceContext:
 
         def work():
             if kind in (ELM, ELM_SIM):
-                return open_connection(kind, elm_addr, elm_protocol=self.settings.get("elm.protocol") or "0")
+                return open_connection(kind, elm_addr, elm_protocol=self.settings.get("elm.protocol") or "0",
+                                       listen_only=listen_only,
+                                       elm_bus=(self.settings.get("elm.bus") or "") if kind == ELM else "")
             if kind == SOCKETCAN and bitrate and not name.startswith("vcan") and not python_can:
                 info = next((i for i in interfaces.list_interfaces() if i.name == name), None)
                 if info is None:
@@ -266,6 +272,8 @@ class DeviceContext:
             from ..core.obd_stream import ObdStreamer
             self.obd_client = ObdClient(conn.session)
             self.obd_streamer = ObdStreamer(self.obd_client)
+        if conn.kind in (ELM, ELM_SIM):             # the battery voltage at the OBD port, as a meter channel
+            self.hub.add_source(meters.ObdVoltageSource(conn.session.backend))
         self.toast(f"Connected: {conn.describe()}" + ("  (listen-only)" if conn.session.listen_only else ""))
 
     def disconnect(self):
@@ -277,6 +285,7 @@ class DeviceContext:
         if self.obd_client is not None:
             self.obd_client.close()
             self.obd_client = None
+        self.hub.remove_source(meters.ObdVoltageSource.id)
         if self.connection is not None:
             self.connection.close()
             self.toast("Disconnected")
@@ -364,20 +373,20 @@ class DeviceContext:
         self.run_job("Forgetting", lambda: bt.remove(address), done)
 
     def bt_test(self, address: str, then):
-        """Connect, ask the adapter what it is, disconnect. ``then(lines)`` on the UI thread."""
+        """Connect, ask the adapter what it can do (``can.elm_probe``, the quick part), disconnect.
+        ``then(lines)`` on the UI thread."""
         if self.connection is not None and self.connection.kind == ELM and \
                 self.connection.session.backend.channel.upper() == address.upper():
             self.toast("Disconnect first: it's connected now")
             return
 
         def test():
+            from ..can import elm_probe
             from ..can.elm327 import ElmBackend
             b = ElmBackend(address, protocol=self.settings.get("elm.protocol") or "0")
             b.open()
             try:
-                return [f"Adapter: {b.stn or b.version}" + (f" ({b.device})" if b.device else ""),
-                        f"Battery: {b.voltage or 'not reported'}",
-                        f"Vehicle: {b.protocol_name or 'no answer (key on? plugged in?)'}"]
+                return [f"{it.name}: {it.status}" for it in elm_probe.probe(b)]
             finally:
                 b.close()
         self.run_job(f"Testing {self.bt_label(address)}", test, then)

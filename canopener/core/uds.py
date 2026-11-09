@@ -124,3 +124,30 @@ class UdsClient:
     def read_data_by_identifier(self, did: int) -> bytes:
         payload = uds.parse_response(0x22, self.request(uds.read_data_by_identifier(did)))
         return payload[2:] if len(payload) >= 2 else payload   # drop the echoed DID
+
+
+FIND_IDS = range(0x700, 0x7F0)
+
+
+def find_modules(session, ids=FIND_IDS, timeout: float = 0.25, progress=None) -> list[tuple[int, bytes]]:
+    """Which request IDs have a module behind them? Sends UDS TesterPresent (0x3E 00, a standard
+    'are you there' that changes nothing) to each 11-bit ID and keeps the ones that answer, with
+    their answer (a refusal counts: something is there). The functional ID 0x7DF is skipped. Takes
+    about ``len(ids) * timeout`` seconds when nothing answers: a minute or two for the default range
+    (more through a Bluetooth OBD adapter)."""
+    found = []
+    for rid in ids:
+        if rid == 0x7DF or rid in range(0x7E8, 0x7F0):
+            continue
+        if progress:
+            progress(rid)
+        client = UdsClient(session, request_id=rid, timeout=timeout)
+        try:
+            reply = client.request(bytes([0x3E, 0x00]))
+        except uds.UdsError as e:
+            reply = b"" if "no answer" in str(e) or "could not send" in str(e) else bytes([0x7F, 0x3E])
+        finally:
+            client.close()
+        if reply:
+            found.append((rid, reply))
+    return found

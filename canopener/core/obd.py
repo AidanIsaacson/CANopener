@@ -180,7 +180,10 @@ class ObdClient:
     def ecu_label(self, ecu: int) -> str:
         name = self.ecu_names.get(ecu)
         addr = self.addressing or obd.ELEVEN_BIT
-        return f"{name} ({addr.label(ecu)})" if name else f"ECU {addr.label(ecu)}"
+        # On a non-CAN car (through an OBD adapter) the ID is a stand-in: name the real module.
+        hint = getattr(getattr(self.session, "backend", None), "module_label", lambda _e: "")(ecu)
+        where = hint or addr.label(ecu)
+        return f"{name} ({where})" if name else f"ECU {where}"
 
     # ------------------------------------------------------------------
     # support masks

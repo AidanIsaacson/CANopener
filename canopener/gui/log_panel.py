@@ -282,7 +282,9 @@ class LogPanel(QtWidgets.QDockWidget):
         if self.capture.state == cap.SAVED:
             self.new_capture()
         try:
-            self.capture.start(s, config.logs_dir(), self.meta_fn())
+            hub = getattr(self.ctx, "hub", None)
+            self.capture.start(s, config.logs_dir(), self.meta_fn(),
+                               measurements=hub if hub is not None and hub.sources() else None)
         except OSError as e:
             QtWidgets.QMessageBox.critical(self, "Start capture", str(e))
             return

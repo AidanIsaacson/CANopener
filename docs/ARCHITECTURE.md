@@ -107,7 +107,30 @@ to one module ends with the response-count digit (`010C1`) so the adapter return
 answer; clear / test / reset requests raise the adapter timeout (`ATSTFF`) for 'response pending'.
 Timestamps are host-side. Streams: `AF_BLUETOOTH` RFCOMM (Classic SPP), TCP (Wi-Fi dongles) or a
 serial device, all standard library. `sim/elm.py` speaks the adapter's text protocol over a
-socket pair in front of `sim/obd.py`, so tests and `--sim` exercise the real backend.
+socket pair in front of `sim/obd.py` (or `sim/machine.py` for J1939), so tests and `--sim`
+exercise the real backend.
+
+* **Non-CAN cars** (J1850 PWM / VPW, ISO 9141-2, KWP2000, ATDPN 1-5): `obd/noncan.py` turns each
+  request's messages (3-byte header, check byte, codes three per message with no count, Mode 09 in
+  numbered 4-byte pieces) into the answer a CAN module would give, and the backend delivers it as
+  ISO-TP frames on stand-in IDs (engine 0x10 on 0x7E8, transmission 0x18 on 0x7E9;
+  `module_label()` names the real address for `ObdClient.ecu_label`). UDS and Mode 06 are refused
+  there.
+* **J1939** (protocol A, chosen explicitly, never by the automatic search): a thread runs `ATMA`
+  and feeds every frame to the session like a wired bus (`answers_only` is off); any command
+  pauses it (`_paused`), so J1939 Requests and TP flow control go out raw (`ATCAF0`) in between.
+  Other frames are refused. Listen-only is honoured.
+* **Probe and console** (`can/elm_probe.py`, `console_refusal`): what an adapter can do, and
+  adapter-only commands typed by hand (nothing that reaches the vehicle, rewrites the adapter's
+  stored settings or serial speed).
+* **Battery voltage**: `core.meters.ObdVoltageSource` (ATRV, ~1 Hz) joins the measurement hub on
+  both front-ends while an adapter is connected (the desktop now has a hub for it), so captures
+  record it in `measurements.csv`.
+* **Other buses** (`core/adapter_buses.py`): the Vehicle picker is the built-in car / J1939
+  choices plus plugins' `adapter_buses()` (`BusSetup`: adapter commands, protocol, undo). Shared
+  settings `elm.protocol` / `elm.bus` hold the choice.
+
+What has and hasn't been checked on real hardware: [BLUETOOTH-OBD.md](BLUETOOTH-OBD.md#gaps-to-fill).
 
 Pairing is `core/bluetooth.py`: BlueZ's `bluetoothctl` (scan, `info` to tell a dual-mode adapter's
 Classic serial side from its BLE side, an interactive `pair` answering the PIN prompt, `remove`),
@@ -216,6 +239,8 @@ these by name.
 * **CANopen:** read PDO mappings (0x1A00..) to suggest signal layouts.
 * **Transmit:** more actions on the confirm-first path (saved frame replay); machine-changing OEM
   commands stay in private plugins.
+* **Bluetooth OBD adapters:** check everything against a real adapter and vehicles, then
+  multi-PID requests and the non-CAN Mode 06 decoder: [BLUETOOTH-OBD.md](BLUETOOTH-OBD.md#gaps-to-fill).
 
 ## Adding things
 

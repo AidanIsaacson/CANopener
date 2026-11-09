@@ -13,9 +13,12 @@ backend makes one look like a bus to the rest of the app:
 What it can't do, it refuses rather than fakes: multi-frame requests (an ELM sends single
 frames only), anything that isn't an ISO-TP request (J1939 requests, raw Transmit frames), and
 listening to the whole bus (the adapter only reports answers to its own requests). Flow control
-frames from the clients are dropped: the adapter sends its own. Only the CAN OBD protocols
-(ISO 15765-4, 11- or 29-bit, 250 or 500 kbit/s) are supported; that's every car sold in the US
-since 2008 and in the EU since about 2004 (diesel 2007).
+frames from the clients are dropped: the adapter sends its own.
+
+Vehicles: the CAN OBD protocols (ISO 15765-4, 11- or 29-bit, 250 or 500 kbit/s), and the older
+non-CAN ones (SAE J1850 PWM / VPW, ISO 9141-2, KWP2000) for 1996-2007 cars. On those, the answers
+are rebuilt in CAN form by ``obd.noncan`` and delivered on stand-in response IDs (the engine on
+0x7E8, the transmission on 0x7E9 ...); ``module_label`` names the real module address.
 
 Timestamps are taken on this computer when a reply line arrives: after a Bluetooth hop, so a
 few tens of milliseconds late and jittery. Fine for live data and logs, not for timing work.
@@ -33,7 +36,10 @@ import select
 import socket
 import threading
 import time
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 
+from ..obd import isotp, noncan
 from .backends import BackendError, CanBackend
 from .frame import CanFrame
 
@@ -59,20 +65,62 @@ PROTOCOLS = {
     "8": "ISO 15765-4 CAN (11 bit, 250 kbaud)",
     "9": "ISO 15765-4 CAN (29 bit, 250 kbaud)",
     "A": "SAE J1939 CAN (29 bit, 250 kbaud)",
+    "B": "User CAN 1 (11 bit, 125 kbaud unless ATPB changes it)",
+    "C": "User CAN 2 (11 bit, 50 kbaud unless ATPB changes it)",
 }
-CAN_PROTOCOLS = {"6": (False, 500000), "7": (True, 500000), "8": (False, 250000), "9": (True, 250000)}
+# Protocols B / C are the data sheet's defaults; a bus setup's ATPB command can change their ID length
+# and bitrate, which this table doesn't follow (docs/BLUETOOTH-OBD.md, "Gaps to fill").
+CAN_PROTOCOLS = {"6": (False, 500000), "7": (True, 500000), "8": (False, 250000), "9": (True, 250000),
+                 "B": (False, 125000), "C": (False, 50000)}
+NONCAN_PROTOCOLS = {"1", "2", "3", "4", "5"}     # J1850 PWM / VPW, ISO 9141-2, KWP2000: obd.noncan
+NONCAN_TIMEOUT = 10.0       # a K-line car's first request includes waking its computer (2-3 s)
+J1939_PROTOCOL = "A"        # SAE J1939 at 250k: listened to with ATMA, J1939 Requests sent raw (ATCAF0)
+PF_REQUEST, PF_TPCM = 0xEA, 0xEC
+TP_FLOW_CONTROL = {0x11, 0x13, 0xFF}        # TP.CM CTS, end-of-message ACK, abort: ours to send
 # Requests modules often answer 'response pending' (7F xx 78) to before the real answer: clear codes,
 # on-board tests, UDS clear / reset / routines. The adapter's timeout goes to its maximum (~1 s)
 # for these so it keeps listening.
 SLOW_SERVICES = {0x04, 0x08, 0x11, 0x14, 0x31}
 SEARCH_RETRY = 5.0          # after a failed protocol search (key off), don't search again this soon
+TRACE_ENV = "CANOPENER_ELM_TRACE"   # a file: every command and reply line goes there (for debugging)
 
 NO_ANSWER = ("NO DATA", "UNABLE TO CONNECT", "STOPPED")
 # Reply lines that mean the adapter saw trouble on the vehicle's bus: reported as error frames.
 BUS_TROUBLE = ("CAN ERROR", "BUS ERROR", "BUS BUSY", "BUFFER FULL", "DATA ERROR", "<DATA ERROR",
                "<RX ERROR", "RX ERROR", "FB ERROR", "LP ALERT", "LV RESET")
+# Commands that keep printing until any character is sent (monitoring the bus).
+MONITOR_COMMANDS = ("ATMA", "ATMR", "ATMT", "ATMP", "ATDM1", "STMA", "STM ", "STMR", "STMT")
+# Adapter commands the console refuses: they rewrite the adapter's stored settings or its serial
+# speed (an adapter you can't reach any more), or transmit frames (those go through the
+# confirm-first Transmit path instead).
+CONSOLE_BLOCKED = {
+    "ATPP": "rewrites the adapter's stored settings (programmable parameters)",
+    "ATBRD": "changes the adapter's serial speed: the link could be lost",
+    "ATBRT": "changes the adapter's serial speed: the link could be lost",
+    "STSBR": "changes the adapter's serial speed: the link could be lost",
+    "STBR": "changes the adapter's serial speed: the link could be lost",
+    "STWBR": "writes the adapter's serial speed: the link could be lost",
+    "STPX": "transmits a frame: use Transmit, which shows it and asks first",
+}
 _HEX = re.compile(r"^[0-9A-F]+$")
 _BT_ADDR = re.compile(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
+
+
+@dataclass
+class BusSetup:
+    """How to put an adapter onto another bus: a plugin registers these (``core.adapter_buses``).
+    ``commands`` are adapter commands (AT / ST only: ``console_refusal`` applies) run after the
+    normal set-up, then ``protocol`` is selected; ``undo`` runs when the connection closes."""
+
+    id: str
+    label: str
+    protocol: str = "0"
+    commands: list = field(default_factory=list)
+    undo: list = field(default_factory=list)
+    adapter: str = ""           # which adapter these commands are for ("vLinker MC+")
+    note: str = ""
+    verified: str = ""          # how it was proven ("" = not yet)
+    source: str = ""            # where it came from (a file)
 
 
 class ElmError(BackendError, OSError):
@@ -349,6 +397,27 @@ def classify(lines: list[str]) -> str | None:
     return None
 
 
+def console_refusal(cmd: str) -> str:
+    """'' if ``cmd`` may be sent from the adapter console, else why not. Only adapter commands
+    (AT..., ST...) are allowed: requests to the vehicle go through the OBD / UDS paths, which ask
+    before anything that changes it."""
+    c = cmd.replace(" ", "").upper()
+    if not c:
+        return "empty"
+    if not (c.startswith("AT") or c.startswith("ST")):
+        return ("Only adapter commands (AT..., ST...) here. Requests to the vehicle go through obd / uds, "
+                "which ask before anything that changes it.")
+    for prefix, why in CONSOLE_BLOCKED.items():
+        if c.startswith(prefix):
+            return f"{prefix} {why}."
+    return ""
+
+
+def is_monitor_command(cmd: str) -> bool:
+    c = cmd.upper().strip()
+    return any(c.replace(" ", "").startswith(m.strip()) for m in MONITOR_COMMANDS)
+
+
 def is_physical(can_id: int, extended: bool) -> bool:
     """A request to one module (not the functional 'everyone' address)?"""
     if extended:
@@ -368,8 +437,12 @@ class ElmBackend(CanBackend):
     can_transmit = True
     answers_only = True         # hears only answers to its own requests (core.link words the lamp for it)
 
-    def __init__(self, channel: str, protocol: str = "0", stream: Stream | None = None):
+    def __init__(self, channel: str, protocol: str = "0", stream: Stream | None = None,
+                 bus: BusSetup | None = None):
         super().__init__(channel)
+        self.bus = bus
+        if bus is not None:
+            protocol = bus.protocol or "0"
         self.protocol_choice = (protocol or "0").upper()
         if self.protocol_choice not in PROTOCOLS:
             raise ValueError(f"unknown ELM protocol {protocol!r}")
@@ -394,6 +467,16 @@ class ElmBackend(CanBackend):
         self._header: tuple | None = None   # (can_id, extended) currently set with ATSH
         self._filter: str | None = None     # ATCRA argument currently set ("" = automatic)
         self._search_failed = 0.0           # when the last protocol search found no vehicle
+        self.noncan = False                 # J1850 / ISO 9141 / KWP: answers go through obd.noncan
+        self.j1939 = False                  # protocol A: listening (ATMA) with requests in between
+        self.monitor_restarts = 0           # J1939: times monitoring stopped by itself (BUFFER FULL ...)
+        self._mon_thread: threading.Thread | None = None
+        self._mon_idle = threading.Event()  # set while the adapter isn't streaming (ATMA)
+        self._mon_idle.set()
+        self._pause_depth = 0
+        self._pause_guard = threading.Lock()
+        self._stop_mon = False
+        self.ids = noncan.IdMap()           # non-CAN module address <-> stand-in response ID
 
     # --- lifecycle ---
     def open(self):
@@ -417,6 +500,17 @@ class ElmBackend(CanBackend):
             self.link_error = None
 
     def close(self):
+        self._stop_mon = True
+        if self._mon_thread is not None and self._mon_thread is not threading.current_thread():
+            self._mon_thread.join(timeout=3.0)
+        self._mon_thread = None
+        if self.bus is not None and self.bus.undo and self.is_open:
+            for cmd in self.bus.undo:               # back to the normal bus, best effort
+                if not console_refusal(cmd):
+                    try:
+                        self.command(cmd)
+                    except OSError:
+                        break
         with self._lock:
             self.is_open = False
             if self.stream is not None:
@@ -444,12 +538,129 @@ class ElmBackend(CanBackend):
         sti = " ".join(self.command("STI", AT_TIMEOUT))
         self.stn = "" if not sti or "?" in sti else sti
         self.read_voltage()
+        if self.bus is not None:
+            self._apply_bus(self.bus)
         self._at(f"ATSP{self.protocol_choice}")
         self._header, self._filter = None, None
-        if self.protocol_choice == "0":
+        if self.protocol_choice == J1939_PROTOCOL:
+            self._init_j1939()
+        elif self.protocol_choice == "0":
             self._search()                          # the vehicle may be off: retried on the first request
         else:
             self._learn_protocol()
+
+    def _apply_bus(self, bus: BusSetup):
+        if not bus.commands:
+            raise ElmError(f"{bus.label}: its adapter commands haven't been filled in yet"
+                           + (f" ({bus.source})" if bus.source else "") + ". See the plugin's notes.")
+        for cmd in bus.commands:
+            why = console_refusal(cmd)
+            if why:
+                raise ElmError(f"{bus.label}: {cmd!r} refused: {why}")
+            if classify(self.command(cmd)) == "?":
+                raise ElmError(f"{bus.label}: the adapter doesn't understand {cmd!r}"
+                               + (f" (these commands are for {bus.adapter})" if bus.adapter else "") + ".")
+
+    def _init_j1939(self):
+        """J1939 (protocol A, 250k): frames shown raw with their 29-bit ID, requests sent raw, the
+        adapter listening silently where it can. Never reached by the automatic search."""
+        for cmd in ("ATJHF0", "ATCSM1"):            # optional: older or clone adapters may refuse them
+            self.command(cmd)
+        self._at("ATCAF0")
+        self.protocol, self.extended, self.bitrate = J1939_PROTOCOL, True, 250000
+        self.j1939, self.noncan = True, False
+        self.answers_only = False                   # it hears the broadcasts: lamps as for a wired bus
+        self._stop_mon = False
+        self._mon_thread = threading.Thread(target=self._monitor_loop, name="elm-j1939", daemon=True)
+        self._mon_thread.start()
+
+    @contextmanager
+    def _paused(self):
+        """Hold the adapter for a command: J1939 monitoring stops first and resumes after."""
+        with self._pause_guard:
+            self._pause_depth += 1
+        try:
+            if threading.current_thread() is not self._mon_thread:
+                self._mon_idle.wait(timeout=3.0)
+            with self._lock:
+                yield
+        finally:
+            with self._pause_guard:
+                self._pause_depth -= 1
+
+    def _monitor_loop(self):
+        while self.is_open and not self._stop_mon:
+            if self._pause_depth:
+                time.sleep(0.02)
+                continue
+            with self._lock:
+                if self._pause_depth or not self.is_open or self._stop_mon:
+                    continue
+                self._mon_idle.clear()
+                try:
+                    self._drain()
+                    self.stream.write(b"ATMA\r")
+                    buf = b""
+                    ended = False
+                    while not self._pause_depth and not self._stop_mon and not ended:
+                        buf += self.stream.read_some(0.1)
+                        *done, buf = buf.replace(b"\n", b"\r").split(b"\r")
+                        for raw in done:
+                            ended |= self._monitor_line(raw)
+                        ended |= PROMPT in buf
+                    if ended:
+                        self.monitor_restarts += 1          # it stopped by itself (BUFFER FULL ...)
+                    else:
+                        self.stream.write(b"\r")             # stop it
+                        self._read_raw_until_prompt(2.0)
+                except OSError as e:
+                    self.link_error = str(e) or "connection to the OBD adapter lost"
+                    self.is_open = False
+                finally:
+                    self._mon_idle.set()
+            time.sleep(0.01)
+
+    def _monitor_line(self, raw: bytes) -> bool:
+        """One line from ATMA. True if it ends the monitoring (the prompt came back)."""
+        text = raw.decode("ascii", "replace").strip()
+        if not text:
+            return False
+        if PROMPT.decode() in text:
+            return True
+        parsed = parse_frame_line(text, True)
+        if parsed is not None:
+            self._queue.put(CanFrame(parsed[0], parsed[1], True, time.time()))
+            return False
+        msg = classify([text])
+        if msg in BUS_TROUBLE:
+            self._queue.put(CanFrame(0, b"", False, time.time(), error=f"OBD adapter: {msg}"))
+        return False
+
+    def _send_j1939(self, frame: CanFrame):
+        """A J1939 Request (or transport-protocol flow control) through the adapter: monitoring
+        pauses, the frame goes out raw with its header, whatever answers straight away is
+        delivered, and monitoring resumes (broadcast answers arrive through it)."""
+        data = bytes(frame.data)
+        pf = (frame.can_id >> 16) & 0xFF
+        ok = frame.extended and data and (
+            (pf == PF_REQUEST and len(data) in (3, 8)) or (pf == PF_TPCM and data[0] in TP_FLOW_CONTROL))
+        if not ok:
+            raise ElmError("Through a Bluetooth OBD adapter, J1939 only sends Requests (and transport "
+                           "flow control), not other frames.")
+        with self._paused():
+            if (frame.can_id, True) != self._header:
+                self._at(f"ATCP{(frame.can_id >> 24) & 0x1F:02X}")
+                self._at(f"ATSH{frame.can_id & 0xFFFFFF:06X}")
+                self._header = (frame.can_id, True)
+            t0 = time.time()
+            lines = self.command(data.hex().upper(), AT_TIMEOUT)
+            self.last_round_trip = time.time() - t0
+            self.requests += 1
+            now = time.time()
+            for line in lines:
+                parsed = parse_frame_line(line, True)
+                if parsed is not None:
+                    self._queue.put(CanFrame(parsed[0], parsed[1], True, now))
 
     def _search(self):
         """Let the adapter find the vehicle's protocol with the standard 'supported PIDs'
@@ -457,7 +668,7 @@ class ElmBackend(CanBackend):
         lines = self.command("0100", SEARCH_TIMEOUT)
         self._learn_protocol()
         if self.protocol:
-            self._deliver(lines)
+            self._deliver(lines, bytes([0x01, 0x00]))
             self._search_failed = 0.0
         else:
             self.last_message = classify(lines) or "no answer"
@@ -467,15 +678,18 @@ class ElmBackend(CanBackend):
     def _learn_protocol(self):
         dpn = "".join(self.command("ATDPN", AT_TIMEOUT)).strip().upper()
         num = dpn[1:] if dpn.startswith("A") and len(dpn) == 2 else dpn
+        self.noncan = num in NONCAN_PROTOCOLS
         if num in CAN_PROTOCOLS:
             self.protocol = num
             self.extended, self.bitrate = CAN_PROTOCOLS[num]
-        elif num in PROTOCOLS and num != "0":
-            self.protocol = ""
-            raise ElmError(f"The vehicle speaks {PROTOCOLS[num]}. CANopener talks to CAN vehicles only "
-                           "(ISO 15765-4: most cars from 2008 on).")
+        elif self.noncan:
+            self.protocol, self.extended, self.bitrate = num, False, 0
         else:
             self.protocol = ""
+
+    def module_label(self, response_id: int) -> str:
+        """On a non-CAN car, the module behind a stand-in response ID: 'engine (0x10)'."""
+        return self.ids.label(response_id) if self.noncan else ""
 
     @property
     def protocol_name(self) -> str:
@@ -483,14 +697,14 @@ class ElmBackend(CanBackend):
 
     def read_voltage(self) -> str:
         """The battery voltage at the OBD port (ATRV), e.g. '12.6V'. '' if the adapter can't say."""
-        with self._lock:
+        with self._paused():
             v = " ".join(self.command("ATRV", AT_TIMEOUT)).strip()
             self.voltage = v if v and "?" not in v else ""
             return self.voltage
 
     def describe(self) -> str:
         what = self.stn or self.version or "ELM327"
-        return f"OBD adapter {self.channel} ({what})"
+        return f"OBD adapter {self.channel} ({what}{', J1939' if self.j1939 else ''})"
 
     # --- text I/O ---
     def _drain(self):
@@ -510,17 +724,63 @@ class ElmBackend(CanBackend):
     def command(self, cmd: str, timeout: float = AT_TIMEOUT) -> list[str]:
         """Send one command and return the reply lines (empty on timeout). Raises OSError (and
         marks the link lost) if the connection is gone."""
-        with self._lock:
+        with self._paused():
             if not self.is_open or self.stream is None:
                 raise OSError(self.link_error or "the OBD adapter isn't connected")
             try:
                 self._drain()
                 self.stream.write(cmd.encode("ascii") + b"\r")
-                return self._read_until_prompt(timeout, cmd)
+                lines = self._read_until_prompt(timeout, cmd)
+                self._trace(cmd, lines)
+                return lines
             except OSError as e:
                 self.link_error = str(e) or "connection to the OBD adapter lost"
                 self.is_open = False
                 raise OSError(self.link_error) from e
+
+    def _trace(self, cmd: str, lines: list[str]):
+        """With CANOPENER_ELM_TRACE=FILE set, append each command and its reply lines, timestamped:
+        the adapter's own text, for checking against what the code expects (docs/BLUETOOTH-OBD.md)."""
+        path = os.environ.get(TRACE_ENV)
+        if not path:
+            return
+        stamp = time.strftime("%H:%M:%S") + f".{int(time.time() * 1000) % 1000:03d}"
+        try:
+            with open(path, "a") as f:
+                f.write(f"{stamp} > {cmd}\n" + "".join(f"{stamp} < {line}\n" for line in lines))
+        except OSError:
+            pass
+
+    def monitor(self, cmd: str, seconds: float, max_lines: int = 5000) -> list[str]:
+        """Run a monitoring command (ATMA, ATMP ..., ATDM1) for ``seconds``, then stop it (any
+        character stops an ELM327) and return the lines it printed."""
+        with self._paused():
+            if not self.is_open or self.stream is None:
+                raise OSError(self.link_error or "the OBD adapter isn't connected")
+            try:
+                self._drain()
+                self.stream.write(cmd.encode("ascii") + b"\r")
+                buf = b""
+                end = time.time() + seconds
+                while time.time() < end and buf.count(b"\r") < max_lines and PROMPT not in buf:
+                    buf += self.stream.read_some(min(0.2, max(0.0, end - time.time())))
+                if PROMPT not in buf:
+                    self.stream.write(b"\r")              # stop it
+                    buf += b"\r" + self._read_raw_until_prompt(2.0)
+            except OSError as e:
+                self.link_error = str(e) or "connection to the OBD adapter lost"
+                self.is_open = False
+                raise OSError(self.link_error) from e
+            lines = split_reply(buf.split(PROMPT)[0], cmd)
+            self._trace(cmd, lines)
+            return lines
+
+    def _read_raw_until_prompt(self, timeout: float) -> bytes:
+        buf = b""
+        deadline = time.time() + timeout
+        while PROMPT not in buf and time.time() < deadline:
+            buf += self.stream.read_some(min(0.25, max(0.0, deadline - time.time())))
+        return buf.split(PROMPT)[0]
 
     def _at(self, cmd: str):
         lines = self.command(cmd, AT_TIMEOUT)
@@ -547,6 +807,8 @@ class ElmBackend(CanBackend):
 
     # --- the backend interface ---
     def send(self, frame: CanFrame):
+        if self.j1939:
+            return self._send_j1939(frame)
         data = bytes(frame.data)
         if not data:
             raise ElmError("empty frame")
@@ -569,6 +831,8 @@ class ElmBackend(CanBackend):
                     raise ElmError("No vehicle answered the adapter"
                                    + (f" (it says {self.last_message})" if self.last_message else "")
                                    + ". Key on? Plugged into the OBD port?")
+            if self.noncan:
+                return self._send_noncan(frame, payload)
             if frame.extended != self.extended:
                 raise ElmError(f"This vehicle uses {'29' if self.extended else '11'}-bit CAN IDs.")
             self._set_header(frame.can_id, frame.extended)
@@ -591,7 +855,26 @@ class ElmBackend(CanBackend):
             self.requests += 1
             self._deliver(lines)
 
-    def _deliver(self, lines: list[str]):
+    def _send_noncan(self, frame: CanFrame, payload: bytes):
+        """A request on J1850 / ISO 9141 / KWP: the adapter's standard header, and the answers
+        rebuilt in CAN form (obd.noncan). Requests to one module keep only that module's answer."""
+        service = payload[0]
+        if not 0x01 <= service <= 0x0A or frame.extended:
+            raise ElmError(f"This vehicle uses {self.protocol_name}: OBD-II requests only (UDS and other "
+                           "services need a CAN vehicle).")
+        if service == 0x06:
+            raise ElmError("On-board test results (Mode 06) use an older layout on this protocol, which "
+                           "CANopener doesn't decode yet.")
+        t0 = time.time()
+        lines = self.command(payload.hex().upper(), NONCAN_TIMEOUT)
+        self.last_round_trip = time.time() - t0
+        self.requests += 1
+        only = frame.can_id + isotp.RESPONSE_OFFSET if 0x7E0 <= frame.can_id <= 0x7E7 else None
+        self._deliver(lines, payload, only)
+
+    def _deliver(self, lines: list[str], request: bytes = b"", only: int | None = None):
+        if self.noncan:
+            return self._deliver_noncan(lines, request, only)
         msg = classify(lines)
         self.last_message = msg or ""
         now = time.time()
@@ -606,6 +889,23 @@ class ElmBackend(CanBackend):
                 data = bytes([len(data)]) + data    # a clone that left the length byte out: put it back
             self._queue.put(CanFrame(parsed[0], data, self.extended, now))
         if got:
+            self.answers += 1
+        if msg in BUS_TROUBLE:
+            self._queue.put(CanFrame(0, b"", False, now, error=f"OBD adapter: {msg}"))
+
+    def _deliver_noncan(self, lines: list[str], request: bytes, only: int | None):
+        msg = classify(lines)
+        self.last_message = msg or ""
+        now = time.time()
+        messages = [m for m in (noncan.parse_message(line, self.protocol) for line in lines) if m]
+        answers = noncan.normalize(request, messages)
+        for src, body in answers.items():
+            rid = self.ids.response_id(src)
+            if only is not None and rid != only:
+                continue
+            for data in isotp.segment(body, pad=0x00):
+                self._queue.put(CanFrame(rid, data, False, now))
+        if answers:
             self.answers += 1
         if msg in BUS_TROUBLE:
             self._queue.put(CanFrame(0, b"", False, now, error=f"OBD adapter: {msg}"))

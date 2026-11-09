@@ -1486,3 +1486,51 @@ def test_pair_manage_dialog(app, fake_bt, monkeypatch):
     d.wait_idle()
     assert fake_bt.state()["paired"] == [] and Settings().get("elm.adapter") == ""
     d.close()
+
+
+def test_bluetooth_vehicle_choice_and_j1939(app):
+    from canopener.core import connection, profiles
+    from canopener.core.settings import Settings
+    from canopener.gui.main_window import MainWindow
+    w = MainWindow()
+    w.show()
+    p = w.conn_panel
+    w.source.setCurrentIndex(w.source.findData(connection.ELM_SIM))
+    assert not p.bt_vehicle.isHidden() and p.listen_only.isHidden()        # a car: never listen-only
+    p.bt_vehicle.setCurrentIndex(p.bt_vehicle.findData("A|"))
+    assert Settings().get("elm.protocol") == "A" and not p.listen_only.isHidden()
+    w.connect()
+    assert _wait(app, lambda: w.ctx.connection is not None, 15)
+    assert profiles.speaks_j1939() and w.ctx.session.backend.j1939
+    assert _wait(app, lambda: len(w.ctx.session.ecus) >= 2, 10)            # the machine's broadcasts
+    assert _wait(app, lambda: w.ctx.hub.latest("obd.battery") is not None, 10)
+    pump(app, 1.2)
+    assert "Bluetooth" in w.traffic_label.text() and "battery 12.6 V" in w.traffic_label.text()
+    w.disconnect()
+    assert not w.ctx.hub.sources()
+    p.bt_vehicle.setCurrentIndex(p.bt_vehicle.findData("0|"))
+    w.close()
+
+
+def test_adapter_test_shows_the_probe_report(app, fake_bt, monkeypatch):
+    from canopener.can import elm327
+    from canopener.gui.bluetooth_dialog import BluetoothDialog
+    from canopener.sim.elm import SimulatedCar
+    car = SimulatedCar()
+    car.start()
+    real = elm327.ElmBackend
+    stream = elm327.SocketStream(car.adapter.host_socket)
+    monkeypatch.setattr(elm327, "ElmBackend", lambda addr, protocol="0": real(addr, protocol, stream=stream))
+    fake_bt.set(paired=[VLINKER])
+    try:
+        d = BluetoothDialog()
+        d.wait_idle()
+        d.mine.setCurrentItem(d.mine.topLevelItem(0))
+        d._test()
+        d.wait_idle()
+        text = d._report.findChild(qt.QtWidgets.QPlainTextEdit).toPlainText()
+        assert "Chip / version" in text and "ELM327 v2.1" in text and "J1939 protocol" in text
+        d._report.close()
+        d.close()
+    finally:
+        car.stop()

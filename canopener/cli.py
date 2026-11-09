@@ -36,11 +36,16 @@ def _apply_profile(pid: str | None):
 
 
 def cmd_scan(a) -> int:
-    kind = connection.SIMULATOR if a.sim else connection.SOCKETCAN
+    kind, channel = (connection.SIMULATOR if a.sim else connection.SOCKETCAN), a.iface
+    if a.elm is not None:                   # J1939 through a Bluetooth OBD adapter (protocol A)
+        channel = _elm_channel(a.elm)
+        kind = connection.ELM_SIM if channel == "sim" or channel.startswith("sim:") else connection.ELM
+        channel = "sim:j1939" if channel == "sim" else channel
     try:
-        conn = connection.open_connection(kind, a.iface, listen_only=a.listen_only, bitrate=a.bitrate)
+        conn = connection.open_connection(kind, channel, listen_only=a.listen_only, bitrate=a.bitrate,
+                                          elm_protocol="A")
     except OSError as e:
-        print(f"Could not open {a.iface}: {e}", file=sys.stderr)
+        print(f"Could not open {channel}: {e}", file=sys.stderr)
         return 2
     try:
         time.sleep(1.2)            # let broadcast traffic (DM1, live data) arrive first
@@ -118,7 +123,7 @@ def _elm_channel(spec: str) -> str:
     from .can import elm327
     from .core import bluetooth
     from .core.settings import Settings
-    if spec == "sim":
+    if spec == "sim" or spec.startswith("sim:"):
         return spec
     settings = Settings()
     if not spec:
@@ -141,11 +146,12 @@ def _open_obd(a):
     """The connection for obd / uds: --elm (a Bluetooth OBD adapter), --sim, or --iface."""
     if a.elm is not None:
         channel = _elm_channel(a.elm)
-        kind = connection.ELM_SIM if channel == "sim" else connection.ELM
+        kind = connection.ELM_SIM if channel == "sim" or channel.startswith("sim:") else connection.ELM
     else:
         channel, kind = a.iface, connection.OBD_SIM if a.sim else connection.SOCKETCAN
     try:
-        return connection.open_connection(kind, channel, bitrate=a.bitrate, elm_protocol=a.elm_protocol)
+        return connection.open_connection(kind, channel, bitrate=a.bitrate, elm_protocol=a.elm_protocol,
+                                          elm_bus=a.elm_bus if kind == connection.ELM else "")
     except OSError as e:
         print(f"Could not open {channel}: {e}", file=sys.stderr)
         return None
@@ -158,7 +164,7 @@ def cmd_obd(a) -> int:
     if conn is None:
         return 2
     backend = conn.session.backend
-    if getattr(backend, "answers_only", False):
+    if getattr(backend, "kind", "") == "elm327":
         print(f"{conn.describe()}" + (f", battery {backend.voltage}" if backend.voltage else ""),
               file=sys.stderr)
     c = ObdClient(conn.session)
@@ -300,6 +306,21 @@ def cmd_uds(a) -> int:
     conn = _open_obd(a)
     if conn is None:
         return 2
+    if a.find:
+        from .core.uds import find_modules
+        try:
+            print("Asking each diagnostic ID 700-7EF whether a module is there (UDS TesterPresent, changes "
+                  "nothing). A minute or two...", file=sys.stderr, flush=True)
+            found = find_modules(conn.session, progress=lambda rid: print(f"\r  {rid:03X}", end="", file=sys.stderr,
+                                                                         flush=True))
+            print("", file=sys.stderr)
+            for rid, reply in found:
+                print(f"  0x{rid:03X} (answers on 0x{rid + 8:03X}): {reply.hex(' ').upper()}")
+            if not found:
+                print("  no module answered")
+            return 0
+        finally:
+            conn.close()
     req_id = int(a.module, 16)
     client = UdsClient(conn.session, request_id=req_id)
     try:
@@ -642,6 +663,8 @@ def cmd_bluetooth(a) -> int:
     from .core.settings import Settings
     settings = Settings()
     act = a.action
+    if act in ("probe", "console"):
+        return _elm_tool(a, settings)
     if act in ("pair", "rename", "use", "test", "forget") and not a.address:
         print(f"bluetooth {act} needs an ADDRESS (AA:BB:CC:DD:EE:FF)", file=sys.stderr)
         return 2
@@ -659,6 +682,14 @@ def cmd_bluetooth(a) -> int:
                 print("No Bluetooth OBD adapters yet. canopener-cli bluetooth scan, then bluetooth pair ADDRESS.")
             for address, label in rows:
                 print(f"{'*' if address == chosen else ' '} {address}  {label}")
+            from .core import adapter_buses
+            extra = adapter_buses.available()
+            if extra:
+                print("\nAdapter bus setups from plugins (obd / uds --elm --elm-bus ID):")
+                for b in extra:
+                    state = "ready" if b.commands else "NOT FILLED IN YET"
+                    print(f"  {b.id:24} {b.label}  [{state}; proven: {b.verified or 'no'}]"
+                          + (f"  <- {b.source}" if b.source else ""))
             return 0
         if act == "scan":
             print(f"Looking for {bt.SCAN_SECONDS} s (plug the adapter into the vehicle first)...", flush=True)
@@ -710,6 +741,72 @@ def cmd_bluetooth(a) -> int:
     return 2
 
 
+def _open_elm(spec: str, protocol: str):
+    """An opened ElmBackend for 'bluetooth probe / console': an address (or name, tcp:, /dev/...),
+    or 'sim[:vehicle]' for the simulated adapter. Returns (backend, simulator or None)."""
+    from .can.elm327 import ElmBackend, SocketStream
+    if spec == "sim" or spec.startswith("sim:"):
+        from .sim.elm import SimulatedCar
+        vehicle = spec.partition(":")[2] or "11"
+        sim = SimulatedCar(vehicle=vehicle)
+        sim.start()
+        b = ElmBackend("simulated", protocol="A" if vehicle == "j1939" and protocol == "0" else protocol,
+                       stream=SocketStream(sim.adapter.host_socket))
+    else:
+        sim = None
+        b = ElmBackend(_elm_channel(spec), protocol=protocol)
+    try:
+        b.open()
+    except Exception:
+        if sim:
+            sim.stop()
+        raise
+    return b, sim
+
+
+def _elm_tool(a, settings) -> int:
+    from .can import elm327, elm_probe
+    protocol = a.protocol or settings.get("elm.protocol") or "0"
+    try:
+        print(f"Connecting to {a.address or 'the picked adapter'}...", file=sys.stderr, flush=True)
+        b, sim = _open_elm(a.address or "", protocol)
+    except (OSError, ValueError) as e:
+        print(f"Couldn't connect: {e}", file=sys.stderr)
+        return 1
+    try:
+        if a.action == "probe":
+            items = elm_probe.probe(b, protocols=a.protocols, listen=a.listen or 0.0, j1939=a.j1939,
+                                    progress=lambda t: print(f"  {t}...", file=sys.stderr, flush=True))
+            print("\n".join(elm_probe.report_lines(items)))
+            print("\nPaste this into docs/BLUETOOTH-OBD.md (\"Adapters tried\") to record what this adapter does.")
+            return 0
+        print(f"{b.describe()}. Adapter commands only (AT..., ST...); 'quit' to leave. Monitoring commands "
+              f"(ATMA ...) run for {a.monitor_seconds:g} s.")
+        while True:
+            try:
+                line = input("elm> ").strip()
+            except EOFError:
+                break
+            if line.lower() in ("quit", "exit", "q"):
+                break
+            if not line:
+                continue
+            why = elm327.console_refusal(line)
+            if why:
+                print(f"  refused: {why}")
+                continue
+            lines = b.monitor(line, a.monitor_seconds) if elm327.is_monitor_command(line) else b.command(line, 5.0)
+            print("\n".join(f"  {x}" for x in lines) or "  (no answer)")
+        return 0
+    except OSError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    finally:
+        b.close()
+        if sim:
+            sim.stop()
+
+
 def cmd_profiles(a) -> int:
     found, errors = profiles.available_profiles()
     for p in found:
@@ -724,6 +821,8 @@ def _elm_args(p):
     p.add_argument("--elm", nargs="?", const="", metavar="ADAPTER",
                    help="use a Bluetooth OBD adapter (ELM327-style): the picked one, or a name / address / "
                    "tcp:HOST:PORT / /dev/rfcomm0, or 'sim' for the simulated one. Slower than a CAN interface.")
+    p.add_argument("--elm-bus", default="", metavar="ID",
+                   help="with --elm: a plugin's bus setup for the adapter (canopener-cli bluetooth lists them)")
     p.add_argument("--elm-protocol", default="0", metavar="N",
                    help="with --elm: the adapter's protocol, 0 = search (default), 6 = CAN 11-bit 500k, "
                    "7 = 29-bit 500k, 8 / 9 = 250k")
@@ -747,6 +846,9 @@ def main(argv=None) -> int:
     s.add_argument("--bitrate", type=int, default=250000, help=BITRATE_HELP)
     s.add_argument("--sim", action="store_true", help="scan the built-in simulator instead")
     s.add_argument("--listen-only", action="store_true", help="send nothing (DM1 + live data only)")
+    s.add_argument("--elm", nargs="?", const="", metavar="ADAPTER",
+                   help="through a Bluetooth OBD adapter on J1939 (250k): the picked one, a name / address, or "
+                   "'sim' (a simulated machine). It may miss frames on a busy bus.")
     g = s.add_mutually_exclusive_group()
     g.add_argument("--stored", action="store_true", help="DM2 stored codes")
     g.add_argument("--emissions", action="store_true", help="DM6/DM12/DM23/DM5")
@@ -785,13 +887,20 @@ def main(argv=None) -> int:
     sub.add_parser("profiles", help="list machine profiles").set_defaults(fn=cmd_profiles)
 
     b = sub.add_parser("bluetooth", help="Bluetooth OBD adapters (ELM327-style): list, scan, pair, rename, use, "
-                       "test, forget")
+                       "test, forget, probe (what it can do), console (adapter commands)")
     b.add_argument("action", nargs="?", default="list",
-                   choices=["list", "scan", "pair", "rename", "use", "test", "forget"])
-    b.add_argument("address", nargs="?", help="the adapter's Bluetooth address, AA:BB:CC:DD:EE:FF")
+                   choices=["list", "scan", "pair", "rename", "use", "test", "forget", "probe", "console"])
+    b.add_argument("address", nargs="?", help="the adapter's Bluetooth address, AA:BB:CC:DD:EE:FF (probe / "
+                   "console: also a name you gave it, or sim / sim:vpw / sim:j1939 ... for the simulated one)")
     b.add_argument("--name", help="pair / rename: a name for it (e.g. 'vLinker (truck)')")
     b.add_argument("--pin", default="1234", help="pair: the PIN if it asks (default 1234; some use 0000)")
     b.add_argument("--yes", action="store_true", help="forget without asking")
+    b.add_argument("--protocol", help="probe / console: the adapter protocol to start with (0 = search, A = J1939)")
+    b.add_argument("--protocols", action="store_true",
+                   help="probe: also try each OBD-II protocol with a standard read (wakes K-line cars: slow)")
+    b.add_argument("--listen", type=float, metavar="SECONDS", help="probe: also listen passively this long")
+    b.add_argument("--j1939", action="store_true", help="probe --listen: listen on J1939 (250k) instead")
+    b.add_argument("--monitor-seconds", type=float, default=5.0, help="console: how long ATMA etc. run")
     b.set_defaults(fn=cmd_bluetooth)
 
     hw = sub.add_parser("hardware", help="installed options on the handheld: what's fitted and whether it's found")
@@ -837,6 +946,8 @@ def main(argv=None) -> int:
     ud.add_argument("--sim", action="store_true", help="read the built-in simulator instead")
     ud.add_argument("--module", default="7E0", help="module request CAN ID in hex (default 7E0)")
     ud.add_argument("--did", help="also read this data identifier (hex, e.g. F190)")
+    ud.add_argument("--find", action="store_true",
+                    help="find modules: ask every ID 700-7EF if something's there (TesterPresent; a minute or two)")
     _elm_args(ud)
     ud.set_defaults(fn=cmd_uds)
 
