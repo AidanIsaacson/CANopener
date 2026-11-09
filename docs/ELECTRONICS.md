@@ -1,8 +1,8 @@
 # CANopener: Electronics Bring-up (adapter-board prototype)
 
-*Living doc. Rev 0.7, 2026-11-02. This repo copy is the one to edit from now on.*
+*Living doc. Rev 0.8, 2026-11-09. This repo copy is the one to edit from now on.*
 
-**Scope.** The hand-wired proof of concept built on SOP/QFN-to-DIP adapter boards: pinouts, protection, what is sensitive to wire length, the front-end and timing design, and a working BOM. It is **not** the custom PCB. It exists to (1) get a working platform and (2) record what we learn as layout requirements. Enclosure, UI and software architecture stay in [DESIGN.md](DESIGN.md) / [DEVICE.md](DEVICE.md) / [ARCHITECTURE.md](ARCHITECTURE.md). DESIGN.md was brought up to these decisions in rev 0.6. Code for each part: [Software per component](#18-software-per-component). The custom board: [hardware/README.md](../hardware/README.md).
+**Scope.** The hand-wired proof of concept built on SOP/QFN-to-DIP adapter boards: pinouts, protection, what is sensitive to wire length, the front-end and timing design, and a working BOM. It is **not** the custom PCB. It exists to (1) get a working platform and (2) record what we learn as layout requirements. Enclosure, UI and software architecture stay in [DESIGN.md](DESIGN.md) / [DEVICE.md](DEVICE.md) / [ARCHITECTURE.md](ARCHITECTURE.md). DESIGN.md was brought up to these decisions in rev 0.6 (and the DB9 in 0.8). Code for each part: [Software per component](#18-software-per-component). The custom board: [hardware/README.md](../hardware/README.md).
 
 **Legend.** **[V]** checked against a datasheet or repo file. **[P]** proposed, needs your OK. **[TBD]** not researched yet. **[D]** decided.
 
@@ -20,7 +20,7 @@
 | D6 | Voltage probe inputs: **10 Mohm, x10 compensated attenuator** into the ADC (about +/-100 V full scale). Section 6.1. | [P] |
 | D7 | Second CAN INT = **GPIO20**; sync input = **GPIO21**. Only I2S audio is lost; a PWM buzzer on GPIO18 still works. | [P] |
 | D8 | ESP32 on the **Pi UART (GPIO14/15)** for the prototype. | [P] |
-| D9 | DB9: **male on the device** (CiA convention, works with off-the-shelf cables and OBD-II adapters). Use the ordered female DB9s for harness and bench cables. | [P] |
+| D9 | DB9: **male on the device**, **one connector for both CAN stacks** (section 5.5). CAN A on the CiA 303-1 pins (7 CAN_H, 2 CAN_L, 3 CAN_GND, 6 GND, 9 V+, 5 shield), so off-the-shelf CiA cables and adapters still fit; the extras on the pins CiA leaves reserved: **CAN B on 8 (H) / 4 (L)**, **K-line on 1**. Pin 9 is a protected battery-sense **input** only. Use the ordered female DB9s for harness and bench cables. | [D] pinout; [P] pin 1 / pin 9 parts |
 | D10 | Custom board: **40 MHz** CAN clock. **TCAN1051HV-Q1** (+/-70 V instead of +/-58 V) as cheap insurance if pin- and price-compatible. | [P] |
 | D11 | **Shared probes ("option B").** The four meter probes double as logic channels: each probe has a second attenuator into a comparator with a DAC-set threshold, feeding the logic Pico. The meter sets thresholds from what the ADC sees. Plus a dedicated low-voltage logic header. Section 6.2. | [D] |
 | D12 | **Protection policy** (section 2): survive the mistakes a responsible tech can make on a 12-48 V machine; don't harden against the rest. | [D] |
@@ -44,6 +44,7 @@
 | ESD on connectors and jacks; contactor-coil spikes coupled into probe leads | **Yes** | TCAN built-in ESD (+/-15 kV IEC); SMAJ60A at probe jacks; attenuators |
 | A slip onto 12-24 V on the low-voltage logic header | **Yes** | 2.2 kohm series + Schottky clamp per pin (6.5) |
 | Battery voltage across the CAN bus itself | No | Every module on that bus is already dead; nothing to diagnose |
+| A miswired or wrong-pinout cable puts battery + or K-line voltage on any DB9 pin (CAN A, CAN B, pin 1, pin 9) | **Yes** | CAN pins: the TCAN's +/-58 V. Pin 9: 60 V-rated divider + clamp. Pin 1: only a battery-rated K-line transceiver. 5.5 |
 | 72/80 V systems | No | D1 |
 | 48 V on the low-voltage logic header | No | Header labeled "3.3/5 V" |
 | Mains or any CAT-rated measurement | **No, never** | This is not a CAT II/III instrument. Say so on the label and in the manual |
@@ -64,7 +65,7 @@
 | 2b | Meter Pico (Pico 2) | Meter line protocol over USB; sync pulse generated and timestamped by the Pi |
 | 3 | ADS1115 on I2C | Probe voltages appear in a capture via the IIO source. **Front end per 5.7, never bare probes into the Pi's ADC** |
 | 4 | The rest of the controls | All five buttons and the RKJXT1F42001 (d-pad + push + encoder in one part) in place of 0b's bench parts; final panel size decided (7" vs 10.1") |
-| 5 | CAN stack B | Second MCP2518FD on SPI0 CE1, INT on GPIO20 |
+| 5 | CAN stack B | Second MCP2518FD on SPI0 CE1, INT on GPIO20, to DB9 8 (H) / 4 (L) with its own termination switch (5.5); frames on the Ford body bus (OBD 3 / 11) through the OBD-II cable |
 | 6 | ESP32 | ESP-NOW receiver / Bluetooth gateway over the Pi UART |
 | 7 | Probe front end, one channel | Attenuators + comparator + DAC on one channel, tested with the meter Pico's internal ADC first |
 | 7b | Component test source (6.7) | SRC powers a Hall sensor on the bench; current reads on the INA226; current limit and fault flag trip on a short; SRC survives a touch to a 48 V bench supply (on and off); pull-ups make an open-collector output readable |
@@ -76,8 +77,10 @@
  DSI panel <-------- DSI
  buttons/joystick -> GPIO (gpio-key, rotary-encoder)
                                          Raspberry Pi
- SPI0 CE0 + GPIO25 --> MCP2518FD A --> TCAN1051V --> DB9 (CANH/CANL/GND)
- SPI0 CE1 + GPIO20 --> MCP2518FD B --> TCAN1051V --> (stage 5)
+ SPI0 CE0 + GPIO25 --> MCP2518FD A --> TCAN1051V --> DB9 7 / 2 (+ 3, 6 GND)
+ SPI0 CE1 + GPIO20 --> MCP2518FD B --> TCAN1051V --> DB9 8 / 4 (stage 5)
+ (K-line transceiver, later) ------------------------> DB9 1
+ (battery sense, 60 V-rated divider) <---------------- DB9 9
  I2C1 --------------> ADS1115 (stage 3, early analog, through a divider + clamp)
  UART 14/15 --------> ESP32 (stage 6)
  USB ---------------> Meter Pico (RP2350)
@@ -161,8 +164,8 @@ Config: `dtoverlay=mcp251xfd,spi0-0,oscillator=20000000,interrupt=25` (stack B: 
 | 3 | VCC | 5V + 0.1 uF |
 | 4 | RXD | MCP2518FD pin 2 |
 | 5 | VIO | 3V3 + 0.1 uF |
-| 6 | CANL | DB9 pin 2 |
-| 7 | CANH | DB9 pin 7 |
+| 6 | CANL | DB9 pin 2 (stack B: pin 4) |
+| 7 | CANH | DB9 pin 7 (stack B: pin 8) |
 | 8 | S (silent, active high) | GND for normal mode |
 
 Built-in protection per TI: ESD +/-16 kV HBM and up to +/-15 kV IEC on the bus pins; +/-58 V bus fault (+/-70 V on H variants); +/-30 V receiver common mode.
@@ -171,9 +174,61 @@ Built-in protection per TI: ESD +/-16 kV HBM and up to +/-15 kV IEC on the bus p
 
 ABLS-20.000MHZ-B2-T: 20 MHz, 18 pF load. C1 on OSC1 and C2 on OSC2, each to GND. Calculated value C = 2 x (18 - Cstray) = **27 pF** at about 5 pF stray. 22 pF if hand wiring adds more stray; 33 pF on hand too.
 
-### 5.5 DB9 (CAN) [P: CiA 303-1, verify against your harness]
+### 5.5 DB9 (CAN A, CAN B, K-line) [D9: pinout decided; CAN A per CiA 303-1]
 
-Pin 2 CAN_L, pin 7 CAN_H, pin 3 CAN_GND, pin 5 shield (optional), others NC. Gender per D9.
+One male DB9 on the device carries both CAN stacks, so one set of cables covers every adapter. CAN A
+keeps the CiA 303-1 pins, so any off-the-shelf CiA cable or adapter works on it unchanged; CAN B and
+the K-line use the pins CiA leaves reserved (1, 4, 8). There's no universal standard for a second
+channel on one DB9: 8 / 4 mirrors CAN A's geometry (pin 8 sits between 3 and 4 as 7 sits between 2
+and 3), so each pair is a diagonal neighbour and the twisted pairs stay short to the pins.
+
+| DB9 | Signal | Device side | CiA 303-1 |
+|---|---|---|---|
+| 7 | CAN A high | Stack A TCAN pin 7 | CAN_H |
+| 2 | CAN A low | Stack A TCAN pin 6 | CAN_L |
+| 3 | CAN ground / signal ground | GND | CAN_GND |
+| 6 | Second ground (chassis) | GND | GND (optional) |
+| 9 | Battery + | **Sense input only**: 60 V-rated divider + clamp (see below). Never an output | CAN_V+ (optional) |
+| 5 | Shield | Chassis through an RC (or NC on the prototype); never a signal | CAN_SHLD (optional) |
+| 8 | CAN B high | Stack B TCAN pin 7 | reserved |
+| 4 | CAN B low | Stack B TCAN pin 6 | reserved |
+| 1 | K-line (ISO 9141 / KWP2000) | A K-line / LIN transceiver later; NC with a footprint until then | reserved |
+
+Front view of the device's connector (male): wide row 1-5, left to right; narrow row 6-9.
+
+![The handheld's DB9 pinout and the OBD-II, J1939 and bench cables](images/db9-cables.svg)
+
+**Cables** (female DB9 at the handheld's end; the diagram above is the wiring guide, redrawn with
+`scripts/db9_cables_diagram.py`):
+
+| Cable | Wiring (vehicle pin -> DB9 pin) | Notes |
+|---|---|---|
+| OBD-II (Ford, e.g. the F-550) | 6->7, 14->2, 3->8, 11->4, 5->3, 4->6, 16->9, 7->1 | 3 / 11 are Ford's body bus (MS-CAN). Other makes use other pairs for a second bus (1/9, 12/13 ...): a different cable, not a different board. OBD 2 / 10 (J1850) and 15 (L-line) stay unconnected: no transceiver for them (the Bluetooth OBD adapter covers J1850) |
+| J1939, 9-pin Deutsch | C->7, D->2, H->8, J->4, A->3, B->9, E->5 | H / J are usually the maker's own second CAN; F / G vary (J1708, or another CAN on newer connectors) [TBD per truck] |
+| Bench / CANopen | 7, 2, 3 (and 5) straight through | Any off-the-shelf CiA DB9 cable. CAN A only |
+
+Twist 6/14 (OBD) or C/D (Deutsch) together, and 3/11 or H/J. Shield to the DB9 shell or pin 5 at
+the handheld's end only.
+
+- **Pin 9 (battery +)** can see 12 V (car), 24 V (truck) or a full forklift pack (36/48 V, ~60 V
+  charging) through a miswired harness: design it to the D1 60 V scope. Prototype [P]: a divider of
+  about 20:1 (e.g. 200k / 10k, 0.1%) with a clamp to 3.3 V into a spare ADS1115 input, so the
+  handheld reads battery voltage itself (as the Bluetooth OBD adapter's ATRV does today). Powering
+  the handheld from it later needs reverse-polarity protection and an ideal diode, and must never
+  feed back out.
+- **Pin 1 (K-line)** idles at battery voltage (pulled up in the vehicle): only a K-line / LIN
+  transceiver rated for it (L9637 / TJA1021 class [P]) may connect. Unconnected on the prototype,
+  with a footprint.
+- **Stack B** gets its own termination switch, twisted pair and TCAN1051V near the connector, the
+  same as stack A (DESIGN.md).
+- **The other OBD-to-DB9 pinout.** Some ready-made OBD-II to DB9 cables (SparkFun's OBD-II boards
+  among them) use a different layout: ground on 1 / 2, CAN-H on 3, CAN-L on 5, K-line on 7. On a CiA
+  device that shorts the vehicle's CAN-H to ground (pin 3), which disturbs the vehicle's bus while
+  plugged in, and puts K-line voltage on CAN-H (the TCAN tolerates it). Label the handheld
+  "CiA 303-1" and only buy or build CiA-style cables.
+- **Other CiA gear with these cables:** most leave pins 1 / 4 / 8 unconnected, so a full cable is
+  harmless there; one that uses those reserved pins could see K-line voltage. Keep the full cables
+  for the handheld.
 
 ### 5.6 Picos
 
@@ -472,6 +527,10 @@ Quantities for 4 probe channels on one unit, plus spares for the bench.
 | ESP32 breakout/carrier | 1 | Stage 6 | USB-UART bridge optional |
 | Pi 5 cooler and 5 V / 5 A supply | | If not included | |
 | Male DB9 | 1 | D9 | Grab bag may cover it |
+| Second TCAN1051V + termination switch | 1 | Stack B on DB9 8 / 4 (5.5) | Same parts as stack A |
+| Battery-sense divider (~200k / 10k, 0.1%) + clamp | 1 set | DB9 pin 9 (5.5) | Into a spare ADS1115 input [P] |
+| K-line / LIN transceiver, L9637 / TJA1021 class | 1 | DB9 pin 1 (5.5) | Later; footprint only for now [P] |
+| Female DB9s + OBD-II plug + 9-pin Deutsch plug | 1 each | The three cables (5.5) | CiA-style only; twisted pair for both CAN pairs |
 | 40 MHz crystal, TCAN1051HV-Q1 | | Custom board | D10 |
 | Check: TS5A3153 (VSSOP-8) fits the SOT23/SOP10 adapter | | | |
 
@@ -514,6 +573,9 @@ Quantities for 4 probe channels on one unit, plus spares for the bench.
 - SRC on probe 4 vs a dedicated jack (a dedicated jack keeps all four probes free but adds a panel hole and needs its own voltage sense).
 - SRC load switch part, and whether it blocks reverse current when disabled.
 - Reconcile with `can_opener_build_notes_4.md`; it is not in the repo.
+- DB9 pin 9: sense only, or also a power input (and then which protection)? Which ADS1115 input it uses (5.5).
+- K-line transceiver part for DB9 pin 1, and whether it lives on the main board or a satellite module (5.5).
+- J1939 Deutsch F / G on the trucks you work on: J1708, a second CAN, or unused (5.5).
 
 ## 16. Repo items for a Code session
 
@@ -530,6 +592,8 @@ Quantities for 4 probe channels on one unit, plus spares for the bench.
 - Two CAN sessions at once for stack B (ARCHITECTURE.md, Open work: "Two CAN channels").
 
 ## 17. Changelog
+
+- 0.8 (2026-11-09): one DB9 for every adapter (D9 decided, 5.5): CAN A on the CiA 303-1 pins, CAN B on 8 / 4, K-line on 1, battery sense on 9, grounds on 3 / 6, shield on 5. Cable tables and a wiring diagram (images/db9-cables.svg) for the OBD-II (Ford), J1939 Deutsch and bench cables, and a warning about the other (SparkFun-style) OBD-to-DB9 pinout. Block diagram, TCAN pins, stage 5, protection table, to-buy list and open questions updated.
 
 - 0.7 (2026-11-02): new stage 0 (Pi 5 + Touch Display 2 + the USB CANable, no soldering) and 0b (first buttons + encoder), guide in docs/install/handheld-stage0.md. Stage 4 is now the rest of the controls. Stage 1 uses the CANable on the same Pi as bench partner. Installed options `usb_can` and `controls`; the CAN stacks are found by SPI chip select, since with a USB adapter plugged in the MCP2518FD isn't always `can0`.
 - 0.6 (2026-11-01): moved into the repo as docs/ELECTRONICS.md. Section 16 marked up. New sections 18 (software per component) and 19 (installed options). Pi config lines in `deploy/raspberry-pi/config-hardware.txt`; firmware sketches in `firmware/`; custom-board groundwork in `hardware/README.md`. ESP32 port is `/dev/ttyAMA0` on both Pis (on a Pi 5, `/dev/serial0` is the debug connector).

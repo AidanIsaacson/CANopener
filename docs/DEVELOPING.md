@@ -202,7 +202,8 @@ legacy/      the original j1939_codes.py script and the v0.1 Pi app (frozen, for
 tests/       pytest suite, including headless GUI tests
 docs/        user guides (FEATURES, INSTALL, USAGE, install/), the handheld (DEVICE, DESIGN,
              ELECTRONICS) and the software (DEVELOPING, ARCHITECTURE); index in docs/README.md
-scripts/     readme_screenshots.py + device_screenshots.py (retake docs/images), sync-from-main.sh (Pi branches)
+scripts/     readme_screenshots.py + device_screenshots.py (retake docs/images), db9_cables_diagram.py
+             (the DB9 cable diagram), sync-from-main.sh (Pi branches)
 ```
 
 ## Files the app writes

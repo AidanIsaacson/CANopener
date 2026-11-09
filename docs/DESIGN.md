@@ -75,6 +75,7 @@ One-handed hold supported; most-used functions (start/stop log, save snapshot) r
 **Two CAN stacks [D]**, each an MCP2518FD + TCAN1051V-Q1, so two buses can be watched at once:
 - **Stack A:** SPI0 CE0, INT on GPIO25 → `can0` (stage 1)
 - **Stack B:** SPI0 CE1, INT on GPIO20 → `can1` (stage 5; D7). The software needs one session per bus for this (ARCHITECTURE.md, Open work: "Two CAN channels")
+- **Both stacks on one DB9** (D9, ELECTRONICS.md 5.5): stack A on the CiA 303-1 pins (7 / 2), stack B on 8 / 4. The cable decides what B is: Ford's body bus (OBD 3 / 11) on the OBD-II cable, the maker's second CAN (H / J) on the J1939 Deutsch cable
 
 **Controller: MCP2518FD** (bare IC, soldered directly to PCB)
 - 2KB RAM buffer eliminates dropped frames under Linux scheduler load; missing a fault frame on a diagnostic tool is unacceptable
@@ -89,13 +90,13 @@ One-handed hold supported; most-used functions (start/stop log, save snapshot) r
 **Line protection & conditioning**
 - **No external CAN TVS on the prototype** (D5, was PESD1CAN / NUP2105L). The TCAN1051V already has ±15 kV IEC ESD protection on CANH/CANL, and a 24 V TVS would conduct and likely fail short in the in-scope miswire (harness onto 36/48 V battery +), pulling the machine's CAN line to ground. The custom board keeps an unpopulated footprint for a >60 V, low-capacitance part if field use shows a need
 - **Split termination** — two 60Ω resistors in series with a 4.7nF cap from center tap to ground; acts as a low-pass RF filter for motor controller noise
-- **Termination switch** — physical switch near DB9 connector replaces previous jumper design; off when sniffing an intact bus, on when bench testing a single ECU. Termination isn't miswire-tolerant (48 V across 120 Ω is ~19 W): a burnt resistor is the accepted bench failure
+- **Termination switch** (one per stack) — physical switch near DB9 connector replaces previous jumper design; off when sniffing an intact bus, on when bench testing a single ECU. Termination isn't miswire-tolerant (48 V across 120 Ω is ~19 W): a burnt resistor is the accepted bench failure
 - Twisted pair harness provides common-mode noise rejection — no ferrite beads needed on the CAN lines
 **Repairability / fallback layout**
 - Primary circuit uses bare MCP2518FD and TCAN1051V-Q1 ICs for clean low-profile assembly
 - Adjacent 0.1" female header footprints matching standard MCP2515/transceiver breakout module pinouts populated on PCB
 - SPI and CAN lines routed through 0-ohm resistor jumpers (removable with soldering iron) — field repair path: remove jumpers, slot in replacement module, back running
-- DB9 connector on top edge for harness connection: **male on the device** (CiA 303-1: pin 2 CAN_L, 7 CAN_H, 3 CAN_GND), so off-the-shelf cables and OBD-II adapters fit (D9)
+- DB9 connector on top edge for harness connection: **male on the device**, one connector for every adapter cable (D9, ELECTRONICS.md 5.5): CAN A per CiA 303-1 (2 CAN_L, 7 CAN_H, 3 CAN_GND, 6 GND, 9 battery sense, 5 shield), so off-the-shelf CiA cables fit; CAN B on 8 (H) / 4 (L) and the K-line on 1, the pins CiA leaves reserved. Only CiA-style OBD-to-DB9 cables (the SparkFun-style pinout shorts CAN-H to ground on a CiA device)
 ### Pico Coprocessors: two Picos [D2]
 One Pico can't run stock sigrok and custom meter firmware at once, so there are two. Both talk to the Pi over USB (virtual serial) and are powered by it.
 
@@ -256,7 +257,7 @@ J1939 note: command frames targeting engine or transmission ECUs are typically R
 ### Candidate Satellite Modules
  
 Based on field experience with forklift, engine, and BMS systems:
-- **LIN transceiver module** — LIN appears on body/comfort systems and some BMS units
+- **LIN transceiver module** — LIN appears on body/comfort systems and some BMS units. The same transceiver class handles the K-line (ISO 9141 / KWP2000) on DB9 pin 1, so it could live on the main board instead
 - **RS-485 / Modbus module** — some battery chargers and BMS comms use Modbus RTU over RS-485
 ---
  
@@ -290,7 +291,7 @@ Groundwork, sheet plan, layout rules and the pre-order checklist: [hardware/READ
 - **Rev A [P]:** a Pi 5 add-on board carrying the proven circuits (both CAN stacks, both Picos as soldered-down modules, probe front end); **Rev B:** the CM5 carrier, started from the CM5 IO board's published design
 - **Dual-board chassis** — front PCB and back PCB; 2.0mm thickness each for rigidity
 - Electronics sandwiched between boards; M3 standoffs carry structural load
-- Panel-mount connectors on top edge: DB9 (CAN), probe inputs, USB-C charging, expansion port
+- Panel-mount connectors on top edge: DB9 (CAN A + CAN B + K-line, ELECTRONICS.md 5.5), probe inputs, USB-C charging, expansion port
 - Compute board (Pi 5 or CM5 carrier) mounted on standoffs; DSI cable routes to screen on front face
 - Button and encoder footprints at exact ergonomic positions — shells just need matching cutouts
 - MCP2518FD as bare IC (40 MHz crystal); TCAN1051V-Q1 (or HV) as bare IC; both with fallback module headers and 0-ohm jumpers; unpopulated CAN TVS footprint (D5)
