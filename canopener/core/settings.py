@@ -43,6 +43,8 @@ DEFAULTS: dict = {
     "meters.serial": "",                # serial port of a JSON-lines meter (Pico / ESP32 bridge)
     "meters.iio": "",                   # IIO ADC device name (e.g. ads1115) read as probe voltages
     "meters.iio_ratio": 1.0,            # input divider: volts at the probe per volt at the ADC
+    "meters.cal": {},                   # channel id -> {offset, gain, ref, when} (core.calibration)
+    "meters.cal_ref": 12.0,             # the supply voltage last typed in for a Quick calibration
     # installed options (core.hardware): which on-deck parts this unit has fitted
     "hardware": {},                     # option id -> "yes" / "no" / "auto"; missing = "no"
     "hardware.meter_pico.port": "",     # serial port, if not found by its USB name

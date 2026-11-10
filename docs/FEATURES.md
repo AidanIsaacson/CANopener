@@ -131,7 +131,7 @@ takes your own themes too ([USAGE.md](USAGE.md#colour-themes), [DEVICE.md](DEVIC
 The same app runs on a Raspberry Pi, and the plan is a rugged handheld that replaces the laptop,
 the multimeter and the logic analyzer in one:
 
-* A 4-channel meter, recorded alongside the CAN data on one timeline
+* A 4-channel meter, recorded alongside the CAN data on one timeline, and calibrated on the handheld against a known voltage
 * Small wireless meter modules
 * A logic analyzer
 * LIN and OBD-I

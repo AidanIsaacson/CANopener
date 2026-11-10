@@ -101,15 +101,22 @@ class MeasurementSource:
 
 
 class MeasurementHub:
-    """Every source's channels in one place, safe to push into from any thread."""
+    """Every source's channels in one place, safe to push into from any thread.
 
-    def __init__(self, history: int = HISTORY):
+    ``calibration`` (a ``core.calibration.Calibration``) corrects each reading as it arrives, so
+    the live views, captures and reports all see corrected values. Raw listeners
+    (``add_listener(fn, raw=True)``) get the readings as the source sent them: the calibration
+    screen needs those."""
+
+    def __init__(self, history: int = HISTORY, calibration=None):
         self.lock = threading.RLock()
+        self.calibration = calibration
         self._sources: dict[str, MeasurementSource] = {}
         self._latest: dict[str, Sample] = {}
         self._history: dict[str, deque] = {}
         self._history_len = history
         self._listeners: list = []
+        self._raw_listeners: list = []
         self.sample_count = 0
 
     # --- sources ---
@@ -142,6 +149,10 @@ class MeasurementHub:
 
     # --- samples ---
     def push(self, sample: Sample):
+        raw = sample
+        cal = self.calibration
+        if cal is not None and sample.value is not None:
+            sample = Sample(sample.channel, sample.t, cal.apply(sample.channel, sample.value), sample.flag)
         with self.lock:
             self._latest[sample.channel] = sample
             h = self._history.get(sample.channel)
@@ -150,10 +161,10 @@ class MeasurementHub:
             if sample.value is not None:
                 h.append((sample.t, sample.value))
             self.sample_count += 1
-            listeners = list(self._listeners)
-        for fn in listeners:
+            listeners = [(fn, sample) for fn in self._listeners] + [(fn, raw) for fn in self._raw_listeners]
+        for fn, s in listeners:
             try:
-                fn(sample)
+                fn(s)
             except Exception:       # a broken listener must not stop a source's thread
                 pass
 
@@ -169,16 +180,19 @@ class MeasurementHub:
         with self.lock:
             return list(self._history.get(channel_id, ()))
 
-    def add_listener(self, fn):
-        """Call ``fn(sample)`` for every sample, on the source's thread. Keep it quick."""
+    def add_listener(self, fn, raw: bool = False):
+        """Call ``fn(sample)`` for every sample, on the source's thread. Keep it quick.
+        ``raw``: the sample before calibration."""
         with self.lock:
-            if fn not in self._listeners:
-                self._listeners.append(fn)
+            lst = self._raw_listeners if raw else self._listeners
+            if fn not in lst:
+                lst.append(fn)
 
     def remove_listener(self, fn):
         with self.lock:
-            if fn in self._listeners:
-                self._listeners.remove(fn)
+            for lst in (self._listeners, self._raw_listeners):
+                if fn in lst:
+                    lst.remove(fn)
 
 
 # ----------------------------------------------------------------------------

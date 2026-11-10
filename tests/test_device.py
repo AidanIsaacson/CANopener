@@ -830,3 +830,70 @@ def test_theme_changes_apply_straight_away(app_for):
     assert theme_row.value_text() == "Daylight"
     theme_row.adjust(1)                                         # d-pad right: the next theme
     assert app.ctx.settings.get("device.theme") == "basic"
+
+
+# --- meter calibration ------------------------------------------------------------
+def test_calibration_runs_channel_to_channel_from_system_meters(app_for):
+    """System > Meters > Calibration: Full on CH1 (zero, hold, adjust with the encoder, save), then
+    straight on to CH2 without a menu; Back stops and keeps what's saved. Then a Quick run."""
+    from canopener.core.measure import Channel, MeasurementSource, Sample
+    from canopener.device.screens.calibrate import CalibrationScreen, CalRunScreen
+
+    class Probes(MeasurementSource):
+        id, name = "t", "Test meter"
+
+        def channels(self):
+            return [Channel("t.p1", "Probe 1", "V", "t"), Channel("t.p2", "Probe 2", "V", "t")]
+
+    app = app_for()
+    hub, cal = app.ctx.hub, app.ctx.calibration
+    hub.add_source(Probes())
+    clock = [time.time()]
+
+    def hold(ch, v, secs=1.3):
+        for _ in range(int(secs * 20)):
+            clock[0] += 0.05
+            hub.push(Sample(ch, clock[0], v))
+        app.step([])
+
+    system_row(app, "Calibration").select()
+    assert isinstance(app.top, CalibrationScreen)
+    press(app, pygame.K_F2)                               # Full
+    run = app.top
+    assert isinstance(run, CalRunScreen) and run.session.step == "zero"
+    hold("t.p1", 0.0)
+    press(app, pygame.K_RETURN)                           # zero
+    hold("t.p1", 5.1)
+    press(app, pygame.K_RETURN)                           # hold the reading
+    assert run.session.step == "confirm"
+    press(app, pygame.K_RIGHT)                            # focus "Adjust"
+    press(app, pygame.K_RETURN)
+    assert run.session.step == "adjust"
+    for _ in range(5):
+        press(app, pygame.K_PAGEDOWN)                     # encoder: +0.01 V a click
+    press(app, pygame.K_RETURN)                           # save
+    assert cal.get("t.p1").gain == pytest.approx(5.15 / 5.1)
+    press(app, pygame.K_RETURN)                           # next, without waiting
+    assert run.session.current.label == "CH2" and run.session.step == "zero"
+    hub.push(Sample("t.p1", clock[0], 5.1))
+    assert hub.latest("t.p1").value == pytest.approx(5.15)          # readings now corrected
+    press(app, pygame.K_ESCAPE)                           # Back: stop
+    assert isinstance(app.top, CalibrationScreen) and "CH1 saved" in app.ctx.current_toast()
+    assert cal.get("t.p2") is None
+
+    press(app, pygame.K_F1)                               # Quick
+    run = app.top
+    assert run.session.step == "ref"
+    run.on_action(inp.ROTATE, round((5.15 - run.session.ref) / 0.01))      # turn the encoder down to 5.15 V
+    press(app, pygame.K_RETURN)                           # start
+    assert app.ctx.settings.get("meters.cal_ref") == pytest.approx(5.15)
+    for ch in ("t.p1", "t.p2"):
+        hold(ch, 0.01)
+        hold(ch, 5.0)
+        assert run.session.step == "saved"
+        press(app, pygame.K_RETURN)
+    assert run.session.step == "done"
+    assert cal.get("t.p2").gain == pytest.approx(5.15 / 4.99)
+    press(app, pygame.K_RETURN)
+    assert isinstance(app.top, CalibrationScreen)
+    app.step([])

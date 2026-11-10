@@ -245,6 +245,41 @@ per sample: they will be their own files in the capture folder, on the same time
 
 ![The data log recording: CAN frames and meter readings counted together, timestamps tagged](images/device-log.png)
 
+## Calibrating the meter
+
+Home-built probe channels read a little off: a percent or two from resistor tolerance and the
+ADC's own loading. That error is the same every time, so each channel gets a zero and a gain,
+set against a supply you've measured. Everything after that (the meter, CAN > Live, the data log
+and its report) shows corrected readings, and each capture notes the calibration it was taken with.
+
+Open **System > Meters > Calibration**. It lists each voltage channel (CH1, CH2, ...) with its gain
+and the date it was set. You need a steady supply (a bench supply, or a 12 V battery) and, for
+Full, a second meter.
+
+* **Full** (soft key 2): for each channel in turn,
+  1. **Zero:** touch the channel's probe to the COM lead. When the reading settles, push the
+     encoder.
+  2. **Voltage:** touch the probe to the supply's plus, COM on its minus. Push to hold the reading.
+  3. **Looks right / Adjust:** measure the supply with your second meter. If the held reading
+     matches, push. If not, pick **Adjust** and turn the encoder until it does (0.01 V a click;
+     soft key 1 changes the step to 0.1 or 0.001), then push to save.
+  4. It beeps, shows **saved** and moves on to the next channel by itself.
+* **Quick** (soft key 1): measure the supply with your second meter first and set that voltage
+  (turn the encoder, push to start). Then for each channel: touch COM, wait for the beep, touch the
+  supply, wait for the beep. Each step is taken by itself once the reading settles, and it goes
+  straight on to the next channel. A reading more than 25% away from the voltage you set is held
+  back with a warning (push to use it anyway).
+
+Tip: clip COM to the supply's minus and leave it there. Then touching the minus is the zero and
+the plus is the voltage, for every channel.
+
+Each channel is saved as soon as it's done. **Stop** or Back keeps the channels already saved;
+**Skip** leaves one as it was. Pick a single channel in the list to calibrate just that one, or to
+reset it. Changing **ADC input divider** clears the Pi ADC's channels, since their old numbers no
+longer fit. Calibrate at the voltages you work at (12-24 V), and again if you change the front end.
+Stored in `settings.json` as `meters.cal`; the beeps are **System > Sound > Tones for events**
+(Calibration: reading taken / channel saved).
+
 ## Controls: wiring
 
 The cheapest, most robust way to wire the buttons is **one GPIO per switch**, switch to ground,

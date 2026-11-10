@@ -70,6 +70,8 @@ EVENTS = [
     ("rec_stop", "Log stopped", "falling"),
     ("tag", "Timestamp added", "blip"),
     ("codes", "Codes read: some found", "double"),
+    ("cal_step", "Calibration: reading taken", "blip"),
+    ("cal_saved", "Calibration: channel saved", "double"),
     ("error", "Something failed", "low"),
     ("game_clear", "Game: circuit or row cleared", "click"),
     ("game_over", "Game over", "falling"),
