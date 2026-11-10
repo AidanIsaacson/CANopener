@@ -13,6 +13,7 @@ from ... import __version__
 from ...core import config, hardware, meters, sound, storage, system, themes, units, updates
 from ...core.connection import SIM_CARS
 from ..input import ACTION_NAMES
+from . import calibrate
 from .base import InfoDialog, Row, RowList, Screen, SoftKey, choose, confirm, cycle, label_of
 
 
@@ -30,7 +31,8 @@ LONG_PRESS = [(f"{s:g} s", s) for s in (0.5, 0.7, 1.0, 1.5)]
 WINDOWS = [(s, s) for s in ("800x480", "1024x600", "1280x720", "1280x800")]
 VOLUMES = [("Off", 0)] + [(f"{v}%", v) for v in range(10, 101, 10)]
 TONE_OPTIONS = [("Off", sound.OFF)] + [(sound.TONE_LABELS.get(t, t), t) for t in sound.TONES]
-RATIOS = [("1 (straight to the ADC)", 1.0), ("6 (50k / 10k divider)", 6.0), ("11 (100k / 10k)", 11.0)]
+RATIOS = [("1 (straight to the ADC)", 1.0), ("6 (50k / 10k divider)", 6.0), ("11 (100k / 10k)", 11.0),
+          ("21.04 (1M / 49.9k)", 21.04)]
 
 
 def _home(path: str) -> str:
@@ -105,7 +107,7 @@ class SettingsScreen(Screen):
             group("Sound", lambda: "off" if not s.get("sound.speaker") else f"{s.get('sound.volume')}%",
                   "volume, chirps, tones for events, buzzer"),
             group("Meters", lambda: f"{meters_on} on" if meters_on else "none on",
-                  "USB / serial meter, the Pi's ADC"),
+                  "USB / serial meter, the Pi's ADC, calibration"),
             group("Simulators", lambda: ", ".join(sims) if sims else "off",
                   "a pretend machine, car and meter, to try things"),
             group("Installed options", "", "what this unit has fitted"),
@@ -182,8 +184,12 @@ class SettingsScreen(Screen):
             Row("USB / serial meter", lambda: s.get("meters.serial") or "Off", select=self._serial,
                 hint="Pico / ESP32 bridge, JSON lines"),
             Row("ADC on the Pi", lambda: s.get("meters.iio") or "Off", select=self._iio, hint="kernel IIO driver"),
-            self._row("ADC input divider", "meters.iio_ratio", RATIOS, ctx.apply_meters),
+            self._row("ADC input divider", "meters.iio_ratio", RATIOS, ctx.iio_ratio_changed),
             self._toggle("Simulated meter", "meters.sim", ctx.apply_meters, hint="four probes on a pretend sensor"),
+            Row("Accuracy", kind="header"),
+            Row("Calibration", lambda: calibrate.summary(ctx), select=lambda: self.app.push(
+                calibrate.CalibrationScreen(self.app)), kind="menu",
+                hint="zero and gain per channel, against a known voltage"),
         ]
         srcs = ctx.hub.sources()
         if srcs:

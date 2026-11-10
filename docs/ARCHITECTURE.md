@@ -210,6 +210,12 @@ between them; sources without SYNC keep `ClockMapper`. Samples carry wall-clock 
 `CanFrame`; a capture records them to `measurements.csv`, and `capture_report` merges them into
 `live_data.csv` and the summary timeline.
 
+`core/calibration.py` holds a zero offset and gain per channel (`meters.cal` in `settings.json`).
+The hub applies them as samples arrive, so live views and captures see corrected values; raw
+listeners (`hub.add_listener(fn, raw=True)`) get the uncorrected ones. `CalSession` is the
+Full / Quick flow as a single-threaded state machine; the handheld's screen
+(`device/screens/calibrate.py`) feeds it readings and keys, and a desktop screen could do the same.
+
 ## Open work
 
 What's still to do for the handheld and beyond, roughly in priority order. Other docs refer to

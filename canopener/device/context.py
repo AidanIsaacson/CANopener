@@ -19,6 +19,7 @@ from ..can import pythoncan
 from ..core import bluetooth as bt
 from ..core import capture as cap
 from ..core import config, interfaces, link, meters, profiles, scan, sound, units
+from ..core.calibration import Calibration
 from ..core.capture import Capture
 from ..core.connection import (
     CANOPEN_SIM,
@@ -67,7 +68,8 @@ class DeviceContext:
         self.j1939_live = LiveData()
         self.obd_live = ObdLiveData()
         self.meter_live = MeasurementLiveData()
-        self.hub = MeasurementHub()
+        self.calibration = Calibration(self.settings)  # per-channel zero + gain (System > Meters > Calibration)
+        self.hub = MeasurementHub(calibration=self.calibration)
         self.hardware = Hardware(self.settings)     # installed options: what this unit has fitted
         self.pulse_clock = PulseClock()
         self.pps: PpsReader | None = None
@@ -144,6 +146,12 @@ class DeviceContext:
         for src in meters.sources_from_settings(self.settings, self.hardware, self.pulse_clock):
             self.hub.add_source(src)
         self.meter_live.clear()
+
+    def iio_ratio_changed(self):
+        """The Pi ADC's divider setting changed: its old calibration no longer fits."""
+        if self.calibration.reset_source("iio"):
+            self.toast("ADC divider changed: calibrate its channels again (System > Meters > Calibration)")
+        self.apply_meters()
 
     def _stop_pps(self):
         if self.pps is not None:
@@ -589,6 +597,9 @@ class DeviceContext:
             meta.update(interface=self.settings.get("can.iface"), bitrate=self.settings.get("can.bitrate"))
         if self.session is not None:
             meta["listen_only"] = self.session.listen_only
+        cal = self.calibration.snapshot()
+        if cal:
+            meta["calibration"] = cal       # the correction the readings were taken with
         return meta
 
     def toggle_log(self):

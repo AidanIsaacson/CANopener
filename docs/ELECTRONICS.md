@@ -1,6 +1,6 @@
 # CANopener: Electronics Bring-up (adapter-board prototype)
 
-*Living doc. Rev 0.8, 2026-11-09. This repo copy is the one to edit from now on.*
+*Living doc. Rev 0.9, 2026-11-11. This repo copy is the one to edit from now on.*
 
 **Scope.** The hand-wired proof of concept built on SOP/QFN-to-DIP adapter boards: pinouts, protection, what is sensitive to wire length, the front-end and timing design, and a working BOM. It is **not** the custom PCB. It exists to (1) get a working platform and (2) record what we learn as layout requirements. Enclosure, UI and software architecture stay in [DESIGN.md](DESIGN.md) / [DEVICE.md](DEVICE.md) / [ARCHITECTURE.md](ARCHITECTURE.md). DESIGN.md was brought up to these decisions in rev 0.6 (and the DB9 in 0.8). Code for each part: [Software per component](#18-software-per-component). The custom board: [hardware/README.md](../hardware/README.md).
 
@@ -60,7 +60,7 @@
 |---|---|---|
 | 0 | Pi 5 + Touch Display 2 + USB CANable 2.0 | `canopener-device` starts full screen at boot, touch works, the CANable is `can0`, a bench bus or a real machine reads (listen-only needs candleLight firmware). No soldering. Guide: [install/handheld-stage0.md](install/handheld-stage0.md) |
 | 0b | First controls: a few buttons + the encoder | Each wired button acts as its key in the UI; the encoder moves the focus one row per detent. Pins and overlay lines from `config-controls.txt`; touch still works for anything not wired yet. Same guide |
-| 1 | CAN stack A (MCP2518FD + TCAN1051V) | Its interface appears (not always `can0` with the CANable plugged in: `canopener-cli hardware` says which); loopback passes; frames exchanged with the CANable on a terminated bench bus on the same Pi; then listen-only on a real machine |
+| 1 | CAN stack A (MCP2518FD + TCAN1051V; on the prototype, the MCP2518FD module in 5.2a) | Its interface appears (not always `can0` with the CANable plugged in: `canopener-cli hardware` says which); loopback passes; frames exchanged with the CANable on a terminated bench bus on the same Pi; then listen-only on a real machine |
 | 2a | Logic Pico (original Pico, sigrok-pico) | `sigrok-cli` captures from it on the Pi |
 | 2b | Meter Pico (Pico 2) | Meter line protocol over USB; sync pulse generated and timestamped by the Pi |
 | 3 | ADS1115 on I2C | Probe voltages appear in a capture via the IIO source. **Front end per 5.7, never bare probes into the Pi's ADC** |
@@ -154,6 +154,17 @@ Same header on the 3B+ and Pi 5. Control pins come from the repo (`docs/DEVICE.m
 VDD 2.7-5.5 V. **Errata item 4 limits SCK to 0.85 x (SYSCLK/2)**: about **8.5 MHz** with the 20 MHz crystal, enforced automatically by the Linux driver. Plenty for J1939; 40 MHz doubles it (D10).
 
 Config: `dtoverlay=mcp251xfd,spi0-0,oscillator=20000000,interrupt=25` (stack B: `spi0-1`, `interrupt=20`). The oscillator value must match the crystal. Confirm parameter names with `dtoverlay -h mcp251xfd` on the Pi.
+
+### 5.2a Stage 1 on the prototype: MusRock MCP2518FD module [V from the product photos]
+
+Stage 1 uses a ready-made module ("MCP2518FD SPI CAN FD Controller Module") instead of the two adapter boards, so the CANable no longer hangs off a USB cable. Same controller, same overlay line and pins (5.1), so the software is unchanged. What the photos show, against the listing:
+
+- **Crystal: 20 MHz** (marked `H20.00`): `oscillator=20000000` as in `config-hardware.txt`.
+- **Transceiver: Microchip ATA6563**, not the TCAN1051V. Bus pins about -27 V to +42 V as far as I know [verify on the datasheet], against the TCAN's +/-58 V. A 12/24 V harness slip should survive; battery + from a 36/48 V pack onto CAN-H probably won't (section 2, section 7). Fine for the bench and 24 V machines; the custom board keeps the TCAN1051V(HV).
+- **Not isolated**, whatever the listing says: no isolator or isolated supply on the board, and **G** is board ground. That matches section 10 (one shared ground).
+- **Termination:** 120 ohm (marked `121`) on a 2-pin jumper beside the screw terminal. Off when sniffing.
+- **Header P1** (2x6): GND, 5V, INT, 3V3, SCK, GND, SDI, INT1, SDO, INT0, nCS, CLK. Wire 5V, GND, SCK, SDI, SDO, nCS and INT as in 5.1; leave INT0, INT1 and CLK open (CLK is a test point for the crystal). Leave **P2** (the 4.5-36 V input behind the MB10S bridge) unconnected: power comes from the Pi.
+- **Before the SPI wires go on:** power it from 5V and GND only and measure the 3V3 pin. About 3.3 V: the board makes its own, leave the Pi's 3V3 off it. 0 V: feed it from the Pi's 3V3. If MCP2518FD pin 14 (VDD) reads 5 V, stop: SDO would put 5 V on GPIO9. [TBD: record which]
 
 ### 5.3 TCAN1051V-Q1 (SOIC-8, on a SOP8 adapter) [V datasheet, TI product page]
 
@@ -267,7 +278,9 @@ Confirm sigrok's D-numbers equal GPIO numbers before wiring. [TBD]
 
 ### 5.7 ADS1115 (stage 3, on the Pi)
 
-VDD to 3V3, GND, SCL to GPIO3, SDA to GPIO2, ADDR to GND (0x48), AIN0-3 to probes. This one is on the **Pi's** I2C, so per the protection policy it never gets a bare probe: use a high-value divider (about 1 Mohm total) and a Schottky clamp to 3.3 V per input. Inputs must stay within about GND-0.3 V to VDD+0.3 V. 860 SPS max: a meter, not a scope. **Overlay:** the repo uses `dtoverlay=ads1015`. The Pi has a separate `ads1115` overlay, and as far as I know ads1015 mode treats the chip as the 12-bit part. Check `dtoverlay -h ads1115` on the Pi. The repo now says `dtoverlay=ads1115` and finds the IIO device as `ads1115` (or `ads1015`) [verify on the Pi].
+VDD to 3V3, GND, SCL to GPIO3, SDA to GPIO2, ADDR to GND (0x48), AIN0-3 to probes. This one is on the **Pi's** I2C, so per the protection policy it never gets a bare probe: use a high-value divider (about 1 Mohm total) and a Schottky clamp to 3.3 V per input.
+
+**Prototype divider [P]:** per input, a **1 Mohm 1% metal-film** (through-hole, measured, the four closest to nominal) over a **49.9 kohm 0.1% 0805** (on an 0805 adapter), 100 nF from the tap to GND, and a small-signal Schottky pair (BAT54S, BAT43, BAT85) to 3.3 V and GND. Ratio 21.04 (System > Meters > ADC input divider): 60 V reads 2.85 V at the pin, and the clamp starts near 69 V. Metal film, not carbon (carbon drifts a percent or two from a cold floor to a warm shop). No power Schottkys (1N5817/1N5819): the tap is about 47.5 kohm, so 1 uA of diode leakage is about 1 V at the probe. The 1% top resistor and the ADS1115's own input resistance leave each channel a percent or so off; System > Meters > Calibration corrects it per channel (docs/DEVICE.md). Inputs must stay within about GND-0.3 V to VDD+0.3 V. 860 SPS max: a meter, not a scope. **Overlay:** the repo uses `dtoverlay=ads1015`. The Pi has a separate `ads1115` overlay, and as far as I know ads1015 mode treats the chip as the 12-bit part. Check `dtoverlay -h ads1115` on the Pi. The repo now says `dtoverlay=ads1115` and finds the IIO device as `ads1115` (or `ads1015`) [verify on the Pi].
 
 ### 5.8 Controls (stage 4)
 
@@ -360,7 +373,7 @@ For board-level work (SPI, I2C, UART on 3.3/5 V logic): logic Pico D7-D14 throug
 
 ### 6.6 CAN monitors (meter Pico ADC0-2)
 
-CAN-H, CAN-L and CAN GND into the Pico ADC (0-3.3 V). High-value dividers (100 kohm or more total, so they don't load the bus much) with a clamp to 3.3 V that survives the +/-58 V miswire case. A small cap at each ADC pin (about 10 nF) holds the sample, since the Pico ADC needs low source impedance. Values [P] on the bench; the ordered 49.9k 0.1% parts work here.
+CAN-H, CAN-L and CAN GND into the Pico ADC (0-3.3 V). High-value dividers (100 kohm or more total, so they don't load the bus much) with a clamp to 3.3 V that survives the +/-58 V miswire case. A small cap at each ADC pin (about 10 nF) holds the sample, since the Pico ADC needs low source impedance. Values [P] on the bench; with parts on hand, **100 kohm 1% over 10 kohm 0.1%** gives exactly the 11:1 `CAN_DIVIDER` in `firmware/meter-pico/config.py`.
 
 ### 6.7 Component test source (probe 4 "SRC") [P, D13]
 
@@ -399,6 +412,7 @@ SRC rail (after shunt) -- [GP10/11 switch] -- 100 V Schottky -- 4.7k --> probe 1
 ### 7.2 Other notes
 
 - Battery voltage across a live CAN bus is out of scope (section 2): every module on it would already be dead.
+- The stage 1 prototype's module has an ATA6563 transceiver (5.2a): about +42 V on the bus pins [verify], so the 36/48 V miswire is out of reach until the TCAN1051V stack is built.
 - Termination resistors aren't miswire-tolerant: 48 V across 120 ohm is about 19 W. Termination switch off when sniffing; accept a burnt resistor as the failure mode on the bench.
 - Custom board: the **TCAN1051HV-Q1** variant raises bus fault protection to +/-70 V, which covers 48 V packs while charging (D10). Confirm pin compatibility and price before ordering.
 
@@ -494,7 +508,9 @@ Rules of thumb, not measured. Replace with measured values.
 
 ### 12.2 On hand
 
-Raspberry Pi 3B+, TFT display, original Pico (RP2040; logic analyzer), loose DB9 connectors, SN65HVD230 CAN module, USB CAN adapters (stage 1 bench partner), adapter-board kit (5 each SOP8, SOT23/SOP10, SOP14, SOP16, SOP20, SOP24, SOP28, 0402/0603/0805, SOT89/SOT223; 2 each TQFP100, QFN32, QFN44/48). Arriving: Pi 5, 10.1" Touch Display 2.
+Raspberry Pi 5, 10.1" Touch Display 2, Raspberry Pi 3B+, TFT display, original Pico (RP2040; logic analyzer), Pico 2 (meter), ADS1115 breakouts, MusRock MCP2518FD module (stage 1, 5.2a), loose DB9 connectors, SN65HVD230 CAN module, USB CAN adapters (stage 1 bench partner), adapter-board kit (5 each SOP8, SOT23/SOP10, SOP14, SOP16, SOP20, SOP24, SOP28, 0402/0603/0805, SOT89/SOT223; 2 each TQFP100, QFN32, QFN44/48).
+
+Resistors: 10 kohm and 49.9 kohm 0.1% 0805 (ordered); through-hole 1% assortment: 10k, 22k, 33k, 47k, 56k, 68k, 75k, 100k, 220k, 470k, 1M (30 of the 1M).
 
 ### 12.3 To buy (next order)
 
@@ -593,8 +609,8 @@ Quantities for 4 probe channels on one unit, plus spares for the bench.
 
 ## 17. Changelog
 
+- 0.9 (2026-11-11): stage 1 on the MusRock MCP2518FD module (5.2a): 20 MHz crystal, ATA6563 transceiver (lower bus fault rating, 7.2), not isolated, jumpered termination. Stage 3 divider from parts on hand (1 Mohm 1% over 49.9 kohm 0.1%, ratio 21.04) and the CAN-monitor divider (100k / 10k). On-hand list updated. Meter channels calibrate on the handheld.
 - 0.8 (2026-11-09): one DB9 for every adapter (D9 decided, 5.5): CAN A on the CiA 303-1 pins, CAN B on 8 / 4, K-line on 1, battery sense on 9, grounds on 3 / 6, shield on 5. Cable tables and a wiring diagram (images/db9-cables.svg) for the OBD-II (Ford), J1939 Deutsch and bench cables, and a warning about the other (SparkFun-style) OBD-to-DB9 pinout. Block diagram, TCAN pins, stage 5, protection table, to-buy list and open questions updated.
-
 - 0.7 (2026-11-02): new stage 0 (Pi 5 + Touch Display 2 + the USB CANable, no soldering) and 0b (first buttons + encoder), guide in docs/install/handheld-stage0.md. Stage 4 is now the rest of the controls. Stage 1 uses the CANable on the same Pi as bench partner. Installed options `usb_can` and `controls`; the CAN stacks are found by SPI chip select, since with a USB adapter plugged in the MCP2518FD isn't always `can0`.
 - 0.6 (2026-11-01): moved into the repo as docs/ELECTRONICS.md. Section 16 marked up. New sections 18 (software per component) and 19 (installed options). Pi config lines in `deploy/raspberry-pi/config-hardware.txt`; firmware sketches in `firmware/`; custom-board groundwork in `hardware/README.md`. ESP32 port is `/dev/ttyAMA0` on both Pis (on a Pi 5, `/dev/serial0` is the debug connector).
 - 0.5 (2026-11-01): component test source (D13, 6.7): current-limited, metered 5 V on probe 4 with backfeed blocking, switchable pull-ups on probes 1-2, Component Test mode outline. Protection-policy rows, meter Pico pins GP8-11, INA226 on I2C0, stage 7b, BOM lines, COM PTC hold-current note. 12 V+ supply recorded as an accessory (footnote 1).
@@ -612,11 +628,11 @@ What runs where, and the file that holds it. **Sketch** = written, not yet run o
 | Pi 5 / 3B+ (CM5 later) | Pi OS, `canopener-device` | `canopener/` (the app), `deploy/raspberry-pi/install.sh`, `deploy/raspberry-pi/config-hardware.txt` (overlays per stage) | App runs on the simulators; overlays sketch |
 | USB CANable 2.0 (stage 0) | Kernel `gs_usb` (candleLight) or `slcand` (slcan) | `can/backends.py`, `deploy/linux/adapter-setup.sh` (drivers, plug-in rule), `core/interfaces.py` | Done, used on the laptop; first run on the Pi at stage 0 |
 | Touch Display 2 | Pi OS (DSI, touch as mouse events in SDL) | `device/app.py` (rotation, mm-based sizing) | Untested on the panel |
-| CAN stack A / B (MCP2518FD + TCAN1051V) | Kernel `mcp251xfd` driver -> `can0` / `can1` | `can/backends.py` (SocketCAN, unchanged); a second session per bus is still to do | Stack A ready to try; stack B needs the two-session work |
+| CAN stack A / B (MCP2518FD + TCAN1051V; prototype stack A: the module in 5.2a) | Kernel `mcp251xfd` driver -> `can0` / `can1` | `can/backends.py` (SocketCAN, unchanged); a second session per bus is still to do | Stack A ready to try; stack B needs the two-session work |
 | Meter Pico (Pico 2) | MicroPython now, C SDK for waveform streaming | `firmware/meter-pico/` (firmware); `core/meters.py` (Pi side: line protocol, commands) | Sketch |
 | SYNC pulse | Meter Pico timer -> Pi GPIO21 (`pps-gpio`) + logic Pico D2 | `firmware/meter-pico/main.py`; `core/sync.py` (`PulseClock`, `PpsReader`, `fit_edges`) | Sketch; Pi side unit-tested |
 | Logic Pico (Pico, RP2040) | Stock sigrok-pico | `firmware/logic-pico/README.md` (flash, build sigrok-cli); `core/logic.py` (command, channel names, SYNC edges) | Sketch |
-| ADS1115 on the Pi (stage 3) | Kernel IIO driver | `core/meters.IioSource` (unchanged) | Ready to try |
+| ADS1115 on the Pi (stage 3) | Kernel IIO driver | `core/meters.IioSource`; per-channel zero and gain in `core/calibration.py` (System > Meters > Calibration) | Ready to try |
 | ESP32 | Arduino sketch | `firmware/esp32-bridge/` (ESP-NOW -> line protocol on UART0; satellite packet v1) | Sketch, not compiled |
 | Probe front end, ohms, test source, ADS8584S | Meter Pico firmware | `firmware/meter-pico/parts.py` (MCP4728, ADS1115, INA226, ADS8584S) | Sketch; register values to verify |
 | Buttons, d-pad, encoder | Kernel `gpio-key` / `rotary-encoder` | `deploy/raspberry-pi/config-controls.txt`, `device/input.py` | Done, untested on a Pi |
