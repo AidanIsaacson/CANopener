@@ -15,6 +15,7 @@
 | Page | For |
 |---|---|
 | [install/handheld-stage0.md](install/handheld-stage0.md) | First steps: Pi 5, Touch Display 2, USB CANable, then buttons and encoder |
+| [install/handheld-prototype.md](install/handheld-prototype.md) | Wiring the modules: power rails, the CAN module, the Picos, the ADS1115 and probe inputs (stages 1-3) |
 | [DEVICE.md](DEVICE.md) | The handheld UI: layout, modes, controls wiring, displays, meters |
 | [DESIGN.md](DESIGN.md) | The handheld's concept, form factor and hardware plan |
 | [ELECTRONICS.md](ELECTRONICS.md) | Electronics bring-up: decisions, pinouts, protection, stages, BOM (the source of truth for pins) |

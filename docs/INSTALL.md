@@ -30,6 +30,7 @@ What it installs, your adapter's firmware, and troubleshooting:
 | A Linux laptop (Mint, Ubuntu, Debian) | [Linux laptop](install/linux-laptop.md) |
 | A Raspberry Pi with a screen, starting CANopener full screen at power-on | [Raspberry Pi](install/raspberry-pi.md) (tested on a Pi 5) |
 | The handheld build: Pi 5, Touch Display 2, buttons and encoder | [Handheld, first steps](install/handheld-stage0.md) |
+| The handheld's modules: CAN module, Picos, ADS1115 | [Handheld prototype wiring](install/handheld-prototype.md) |
 | Windows or macOS | Not supported for a real bus yet: CANopener uses Linux's built-in CAN support (SocketCAN) |
 
 **Adapters:** anything Linux sees as a CAN interface. The installers set up the CANable 2.0 /
