@@ -160,6 +160,6 @@ event at all means wiring or the config line; an event the app ignores means the
 
 ## Next
 
-Stage 1 is the first soldering: the MCP2518FD + TCAN1051V on adapter boards (ELECTRONICS.md
-sections 5.2-5.5, checklist in section 13). The CANable stays plugged in as its bench partner on
-the same Pi. The overlay line is ready in `deploy/raspberry-pi/config-hardware.txt`.
+Stages 1-3 wire up the modules: the MCP2518FD CAN module, the two Picos and the ADS1115 with its
+probe inputs, all on breadboard power rails: [Handheld prototype wiring](handheld-prototype.md).
+The CANable stays plugged in as the CAN module's bench partner on the same Pi.
