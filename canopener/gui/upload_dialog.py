@@ -36,6 +36,9 @@ class UploadDialog(QtWidgets.QDialog):
         self.token.setEchoMode(QtWidgets.QLineEdit.EchoMode.Password)
         self.token.setPlaceholderText(TOKEN_KEPT if upload.load_token() else "the upload token from the server's .env")
         form.addRow("Upload token", self.token)
+        self.repo = QtWidgets.QLineEdit(settings.get("upload.github_repo") or "")
+        self.repo.setPlaceholderText("owner/name of a private repository (uses the GitHub sign-in)")
+        form.addRow("GitHub repository", self.repo)
         self.on_save = QtWidgets.QCheckBox("Upload every capture when it's saved")
         self.on_save.setChecked(bool(settings.get("upload.on_save")))
         form.addRow("", self.on_save)
@@ -64,9 +67,11 @@ class UploadDialog(QtWidgets.QDialog):
     def _sync(self):
         for w in (self.url, self.token):
             w.setEnabled(self._is_server())
+        self.repo.setEnabled(self.target.currentData() == "github")
 
     def apply(self):
         self.settings.update({"upload.target": self.target.currentData(), "upload.url": self.url.text().strip(),
+                              "upload.github_repo": self.repo.text().strip(),
                               "upload.on_save": self.on_save.isChecked()})
         if self.token.text().strip():
             upload.save_token(self.token.text())

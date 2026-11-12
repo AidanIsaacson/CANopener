@@ -133,7 +133,7 @@ def test_handheld_machine_and_upload(tmp_path, server, monkeypatch):  # noqa: F8
         labels = [k.label for k in app.softkey_slots() if k]
         assert labels[:4] == ["New log", "Upload", "Machine", "More"]
         ctx.upload_log()
-        assert "No upload server" in ctx.current_toast()
+        assert "Nowhere to upload to yet" in ctx.current_toast()
         s.set("upload.url", server[0])
         upload.save_token("up-token")
         ctx.upload_log()

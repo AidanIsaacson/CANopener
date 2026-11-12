@@ -240,6 +240,7 @@ a box). Remap them under **Log → Keyboard shortcuts…**.
 | `README.md` | What the folder is: the machine, the concern, what to look at, how it was connected, the timestamps, what the machine said about itself, and the traffic nothing decoded. Kept up to date as you edit. |
 | `live_data.csv` | Every live value twice a second, with your timestamps in a column. Opens in a spreadsheet. |
 | `traffic.csv` | Every message seen (PGN and sender, or 11-bit ID): how many, how often, and whether CANopener decoded it. |
+| `adapter_trace.txt` | Recorded through a Bluetooth OBD adapter: everything sent to it and every line it answered, as it printed them. |
 | `capture.log` | Every raw frame. Reopen it with **Open…** in the Log panel, then **View data**. |
 | `markers.csv`, `capture.json` | The timestamps, and everything in machine-readable form. |
 
@@ -278,13 +279,27 @@ On the handheld, **Machine** on the Data log screen picks from what the bus repo
 scan** asks for it) or a recent machine. Typing the details is done on the desktop or with the
 command line (below).
 
-**Uploading.** A saved capture can go to your own upload server, to read somewhere else a minute
-later. Setting up the server: [deploy/upload-server/README.md](../deploy/upload-server/README.md).
+**Uploading.** A saved capture can go to your own upload server or to a private GitHub
+repository, to read somewhere else a minute later.
 
-1. **Log → Upload settings…**: the server's address (`https://...`) and an upload token, then
-   **Test**. Tick **Upload every capture when it's saved** to skip step 2. (On the handheld or over
-   SSH: `canopener-cli upload --setup`.)
-2. After **Save**, press **⇪ Upload** in the Log panel (handheld: **Upload** on the Data log screen).
+* **Upload server:** setting it up is in [deploy/upload-server/README.md](../deploy/upload-server/README.md).
+  Then **Log → Upload settings…**: the server's address (`https://...`) and an upload token, then
+  **Test**. (On the handheld or over SSH: `canopener-cli upload --setup`.)
+* **A private GitHub repository**, with the GitHub sign-in the handheld already uses for
+  plugins (nothing to type on it). Once, from a phone or computer: make a **private** repository
+  for captures. In GitHub's **Settings → Developer settings → GitHub Apps →** (the CANopener app)
+  **→ Permissions & events → Repository permissions**, set **Contents** to **Read and write** and
+  save. Then accept it under **Settings → Applications → Installed GitHub Apps** (it asks you to
+  review the new permission there), and on the same page **Configure** the App to add the new
+  repository. Then on the handheld: sign in (**System → Software → Plugins → Sign in to GitHub**),
+  and the first **Upload** asks which repository (**More → Upload to…** changes it). Desktop:
+  **Log → Upload settings… → Send to: GitHub**, and the repository as `owner/name`; command line:
+  `canopener-cli upload --github owner/name`. Public repositories are refused: captures hold
+  serial numbers and customers. The write permission applies to every repository the App is
+  installed on, so a lost handheld could write to those too: install it only where it's needed.
+
+After **Save**, press **⇪ Upload** in the Log panel (handheld: **Upload** on the Data log screen),
+or tick **Upload every capture when it's saved** in Upload settings.
 
 It uploads in the background and tells you when it's done, with the capture's address on the
 server. With no connection it waits and tries again; uploads still waiting when you close the app

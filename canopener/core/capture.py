@@ -48,6 +48,7 @@ LIVE_CSV = "live_data.csv"
 FULL_LOG = "capture_full.log"       # the untrimmed log, when trimming keeps it
 FULL_MEASUREMENTS = "measurements_full.csv"
 SUMMARY_TXT = "summary.txt"
+ADAPTER_TRACE = "adapter_trace.txt"     # a Bluetooth OBD adapter's own text, while recording through one
 README_MD = "README.md"
 TRAFFIC_CSV = "traffic.csv"
 PENDING_PREFIX = ".recording_"
@@ -335,6 +336,7 @@ class Capture:
                 self.meta["identity_before"] = heard
         if session is not None:
             session.start_recording(self.log_path)
+            self._start_trace(session)
         else:
             open(self.log_path, "w").close()     # no bus: an empty log keeps every tool working
         if measurements is not None:
@@ -347,6 +349,7 @@ class Capture:
     def stop(self):
         if self.state != RECORDING:
             return
+        self._stop_trace()
         done = self._session.stop_recording() if self._session else None
         self.frames = done[1] if done else self.frames
         self._session = None
@@ -357,6 +360,26 @@ class Capture:
         self.stopped = time.time()
         self.state = STOPPED
         self._write_state()
+
+    def _start_trace(self, session):
+        """Through a Bluetooth OBD adapter, keep its raw conversation beside the log: the frames in
+        capture.log are rebuilt from it (non-CAN cars), so this is what shows a reply that didn't parse."""
+        backend = getattr(session, "backend", None)
+        if backend is None or not hasattr(backend, "trace_path"):
+            return
+        path = os.path.join(self.folder, ADAPTER_TRACE)
+        with open(path, "w") as f:
+            proto = getattr(backend, "protocol_name", "") or "not found yet"
+            f.write(f"# Bluetooth OBD adapter: {getattr(backend, 'version', '') or '?'}, vehicle protocol "
+                    f"{proto}. '>' = sent, '<' = the adapter's reply lines, as it printed them.\n")
+        backend.trace_path = path
+        self._traced = backend
+
+    def _stop_trace(self):
+        backend = getattr(self, "_traced", None)
+        if backend is not None:
+            backend.trace_path = None
+            self._traced = None
 
     @property
     def recorded_frames(self) -> int:

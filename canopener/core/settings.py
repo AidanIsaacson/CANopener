@@ -81,6 +81,7 @@ DEFAULTS: dict = {
     "upload.on_save": False,            # queue every capture for upload when it's saved
     "upload.part_mb": 8,                # upload in parts this big (a Cloudflare tunnel takes up to 100 MB)
     "upload.allow_http": False,         # allow a plain http:// server (only on a network you trust)
+    "upload.github_repo": "",           # "github" target: owner/name of a private repository (core/upload_github.py)
     "plugins.sources": [],              # GitHub repos to install plugins from (core.plugin_repos)
     "github.client_id": "",             # GitHub App for sign-in ("" = core.github.DEFAULT_CLIENT_ID)
 }

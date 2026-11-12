@@ -8,8 +8,10 @@ folders still to send are listed in ``~/.config/canopener/upload-queue.json``.
 
 Where captures go is an ``Uploader``. Built in: ``HttpUploader`` (id ``"server"``), for the
 receiving server in ``deploy/upload-server/`` (any HTTPS host speaking the same small API: see its
-README). A plugin can add another destination with ``register_uploader`` (the GUI's
-``PluginApi.register_uploader`` does the same).
+README). Also built in: ``upload_github.GitHubUploader`` (id ``"github"``), which commits captures
+to a private GitHub repository with the device's GitHub sign-in (no server needed). A plugin can
+add another destination with ``register_uploader`` (the GUI's ``PluginApi.register_uploader``
+does the same).
 
 Settings (``core/settings.py``): ``upload.target`` (which uploader), ``upload.url`` (the server),
 ``upload.on_save`` (queue every capture when it's saved). The server's token is not a setting: it
@@ -141,6 +143,7 @@ class Bundle:
     key: str
     manifest: dict
     fingerprint: str
+    folder: str = ""            # the capture folder it was made from
 
 
 def make_bundle(folder: str, out_dir: str | None = None, key: str | None = None) -> Bundle:
@@ -161,7 +164,7 @@ def make_bundle(folder: str, out_dir: str | None = None, key: str | None = None)
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
-    return Bundle(path, os.path.getsize(path), h.hexdigest(), key, manifest(c, key), fp)
+    return Bundle(path, os.path.getsize(path), h.hexdigest(), key, manifest(c, key), fp, folder)
 
 
 # ---------------------------------------------------------------------- per-capture state
@@ -636,3 +639,6 @@ def after_save(queue: UploadQueue | None, settings, folder: str) -> Status | Non
         return queue.enqueue(folder)
     except UploadError:
         return None
+
+
+from . import upload_github  # noqa: E402,F401  (registers the GitHub uploader; it imports this module)

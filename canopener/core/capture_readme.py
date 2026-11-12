@@ -13,6 +13,7 @@ import datetime
 import os
 
 from .capture import (
+    ADAPTER_TRACE,
     CAPTURE_LOG,
     FULL_LOG,
     FULL_MEASUREMENTS,
@@ -39,6 +40,9 @@ FILES = {
     MARKERS_CSV: "the timestamps (wall clock and seconds since the start)",
     TRAFFIC_CSV: "every PGN / source and 11-bit ID: frame count, rate, length, and whether it decoded",
     MEASUREMENTS_CSV: "meter readings (wall-clock times, same clock as capture.log)",
+    ADAPTER_TRACE: "the Bluetooth OBD adapter's own text (commands sent, every reply line): on a non-CAN "
+                   "vehicle (K-line, J1850) the frames in capture.log are rebuilt from this, so a reply "
+                   "that didn't parse only shows here",
     META_JSON: "the capture's state: machine details, markers, connection, analysis summary",
     "report.txt": "the scan report (fault codes, machine info) from when this was recorded",
     FULL_LOG: "the untrimmed log (this capture was trimmed to the stretch around its timestamps)",

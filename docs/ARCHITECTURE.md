@@ -68,7 +68,8 @@ which also suggests machine details from a live `Session`).
 
 `core/upload.py` zips a saved folder, keeps per-capture state in its `upload.json` and the queue in
 `~/.config/canopener/upload-queue.json`, and sends one capture at a time on its own thread with a
-growing back-off. The built-in `HttpUploader` speaks the small chunked API of
+growing back-off. `core/upload_github.py` commits a capture to a private GitHub repository with
+the device's GitHub sign-in (Git Data API: blobs, tree, commit, ref). The built-in `HttpUploader` speaks the small chunked API of
 `deploy/upload-server/server.py` (standard library, one file; API and setup in its README). Parts
 are resumable: creating the same upload again returns the parts the server already has. Both UIs
 poll `UploadQueue.status()`; the desktop starts the thread in `MainWindow`, the handheld in

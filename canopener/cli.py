@@ -658,6 +658,9 @@ def cmd_upload(a) -> int:
         if token:
             upload.save_token(token)
         a.test = True
+    if a.github:
+        s.update({"upload.target": "github", "upload.github_repo": a.github.strip()})
+        a.test = True
     if a.on_save is not None:
         s.set("upload.on_save", a.on_save == "on")
         print(f"Upload when saved: {a.on_save}")
@@ -1077,6 +1080,9 @@ def main(argv=None) -> int:
     upl.add_argument("--setup", action="store_true", help="set the server address and token, then test them")
     upl.add_argument("--test", action="store_true", help="check the server and the token (sends nothing)")
     upl.add_argument("--on-save", choices=["on", "off"], help="queue every capture for upload when it's saved")
+    upl.add_argument("--github", metavar="OWNER/NAME",
+                     help="upload to this private GitHub repository instead, with the GitHub sign-in "
+                          "(canopener-cli plugins login), then test it")
     upl.set_defaults(fn=cmd_upload)
 
     from . import plugins

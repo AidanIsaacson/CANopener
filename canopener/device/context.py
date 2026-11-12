@@ -697,6 +697,22 @@ class DeviceContext:
             cap.remember_machine(c.machine)
         self.toast(f"Machine: {c.machine_summary() or 'none'}")
 
+    def github_repos(self, done):
+        """List the repositories the GitHub sign-in can reach (a job: it asks GitHub), then
+        ``done(names)``. False when not signed in."""
+        from ..core import github
+        acct = github.load_account()
+        if acct is None:
+            return False
+        return self.run_job("Asking GitHub for your repositories", lambda: github.repositories(acct.token), done)
+
+    def upload_to_github(self, repo: str):
+        """Send uploads to this private repository from now on, and upload the saved log."""
+        self.settings.update({"upload.target": "github", "upload.github_repo": repo})
+        self.toast(f"Uploads go to {repo}")
+        if self.capture.state == cap.SAVED:
+            self.upload_log()
+
     def start_uploads(self):
         self.uploads.start()
 
@@ -719,7 +735,8 @@ class DeviceContext:
             self.toast("Save the log first")
             return
         if upload.target(self.settings) is None:
-            self.toast("No upload server set up yet: run canopener-cli upload --setup (or set it on the desktop)")
+            self.toast("Nowhere to upload to yet: sign in to GitHub (System > Software > Plugins) and pick a "
+                       "private repository, or set up an upload server (canopener-cli upload --setup)")
             return
         try:
             self.uploads.enqueue(c.folder)

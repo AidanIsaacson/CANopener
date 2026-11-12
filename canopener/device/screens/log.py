@@ -12,7 +12,7 @@ import os
 import pygame
 
 from ...core import capture as cap
-from ...core import config, storage
+from ...core import config, storage, upload
 from ...core.capture import Capture, fmt_elapsed
 from .. import input as inp
 from ..ui import ListView
@@ -58,7 +58,7 @@ class LogScreen(Screen):
         if c.state == cap.SAVED:
             up = ctx.upload_status()
             return [SoftKey("New log", ctx.start_log, enabled=not busy),
-                    SoftKey("Upload again" if up.state == "done" else "Upload", ctx.upload_log,
+                    SoftKey("Upload again" if up.state == "done" else "Upload", self.upload,
                             enabled=not busy and up.state not in ("queued", "uploading")),
                     SoftKey("Machine", self.machine), SoftKey("More", self.more, enabled=not busy)]
         keys = [SoftKey("Start", ctx.start_log, enabled=not busy), SoftKey("Plan", self.plan),
@@ -76,9 +76,31 @@ class LogScreen(Screen):
             return
         choose(self.app, "Which machine is this?", opts, None, self.ctx.set_machine)
 
+    def upload(self):
+        if upload.target(self.ctx.settings) is None and self.pick_destination():
+            return
+        self.ctx.upload_log()
+
+    def pick_destination(self) -> bool:
+        """Choose a private GitHub repository to upload to (signed in to GitHub). False if not signed in."""
+        def show(names):
+            if not names:
+                self.ctx.toast("Your GitHub sign-in can't see any repositories: install the CANopener GitHub "
+                               "App on a private one")
+                return
+            choose(self.app, "Upload to which private repository?", [(n, n) for n in names],
+                   self.ctx.settings.get("upload.github_repo") or None, self.ctx.upload_to_github)
+        return self.ctx.github_repos(show)
+
     def more(self):
-        choose(self.app, "Saved log", [("Trim to the stretch around the timestamps", self.trim),
-                                       ("Copy to USB", self.export)], None, lambda fn: fn())
+        where = upload.target(self.ctx.settings)
+        opts = [("Trim to the stretch around the timestamps", self.trim), ("Copy to USB", self.export),
+                (f"Upload to... (now: {where.describe(self.ctx.settings) if where else 'nowhere'})", self._destination)]
+        choose(self.app, "Saved log", opts, None, lambda fn: fn())
+
+    def _destination(self):
+        if not self.pick_destination():
+            self.ctx.toast("Sign in to GitHub first: System > Software > Plugins > Sign in to GitHub")
 
     def plan(self):
         templates = cap.load_templates()
