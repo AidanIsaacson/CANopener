@@ -5,6 +5,7 @@ Recording:  Start/Stop and Timestamp keys (Enter / Space by default), number key
             specific timestamp, Backspace undoes the last tag.
 Stopped:    relabel / delete / reorder / add notes, then Save, Save As or Discard. Saving a long
             capture offers to trim it to the stretch around its timestamps (Trim… any time).
+Saved:      Upload sends it to the upload server (core/upload.py); Machine… works in every state.
 
 All capture logic lives in ``canopener.core.capture``; this is only the screen for it.
 """
@@ -13,7 +14,7 @@ import os
 import time
 
 from ..core import capture as cap
-from ..core import config, report
+from ..core import config, report, upload
 from ..core.capture import Capture, fmt_elapsed
 from . import themes
 from .hotkeys import typing
@@ -34,6 +35,7 @@ class LogPanel(QtWidgets.QDockWidget):
     export_requested = Signal()
     keys_requested = Signal()
     recording_changed = Signal(bool)     # a capture started / stopped (OBD-II starts polling)
+    upload_settings_requested = Signal()
 
     def __init__(self, ctx, hotkeys, settings: QtCore.QSettings, meta_fn, parent=None):
         super().__init__("Log", parent)
@@ -44,6 +46,9 @@ class LogPanel(QtWidgets.QDockWidget):
         self.meta_fn = meta_fn              # () -> dict describing the connection, for capture.json
         self.status_extra = None            # () -> a line for the status while recording (e.g. OBD-II polling)
         self.extra_reports = None           # () -> {file name: text} saved with the capture
+        self.uploads: upload.UploadQueue | None = None     # set by the main window
+        self.upload_settings = None         # the core Settings the queue reads
+        self.obd_info = None                # () -> ObdSniffer.info, for the machine details' VIN
         self._flash: tuple[int, float] | None = None
         self._rebuilding = False
         plan = settings.value("log/plan")
@@ -81,6 +86,16 @@ class LogPanel(QtWidgets.QDockWidget):
         self.notes.setMaximumHeight(70)
         self.notes.textChanged.connect(self._notes_changed)
         lay.addWidget(self.notes)
+        ml = QtWidgets.QHBoxLayout()
+        self.machine_label = QtWidgets.QLabel()
+        self.machine_label.setWordWrap(True)
+        ml.addWidget(self.machine_label, 1)
+        self.machine_btn = QtWidgets.QPushButton("Machine…")
+        self.machine_btn.setToolTip("Make, model, serial, hours, the concern and what to look at in the data "
+                                    "(can be filled in from the bus)")
+        self.machine_btn.clicked.connect(self.edit_machine)
+        ml.addWidget(self.machine_btn)
+        lay.addLayout(ml)
 
         tl = QtWidgets.QHBoxLayout()
         self.templates = QtWidgets.QComboBox()
@@ -180,9 +195,16 @@ class LogPanel(QtWidgets.QDockWidget):
         self.trim_saved_btn = QtWidgets.QPushButton("Trim…")
         self.trim_saved_btn.setToolTip("Keep only the stretch around your timestamps, and re-save")
         self.trim_saved_btn.clicked.connect(self.trim)
-        for b in (open_btn, view_btn, self.trim_saved_btn, new_btn):
+        self.upload_btn = QtWidgets.QPushButton("⇪ Upload")
+        self.upload_btn.setToolTip("Send this capture to the upload server (Log > Upload settings…)")
+        self.upload_btn.clicked.connect(self.upload)
+        for b in (open_btn, view_btn, self.trim_saved_btn, self.upload_btn, new_btn):
             svl.addWidget(b)
         lay.addWidget(self.saved_row)
+        self.upload_label = QtWidgets.QLabel()
+        self.upload_label.setWordWrap(True)
+        self.upload_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        lay.addWidget(self.upload_label)
 
         line = QtWidgets.QFrame()
         line.setFrameShape(QtWidgets.QFrame.Shape.HLine)
@@ -332,9 +354,59 @@ class LogPanel(QtWidgets.QDockWidget):
             dlg.close()
         if folder not in self.ctx.saved_paths:
             self.ctx.saved_paths.append(folder)
+        cap.remember_machine(c.machine)
+        queued = upload.after_save(self.uploads, self.upload_settings, folder) if self.uploads else None
         self._sync()
-        self._message(f"Saved {os.path.basename(folder)}" + (" (start pressed)" if quiet else ""))
+        self._message(f"Saved {os.path.basename(folder)}" + (" (start pressed)" if quiet else "")
+                      + (", queued for upload" if queued else ""))
         return folder
+
+    # ------------------------------------------------------------------
+    # machine details and uploading
+    # ------------------------------------------------------------------
+    def edit_machine(self):
+        from .machine_dialog import MachineDialog
+        self._commit_editor()
+        dlg = MachineDialog(self.capture, self.ctx.session, self.obd_info, self)
+        if dlg.exec():
+            self._sync()
+            self._message("Machine details saved" if self.capture.folder else "Machine details set for this capture")
+
+    def upload(self):
+        c = self.capture
+        if self.uploads is None or c.state != cap.SAVED or not c.folder:
+            return
+        if upload.target(self.upload_settings) is None:
+            self.upload_settings_requested.emit()
+            if upload.target(self.upload_settings) is None:
+                return
+        try:
+            self.uploads.enqueue(c.folder)
+        except upload.UploadError as e:
+            QtWidgets.QMessageBox.warning(self, "Upload", str(e))
+            return
+        self.uploads.retry_now()
+        self._sync_upload()
+        self._message("Queued for upload")
+
+    def _sync_upload(self):
+        c = self.capture
+        st = self.uploads.status(c.folder) if self.uploads and c.state == cap.SAVED else upload.Status()
+        text = st.text
+        if st.state == upload.DONE and st.url and not st.stale:
+            text += f"\n{st.url}"
+        elif not st.state and self.uploads and c.state == cap.SAVED:
+            waiting = self.uploads.waiting()
+            text = f"{waiting} other capture(s) waiting to upload" if waiting else ""
+        if self.upload_label.text() != text:
+            self.upload_label.setText(text)
+            kind = {"done": "ok", "failed": "bad"}.get(st.state, "")
+            self.upload_label.setStyleSheet(themes.fill_style(kind) + " padding: 4px; border-radius: 4px;"
+                                            if kind and not st.stale else "color: gray")
+        self.upload_label.setVisible(bool(text))
+        busy = st.state in (upload.QUEUED, upload.UPLOADING)
+        self.upload_btn.setEnabled(not busy)
+        self.upload_btn.setText("⇪ Upload again" if st.state == upload.DONE else "⇪ Upload")
 
     # ------------------------------------------------------------------
     # trimming
@@ -636,6 +708,9 @@ class LogPanel(QtWidgets.QDockWidget):
                 wdg.blockSignals(False)
         for b in (self.load_tpl, self.templates):
             b.setEnabled(idle)
+        summary = c.machine_summary()
+        self.machine_label.setText(summary or "No machine details")
+        self.machine_label.setStyleSheet("" if summary else "color: gray")
 
         hk = self.hotkeys.label
         if rec:
@@ -661,6 +736,7 @@ class LogPanel(QtWidgets.QDockWidget):
             self._rebuild_table()
         self._update_status()
         self.folder_label.setText(f"Saving to: {config.logs_dir()}")
+        self._sync_upload()
         self._sync_keys_label()
 
     def _sync_keys_label(self):
@@ -743,6 +819,8 @@ class LogPanel(QtWidgets.QDockWidget):
         """Called by the main window's timer."""
         if self.recording:
             self._update_status()
+        elif self.capture.state == cap.SAVED and self.uploads is not None:
+            self._sync_upload()
         paused = self.isVisible() and typing()
         if paused != getattr(self, "_paused_shown", None):
             self._paused_shown = paused

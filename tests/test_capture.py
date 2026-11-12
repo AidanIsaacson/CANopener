@@ -106,8 +106,8 @@ def test_record_stop_edit_save(bus_and_session, tmp_path):
     folder = c.save()
     assert c.state == cap.SAVED and not c.pending
     assert os.path.basename(folder).endswith("_Unit_14")
-    assert sorted(os.listdir(folder)) == ["capture.json", "capture.log", "live_data.csv", "markers.csv",
-                                          "summary.txt"]
+    assert sorted(os.listdir(folder)) == ["README.md", "capture.json", "capture.log", "live_data.csv",
+                                          "markers.csv", "summary.txt", "traffic.csv"]
     summary = open(os.path.join(folder, "summary.txt")).read()
     assert "1 - key on (cold)" in summary and "dies after 10 min" in summary
     # "went silent" is stamped with the ECU's last frame, a few ms either side of the marker

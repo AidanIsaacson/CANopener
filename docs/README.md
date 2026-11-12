@@ -31,4 +31,5 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the software is built, what maps to the handheld, open work |
 | [BLUETOOTH-OBD.md](BLUETOOTH-OBD.md) | Bluetooth OBD adapters: **gaps to fill**, adapters tried, how to test it yourself |
 | [../deploy/linux/README.md](../deploy/linux/README.md) | The Linux installer's files and adapter rules |
+| [../deploy/upload-server/README.md](../deploy/upload-server/README.md) | The capture upload server: setup (Docker, nginx, Cloudflare tunnel), reading captures back, its API |
 | [../CLAUDE.md](../CLAUDE.md) | Project rules (written for Claude Code, useful for anyone) |

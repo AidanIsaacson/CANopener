@@ -1,0 +1,19 @@
+# /etc/nginx/sites-available/canopener-upload  (then symlink it into sites-enabled and reload)
+# cloudflared sends https://logs.example.com here; nginx hands it to the container on 127.0.0.1:8087.
+server {
+    listen 127.0.0.1:8088;                  # only cloudflared (on this host) talks to this port
+    server_name logs.example.com;
+
+    client_max_body_size 80m;               # one upload part (the app sends 8 MB; Cloudflare allows 100 MB)
+    proxy_request_buffering off;            # stream parts straight through instead of spooling them
+    proxy_buffering off;                    # stream big downloads too
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+
+    location / {
+        proxy_pass http://127.0.0.1:8087;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+}

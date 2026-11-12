@@ -1,4 +1,5 @@
-"""The data log: record the bus *and* every meter at once, tag timestamps, save, trim, copy to USB.
+"""The data log: record the bus *and* every meter at once, tag timestamps, save, trim, copy to USB,
+pick the machine (from the bus or a recent one) and upload it (``core/upload.py``).
 
 Device-wide on purpose: it records whatever the instrument can read (CAN frames and every
 meter channel), so it's a top-level mode and also a page in CAN. Start/stop and Timestamp also
@@ -55,13 +56,29 @@ class LogScreen(Screen):
             return [SoftKey("Save", ctx.save_log, enabled=not busy), SoftKey("Trim", self.trim, enabled=not busy),
                     SoftKey("Discard", self.discard, enabled=not busy), SoftKey("New log", ctx.start_log)]
         if c.state == cap.SAVED:
-            return [SoftKey("New log", ctx.start_log, enabled=not busy), SoftKey("Trim", self.trim, enabled=not busy),
-                    SoftKey("Copy to USB", self.export, enabled=not busy)]
+            up = ctx.upload_status()
+            return [SoftKey("New log", ctx.start_log, enabled=not busy),
+                    SoftKey("Upload again" if up.state == "done" else "Upload", ctx.upload_log,
+                            enabled=not busy and up.state not in ("queued", "uploading")),
+                    SoftKey("Machine", self.machine), SoftKey("More", self.more, enabled=not busy)]
         keys = [SoftKey("Start", ctx.start_log, enabled=not busy), SoftKey("Plan", self.plan),
-                SoftKey("+ Timestamp", ctx.tag)]
+                SoftKey("Machine", self.machine)]
         if ctx.pending_captures():
             keys.append(SoftKey("Recover", self.recover))
+        keys.append(SoftKey("+ Timestamp", ctx.tag))
         return keys
+
+    def machine(self):
+        opts = self.ctx.machine_options()
+        if not opts:
+            self.ctx.toast("Nothing on the bus names the machine yet: CAN > Codes > Full scan asks for it. "
+                           "Machines typed on the desktop show here too.")
+            return
+        choose(self.app, "Which machine is this?", opts, None, self.ctx.set_machine)
+
+    def more(self):
+        choose(self.app, "Saved log", [("Trim to the stretch around the timestamps", self.trim),
+                                       ("Copy to USB", self.export)], None, lambda fn: fn())
 
     def plan(self):
         templates = cap.load_templates()
@@ -162,8 +179,13 @@ class LogScreen(Screen):
             meters = len(ctx.hub.channels())
             lines += [src, f"{meters} meter channel(s)" if meters else "No meters on",
                       "Records everything on the bus and every meter channel, on one timeline."]
+        if c.machine:
+            lines.append(f"Machine: {c.machine_summary()}")
         if c.state == cap.SAVED and c.folder:
             lines.append(f"In {os.path.relpath(c.folder, config.data_dir())}")
+            up = ctx.upload_status()
+            if up.text:
+                lines.append(up.text)
         for line in lines:
             used = ui.paragraph(line, pygame.Rect(x, y, left.w - 4 * t.pad, left.bottom - y), "body", "dim")
             y += used + t.pad // 2

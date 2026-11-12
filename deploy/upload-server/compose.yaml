@@ -1,0 +1,12 @@
+# docker compose up -d --build   (from this folder; settings in .env, captures in ./data)
+services:
+  canopener-upload:
+    build: .
+    container_name: canopener-upload
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+    # Only nginx on this host reaches it; the outside world comes in through the Cloudflare tunnel.
+    ports:
+      - "127.0.0.1:8087:8080"

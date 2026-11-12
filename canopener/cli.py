@@ -616,6 +616,17 @@ def cmd_capture(a) -> int:
         return 2
     if c.state != "saved":
         print("Capture was never saved (recording interrupted); recovering it.", file=sys.stderr)
+    if a.machine or a.question is not None or a.concern is not None or a.name is not None:
+        from .core import capture as cap
+        fields = dict(c.machine)
+        for item in a.machine or []:
+            key, _, value = item.partition("=")
+            if key not in cap.MACHINE_KEYS:
+                print(f"Unknown machine field {key!r}: use {', '.join(cap.MACHINE_KEYS)}", file=sys.stderr)
+                return 2
+            fields[key] = value
+        c.set_machine(fields, name=a.name, notes=a.concern, question=a.question)
+        cap.remember_machine(c.machine)
     if a.trim:
         try:
             kept, dropped = c.trim(a.trim[0] * 60, a.trim[1] * 60, keep_full=a.keep_full)
@@ -628,6 +639,66 @@ def cmd_capture(a) -> int:
         print(f.read())
     print(f"(rewrote summary.txt and live_data.csv in {c.folder})", file=sys.stderr)
     return 0
+
+
+def _progress(sent: int, total: int):
+    print(f"\r  {sent / 1048576:6.1f} of {total / 1048576:.1f} MB", end="", file=sys.stderr, flush=True)
+
+
+def cmd_upload(a) -> int:
+    import getpass
+
+    from .core import upload
+    from .core.settings import Settings
+    s = Settings()
+    if a.setup:
+        url = input(f"Upload server address [{s.get('upload.url') or 'https://...'}]: ").strip() or s.get("upload.url")
+        token = getpass.getpass("Upload token (Enter keeps the saved one): ").strip()
+        s.update({"upload.url": upload.normalize_url(url), "upload.target": upload.HttpUploader.id})
+        if token:
+            upload.save_token(token)
+        a.test = True
+    if a.on_save is not None:
+        s.set("upload.on_save", a.on_save == "on")
+        print(f"Upload when saved: {a.on_save}")
+    u = upload.target(s)
+    if a.test:
+        if u is None:
+            print("No upload server set up: canopener-cli upload --setup", file=sys.stderr)
+            return 1
+        try:
+            print(u.check(s))
+        except upload.UploadError as e:
+            print(e, file=sys.stderr)
+            return 1
+        return 0
+    q = upload.UploadQueue(s)
+    if a.status or not (a.folders or a.pending):
+        where = u.describe(s) if u else "nowhere yet (canopener-cli upload --setup)"
+        print(f"Uploads go to: {where}; upload when saved: {'on' if s.get('upload.on_save') else 'off'}")
+        for folder in a.folders or q.folders():
+            st = q.status(folder)
+            print(f"  {os.path.basename(folder)}: {st.text or 'not uploaded'}" + (f"  {st.url}" if st.url else ""))
+        return 0
+    rc = 0
+    for folder in a.folders:
+        try:
+            q.enqueue(folder)
+        except upload.UploadError as e:
+            print(f"{folder}: {e}", file=sys.stderr)
+            rc = 1
+    q.retry_now()
+    q.on_change = lambda f: _progress(*q.progress[f]) if q.progress.get(f, (0, 0))[1] else None
+    while True:
+        folder = q.run_once(force=True)
+        if folder is None:
+            break
+        st = q.status(folder)
+        print(f"\r{os.path.basename(folder)}: {st.text}" + (f"\n  {st.url}" if st.url else ""), file=sys.stderr)
+        if st.state != upload.DONE:
+            rc = 1
+            break               # no connection: the rest would fail the same way
+    return rc
 
 
 def cmd_hardware(a) -> int:
@@ -991,7 +1062,22 @@ def main(argv=None) -> int:
     c.add_argument("--trim", nargs=2, type=float, metavar=("BEFORE", "AFTER"),
                    help="first keep only BEFORE minutes before the first timestamp to AFTER minutes after the last")
     c.add_argument("--keep-full", action="store_true", help="with --trim: keep the full log as capture_full.log")
+    c.add_argument("--machine", action="append", metavar="FIELD=VALUE",
+                   help="set a machine detail (make, model, serial, unit, hours, customer); repeat for more")
+    c.add_argument("--name", help="rename the capture (the folder keeps its name)")
+    c.add_argument("--concern", help="the customer concern")
+    c.add_argument("--question", help="what to look at in the data (shown in its README)")
     c.set_defaults(fn=cmd_capture)
+
+    upl = sub.add_parser("upload", help="send saved captures to the upload server (deploy/upload-server); "
+                                        "no folders: show where uploads go and what's waiting")
+    upl.add_argument("folders", nargs="*", help="capture folders to upload now")
+    upl.add_argument("--pending", action="store_true", help="send everything waiting in the upload queue")
+    upl.add_argument("--status", action="store_true", help="show the upload state of the folders (or the queue)")
+    upl.add_argument("--setup", action="store_true", help="set the server address and token, then test them")
+    upl.add_argument("--test", action="store_true", help="check the server and the token (sends nothing)")
+    upl.add_argument("--on-save", choices=["on", "off"], help="queue every capture for upload when it's saved")
+    upl.set_defaults(fn=cmd_upload)
 
     from . import plugins
     for plugin in plugins.loaded():

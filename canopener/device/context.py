@@ -18,7 +18,7 @@ from .. import __version__
 from ..can import pythoncan
 from ..core import bluetooth as bt
 from ..core import capture as cap
-from ..core import config, interfaces, link, meters, profiles, scan, sound, units
+from ..core import config, identity, interfaces, link, meters, profiles, scan, sound, units, upload
 from ..core.calibration import Calibration
 from ..core.capture import Capture
 from ..core.connection import (
@@ -79,6 +79,7 @@ class DeviceContext:
         self.obd_streamer = None
         self.capture = Capture(plan=list(self.settings.get("log.plan") or []))
         self.last_saved: str | None = None
+        self.uploads = upload.UploadQueue(self.settings)     # started by the app (start_uploads)
         self.busy: str | None = None        # what a running job is doing, for a spinner
         self.toasts: deque = deque(maxlen=4)
         self.finder = None
@@ -671,10 +672,63 @@ class DeviceContext:
 
         def done(folder):
             self.last_saved = folder
-            self.toast(f"Saved {os.path.basename(folder)}")
+            cap.remember_machine(c.machine)
+            queued = upload.after_save(self.uploads, self.settings, folder)
+            self.toast(f"Saved {os.path.basename(folder)}" + (", queued for upload" if queued else ""))
             if then_start:
                 self.start_log()
         self.run_job("Saving the log", lambda: c.save(system=system), done)
+
+    # --- machine details and uploads ---
+    def machine_options(self) -> list[tuple[str, tuple[str, dict]]]:
+        """For the Machine picker: what the bus says (merged in), recent machines (replace), clear."""
+        opts = [(f"From the bus: {c.label}", ("merge", c.fields))
+                for c in identity.candidates(self.session, self.obd_live.sniffer.info)]
+        opts += [(f"Recent: {cap.machine_summary(m)}", ("replace", m)) for m in cap.recent_machines()[:12]]
+        if self.capture.machine:
+            opts.append(("No machine details", ("replace", {})))
+        return opts
+
+    def set_machine(self, choice: tuple[str, dict]):
+        how, fields = choice
+        c = self.capture
+        c.set_machine({**c.machine, **fields} if how == "merge" else fields)
+        if c.machine:
+            cap.remember_machine(c.machine)
+        self.toast(f"Machine: {c.machine_summary() or 'none'}")
+
+    def start_uploads(self):
+        self.uploads.start()
+
+    def upload_status(self) -> upload.Status:
+        """The saved log's upload state (re-read at most twice a second: screens ask every frame)."""
+        c = self.capture
+        if c.state != cap.SAVED:
+            return upload.Status()
+        now = time.monotonic()
+        cached = getattr(self, "_upload_cache", None)
+        if cached and cached[0] == c.folder and now - cached[1] < 0.5:
+            return cached[2]
+        st = self.uploads.status(c.folder)
+        self._upload_cache = (c.folder, now, st)
+        return st
+
+    def upload_log(self):
+        c = self.capture
+        if c.state != cap.SAVED or not c.folder:
+            self.toast("Save the log first")
+            return
+        if upload.target(self.settings) is None:
+            self.toast("No upload server set up yet: run canopener-cli upload --setup (or set it on the desktop)")
+            return
+        try:
+            self.uploads.enqueue(c.folder)
+        except upload.UploadError as e:
+            self.toast(str(e))
+            return
+        self._upload_cache = None
+        self.uploads.retry_now()
+        self.toast("Queued for upload: it goes when there's a connection")
 
     def discard_log(self):
         c = self.capture
@@ -770,6 +824,7 @@ class DeviceContext:
                 traceback.print_exc()
         self.disconnect()
         self.hub.stop()
+        self.uploads.stop()
         self._stop_pps()
 
     def pending_captures(self) -> list[str]:

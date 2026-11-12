@@ -506,6 +506,8 @@ def main(argv=None) -> int:
         ctx.connect()
     if ctx.pending_captures():
         ctx.toast("An unsaved log was found: open Data log to save it")
+    if not a.screenshot:
+        ctx.start_uploads()
     try:
         if a.screenshot:
             for _ in range(10):

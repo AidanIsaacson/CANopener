@@ -75,6 +75,12 @@ DEFAULTS: dict = {
     "games.harness_best": 0,
     "games.cargo_best": 0,
     "games.controls": {},               # profile id -> signal bindings (device/game_controls.py)
+    # sending captures off the unit (core/upload.py); the server's token is kept apart, not here
+    "upload.target": "server",          # which uploader: "server" (deploy/upload-server) or a plugin's id
+    "upload.url": "",                   # the upload server, e.g. https://logs.example.com
+    "upload.on_save": False,            # queue every capture for upload when it's saved
+    "upload.part_mb": 8,                # upload in parts this big (a Cloudflare tunnel takes up to 100 MB)
+    "upload.allow_http": False,         # allow a plain http:// server (only on a network you trust)
     "plugins.sources": [],              # GitHub repos to install plugins from (core.plugin_repos)
     "github.client_id": "",             # GitHub App for sign-in ("" = core.github.DEFAULT_CLIENT_ID)
 }

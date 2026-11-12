@@ -140,6 +140,25 @@ Bluetooth OBD adapters (`adapter_buses()`: adapter commands only). See
 changes a machine must confirm with the user first, and `Session.send_frame` refuses in
 listen-only mode.
 
+A plugin can also give saved captures somewhere else to go: subclass `core.upload.Uploader` (an
+`id`, a `name`, `configured(settings)`, `upload(bundle, settings, progress)` returning
+`{"key", "url"}`, raising `UploadError` on failure) and call `core.upload.register_uploader(...)`
+at import. It then appears under **Log → Upload settings… → Send to** on the desktop (and is
+used by the handheld when `upload.target` is its id). The bundle is the capture folder zipped,
+README included; the queue, retries and status are handled for it.
+
+### Trying uploads locally
+
+Run the receiving server against a temporary folder and point the app at it (plain http is
+accepted for localhost only):
+
+```bash
+UPLOAD_TOKENS=dev READ_TOKENS=dev DATA_DIR=/tmp/uploads PORT=8765 python deploy/upload-server/server.py &
+canopener-cli upload --setup        # http://127.0.0.1:8765, token: dev
+canopener-cli upload ~/canopener/logs/<a capture>
+curl -H "Authorization: Bearer dev" http://127.0.0.1:8765/api/captures
+```
+
 ### Private plugins: installing from the device, no keyboard
 
 **System → Software → Plugins** on the handheld (and `canopener-cli plugins` anywhere) signs in to GitHub
@@ -194,7 +213,8 @@ canopener/
   cli.py     command-line front-end
   plugins.py plugin loading and hooks; frontends.py switches between the two graphical UIs
 deploy/      Linux installer + USB adapter plug-in rules; Raspberry Pi launcher, service, sudoers,
-             config.txt lines for the controls and for each hardware stage
+             config.txt lines for the controls and for each hardware stage; the capture upload
+             server (upload-server/: one standard-library file, Docker, nginx)
 firmware/    the handheld's coprocessors: meter Pico (MicroPython), logic Pico (stock sigrok-pico),
              ESP32 bridge (Arduino). Not part of the Python package
 hardware/    the custom board (KiCad, to come) and its groundwork notes

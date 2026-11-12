@@ -17,6 +17,7 @@ Dev setup and the profile format are in [DEVELOPING.md](DEVELOPING.md).
 │ core/   Session (rx thread, state, recording) · scans · OBD/UDS/CANopen  │
 │         clients · live data · capture · profiles · settings · transmit   │
 │         · interfaces · link status · measurements · installed options    │
+│         · uploads                                                        │
 └───────────────▲──────────────────────────────────────────────────────────┘
                 │ CanFrame in / out
 ┌───────────────┴──────────────────┐   ┌───────────────────────────────────┐
@@ -54,6 +55,24 @@ them: `add_listener(fn)` (every received frame, on the receive thread) and `send
 live in separate, private packages while this repository stays generic. On the handheld,
 `register_device(api)` adds a mode (a home-screen tile and its screens; `device/modes.py`). Keep a
 plugin's logic in Qt- and Pygame-free modules with a thin view per front-end, so both can share it.
+A plugin can also add somewhere for saved captures to go: `core.upload.register_uploader`
+(or `PluginApi.register_uploader`), next to the built-in HTTPS uploader.
+
+### Captures leaving the unit
+
+`core/capture.py` keeps the machine details (`machine`, `question`) in `capture.json`, and
+`core/capture_readme.py` rewrites `README.md` with it from the capture's state alone, so it's cheap
+on every change. At save, `capture_report` adds what it can only learn from the log:
+`traffic.csv` and `meta["bus"]` (identity heard, senders, undecoded streams, from `core/identity.py`,
+which also suggests machine details from a live `Session`).
+
+`core/upload.py` zips a saved folder, keeps per-capture state in its `upload.json` and the queue in
+`~/.config/canopener/upload-queue.json`, and sends one capture at a time on its own thread with a
+growing back-off. The built-in `HttpUploader` speaks the small chunked API of
+`deploy/upload-server/server.py` (standard library, one file; API and setup in its README). Parts
+are resumable: creating the same upload again returns the parts the server already has. Both UIs
+poll `UploadQueue.status()`; the desktop starts the thread in `MainWindow`, the handheld in
+`device/app.py` (`DeviceContext.start_uploads`).
 
 ### Transmitting (confirm-first)
 
@@ -145,6 +164,8 @@ lists) are only screens over it.
   protocol CTS/ACK replies are sent from that thread so they're on time.
 * Scans (`scan.run_scan`) block for a few seconds and run in a worker thread. The GUI gets the
   `ScanResult` through a Qt signal.
+* Uploads (`core/upload.UploadQueue`) run on their own thread and write only the capture's
+  `upload.json` and the queue file; the UIs read the state when they refresh.
 * Front-ends **poll**: the Qt app refreshes the visible tab every 200 ms. This is deliberate. It
   maps directly onto a Pygame frame loop, and nothing on the rx thread ever waits on the UI.
 
@@ -247,6 +268,9 @@ these by name.
   commands stay in private plugins.
 * **Bluetooth OBD adapters:** check everything against a real adapter and vehicles, then
   multi-PID requests and the non-CAN Mode 06 decoder: [BLUETOOTH-OBD.md](BLUETOOTH-OBD.md#gaps-to-fill).
+* **Handheld text entry.** The handheld picks machine details from the bus or the recent list but
+  can't type them (or the concern / question): an on-screen keyboard would cover those, the upload
+  server's address and token, and naming timestamps.
 
 ## Adding things
 
