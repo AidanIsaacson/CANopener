@@ -127,8 +127,15 @@ def test_handheld_machine_and_upload(tmp_path, server, monkeypatch):  # noqa: F8
         app.top._pick(i)
         assert ctx.capture.machine["serial"] == "AB123"
 
+        from canopener.core import config
+        monkeypatch.setattr(config, "_data_dir_override", str(tmp_path))     # logs_dir() = tmp_path/logs
         c = _saved_capture(tmp_path)
-        ctx.capture = cap.Capture.load(c.folder)
+        app.step([])
+        assert "Open" in [k.label for k in app.softkey_slots() if k]      # saved logs can be reopened
+        app.top.recover()
+        assert isinstance(app.top, ChoiceDialog)
+        app.top._pick([v for _, v in app.top.options].index(c.folder))
+        assert ctx.capture.folder == c.folder and ctx.capture.state == cap.SAVED
         app.step([])
         labels = [k.label for k in app.softkey_slots() if k]
         assert labels[:4] == ["New log", "Upload", "Machine", "More"]

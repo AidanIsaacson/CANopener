@@ -65,6 +65,8 @@ class LogScreen(Screen):
                 SoftKey("Machine", self.machine)]
         if ctx.pending_captures():
             keys.append(SoftKey("Recover", self.recover))
+        elif cap.saved_captures():
+            keys.append(SoftKey("Open", self.recover))
         keys.append(SoftKey("+ Timestamp", ctx.tag))
         return keys
 
@@ -133,8 +135,10 @@ class LogScreen(Screen):
                 self.ctx.discard_log)
 
     def recover(self):
+        """Unsaved logs to recover, then recent saved ones (to upload, trim or copy again)."""
         pending = self.ctx.pending_captures()
         opts = [(os.path.basename(p).replace(cap.PENDING_PREFIX, "Unsaved "), p) for p in pending]
+        opts += [(os.path.basename(p), p) for p in cap.saved_captures()[:20]]
 
         def load(folder):
             try:
@@ -142,8 +146,10 @@ class LogScreen(Screen):
             except (OSError, ValueError) as e:
                 self.ctx.toast(f"Can't read it: {e}")
                 return
-            self.ctx.toast("Recovered: Save keeps it")
-        choose(self.app, "Recover an unsaved log", opts, None, load)
+            self.ctx.toast("Recovered: Save keeps it" if self.ctx.capture.state == cap.STOPPED
+                           else "Opened: Upload, Machine and More work on it")
+        choose(self.app, "Open a log" if not pending else "Recover an unsaved log (or open a saved one)",
+               opts, None, load)
 
     def export(self):
         drives = storage.removable_drives()
