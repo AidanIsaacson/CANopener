@@ -6,7 +6,20 @@ import time
 
 from .. import __version__
 from ..can import pythoncan
-from ..core import config, connection, interfaces, labeling, link, profiles, report, scan, storage, transmit, units
+from ..core import (
+    config,
+    connection,
+    interfaces,
+    labeling,
+    link,
+    profiles,
+    report,
+    scan,
+    storage,
+    transmit,
+    units,
+    upload,
+)
 from ..core.connection import load_log_session, open_connection
 from . import themes
 from .connection_panel import AUTO_BITRATE, ConnectionPanel
@@ -64,6 +77,11 @@ class PluginApi:
         sent unless the user turns transmit mode on and confirms each frame. This is how a plugin
         contributes OEM/active commands without them living in this public repo."""
         transmit.register_action(action)
+
+    def register_uploader(self, uploader):
+        """Add a place saved captures can be uploaded to (a ``core.upload.Uploader``): it shows in
+        Log > Upload settings…, and the Upload button sends there when it's chosen."""
+        upload.register_uploader(uploader)
 
     def status(self, text: str, ms: int = 6000):
         self.window.statusBar().showMessage(text, ms)
@@ -145,6 +163,13 @@ class MainWindow(QtWidgets.QMainWindow):
             lambda on: self.obd.recording_changed(on) if self._protocol == profiles.OBD2 else None)
         self.log_panel.status_extra = lambda: self.obd.log_status() if self._protocol == profiles.OBD2 else ""
         self.log_panel.extra_reports = self._obd_reports
+        from ..core.settings import Settings
+        self.core_settings = Settings()
+        self.uploads = upload.UploadQueue(self.core_settings)
+        self.log_panel.uploads = self.uploads
+        self.log_panel.upload_settings = self.core_settings
+        self.log_panel.obd_info = lambda: self.obd.model.sniffer.info
+        self.log_panel.upload_settings_requested.connect(self.edit_upload)
         self.log_toggle.setDefaultAction(self.log_panel.toggleViewAction())
         self.log_panel.toggleViewAction().setText("📝 Log")
         self.log_panel.toggleViewAction().setToolTip("Show / hide the Log tool (its keys only work while it's open)")
@@ -157,6 +182,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_status = None
         self._update_found.connect(self._show_update_found)
         self._load_plugins()
+        self.uploads.start()
         self._build_status()
 
         c = self.ctx
@@ -302,7 +328,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._action(lg, "Start / stop recording", lambda: self.log_panel.handle_action("start_stop"))
         self._action(lg, "Timestamp", lambda: self.log_panel.handle_action("timestamp"))
         self._action(lg, "Open saved capture...", lambda: self.log_panel.open_saved())
+        self._action(lg, "Machine details...", self.log_panel.edit_machine)
         lg.addSeparator()
+        self._action(lg, "Upload this capture", self.log_panel.upload)
+        self._action(lg, "Upload settings...", self.edit_upload)
         self._action(lg, "Export Logs...", self.export_logs)
         self._action(lg, "Change save folder...", self.log_panel._change_folder)
         self._action(lg, "Keyboard shortcuts...", self.edit_keys)
@@ -1199,6 +1228,11 @@ class MainWindow(QtWidgets.QMainWindow):
                         timestamps="taken on this computer when each answer arrived over Bluetooth")
         if s is not None:
             meta["listen_only"] = s.listen_only
+        meta["front_end"] = f"desktop {__version__}"
+        from .. import plugins
+        loaded = [f"{p.name or p.id} {p.version}".strip() for p in plugins.loaded()]
+        if loaded:
+            meta["plugins"] = loaded
         return meta
 
     # ------------------------------------------------------------------
@@ -1463,6 +1497,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.conn_panel.stop_finder()
         self._save_settings()
         self.timer.stop()
+        self.uploads.stop()
         if self.ctx.connection is not None:
             self.ctx.connection.close()
         super().closeEvent(ev)
+
+    def edit_upload(self):
+        from .upload_dialog import UploadDialog
+        if UploadDialog(self.core_settings, self).exec():
+            self.uploads.retry_now()
+            self.log_panel._sync_upload()

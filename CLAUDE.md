@@ -125,3 +125,9 @@ renaming a heading means fixing its links.
 * Capture logic (tagging rules, saving, summaries) lives in `core/capture*.py` so the future
   on-device UI shares it; `gui/log_panel.py` is only the screen. Captures must stay recoverable:
   write `capture.json` / `markers.csv` on every change while recording.
+* Uploads (`core/upload.py`): standard library only; the server's token lives in
+  `upload-token.json` (mode 600) or `CANOPENER_UPLOAD_TOKEN`, never in `settings.json`, argv or a
+  URL. The GitHub uploader (`core/upload_github.py`) uses the `core.github` sign-in in API headers
+  only and refuses public repositories. `deploy/upload-server/server.py` stays one standard-library file; keep its README's API
+  table, `HttpUploader` and `tests/test_upload.py` in step. A capture's `README.md`
+  (`core/capture_readme.py`) is rendered from `capture.json` alone, so it's rewritten on every change.

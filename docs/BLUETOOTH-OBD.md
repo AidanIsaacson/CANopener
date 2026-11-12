@@ -80,6 +80,10 @@ CANOPENER_ELM_TRACE=~/elm-trace.txt canopener-cli obd --elm --all
 CANOPENER_ELM_TRACE=~/elm-trace.txt canopener          # the desktop app
 ```
 
+A capture recorded through an adapter keeps the same trace for its own stretch as
+`adapter_trace.txt` in the capture folder, with no setting needed, so a log from a non-CAN vehicle
+carries the raw replies the frames in `capture.log` were rebuilt from.
+
 That's the evidence for most of the gaps above: attach the relevant part when you update a row.
 J1939 monitoring (`ATMA`) isn't traced line by line (it would be huge); the commands around it are.
 

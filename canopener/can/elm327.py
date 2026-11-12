@@ -477,6 +477,7 @@ class ElmBackend(CanBackend):
         self._pause_guard = threading.Lock()
         self._stop_mon = False
         self.ids = noncan.IdMap()           # non-CAN module address <-> stand-in response ID
+        self.trace_path: str | None = None  # also write the raw trace here (a capture's adapter_trace.txt)
 
     # --- lifecycle ---
     def open(self):
@@ -739,17 +740,20 @@ class ElmBackend(CanBackend):
                 raise OSError(self.link_error) from e
 
     def _trace(self, cmd: str, lines: list[str]):
-        """With CANOPENER_ELM_TRACE=FILE set, append each command and its reply lines, timestamped:
-        the adapter's own text, for checking against what the code expects (docs/BLUETOOTH-OBD.md)."""
-        path = os.environ.get(TRACE_ENV)
-        if not path:
+        """With CANOPENER_ELM_TRACE=FILE set (and into ``trace_path`` while a capture records),
+        append each command and its reply lines, timestamped: the adapter's own text, for checking
+        against what the code expects (docs/BLUETOOTH-OBD.md)."""
+        paths = [p for p in (os.environ.get(TRACE_ENV), self.trace_path) if p]
+        if not paths:
             return
         stamp = time.strftime("%H:%M:%S") + f".{int(time.time() * 1000) % 1000:03d}"
-        try:
-            with open(path, "a") as f:
-                f.write(f"{stamp} > {cmd}\n" + "".join(f"{stamp} < {line}\n" for line in lines))
-        except OSError:
-            pass
+        text = f"{stamp} > {cmd}\n" + "".join(f"{stamp} < {line}\n" for line in lines)
+        for path in paths:
+            try:
+                with open(path, "a") as f:
+                    f.write(text)
+            except OSError:
+                pass
 
     def monitor(self, cmd: str, seconds: float, max_lines: int = 5000) -> list[str]:
         """Run a monitoring command (ATMA, ATMP ..., ATDM1) for ``seconds``, then stop it (any

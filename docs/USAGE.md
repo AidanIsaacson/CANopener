@@ -10,6 +10,7 @@ Installing: [INSTALL.md](INSTALL.md).
 * [Machine profiles](#machine-profiles)
 * [Naming things CANopener doesn't know](#naming-things-canopener-doesnt-know)
 * [Recording a job (the Log tool)](#recording-a-job-the-log-tool)
+* [Machine details and uploading captures](#machine-details-and-uploading-captures)
 * [What it sends](#what-it-sends)
 * [The handheld screen](#the-handheld-screen)
 * [Command line](#command-line)
@@ -236,7 +237,10 @@ a box). Remap them under **Log → Keyboard shortcuts…**.
 | File | What's in it |
 |---|---|
 | `summary.txt` | Your notes and timestamps, and one timeline of codes appearing and clearing, warning lamps, and modules dropping off the bus, each with the phase it happened in. **The file to send someone.** |
+| `README.md` | What the folder is: the machine, the concern, what to look at, how it was connected, the timestamps, what the machine said about itself, and the traffic nothing decoded. Kept up to date as you edit. |
 | `live_data.csv` | Every live value twice a second, with your timestamps in a column. Opens in a spreadsheet. |
+| `traffic.csv` | Every message seen (PGN and sender, or 11-bit ID): how many, how often, and whether CANopener decoded it. |
+| `adapter_trace.txt` | Recorded through a Bluetooth OBD adapter: everything sent to it and every line it answered, as it printed them. |
 | `capture.log` | Every raw frame. Reopen it with **Open…** in the Log panel, then **View data**. |
 | `markers.csv`, `capture.json` | The timestamps, and everything in machine-readable form. |
 
@@ -260,6 +264,49 @@ few minutes on a busy bus); the capture's log has everything.
 
 **Export Logs** (in the Log panel, or **Ctrl+E**): plug in a USB stick and press **Export**. It
 copies this session's captures and reports onto the stick and ejects it.
+
+## Machine details and uploading captures
+
+**Machine details.** **Machine…** in the Log panel (also **Log → Machine details…**) holds the log
+name, make, model, serial / VIN, unit number, hours, customer, the concern, and **What to look
+at**: a line for whoever reads the capture next ("PGN 0xFF12 from the controller doesn't decode").
+**From the bus** fills them in from what the machine reports about itself (press **Read Machine
+Info** on the Machine Info tab first, so it's been asked). **Recent machines** brings back one
+you've entered before. You can fill it in before, during or after recording, saved captures
+included; it goes into the capture's `README.md` straight away.
+
+On the handheld, **Machine** on the Data log screen picks from what the bus reports (a **Full
+scan** asks for it) or a recent machine. Typing the details is done on the desktop or with the
+command line (below).
+
+**Uploading.** A saved capture can go to your own upload server or to a private GitHub
+repository, to read somewhere else a minute later.
+
+* **Upload server:** setting it up is in [deploy/upload-server/README.md](../deploy/upload-server/README.md).
+  Then **Log → Upload settings…**: the server's address (`https://...`) and an upload token, then
+  **Test**. (On the handheld or over SSH: `canopener-cli upload --setup`.)
+* **A private GitHub repository**, with the GitHub sign-in the handheld already uses for
+  plugins (nothing to type on it). Once, from a phone or computer: make a **private** repository
+  for captures. In GitHub's **Settings → Developer settings → GitHub Apps →** (the CANopener app)
+  **→ Permissions & events → Repository permissions**, set **Contents** to **Read and write** and
+  save. Then accept it under **Settings → Applications → Installed GitHub Apps** (it asks you to
+  review the new permission there), and on the same page **Configure** the App to add the new
+  repository. Then on the handheld: sign in (**System → Software → Plugins → Sign in to GitHub**),
+  and the first **Upload** asks which repository (**More → Upload to…** changes it). Desktop:
+  **Log → Upload settings… → Send to: GitHub**, and the repository as `owner/name`; command line:
+  `canopener-cli upload --github owner/name`. Captures go on a `captures` branch of their own,
+  so a plugin's repository works too (plugin updates never download that branch). Public
+  repositories are refused: captures hold
+  serial numbers and customers. The write permission applies to every repository the App is
+  installed on, so a lost handheld could write to those too: install it only where it's needed.
+
+After **Save**, press **⇪ Upload** in the Log panel (handheld: **Upload** on the Data log screen),
+or tick **Upload every capture when it's saved** in Upload settings.
+
+It uploads in the background and tells you when it's done, with the capture's address on the
+server. With no connection it waits and tries again; uploads still waiting when you close the app
+go on the next time it opens. A capture you change after uploading (relabelled, trimmed, new
+machine details) shows that, and **Upload again** replaces the copy on the server.
 
 ## What it sends
 
@@ -312,6 +359,9 @@ canopener-cli canopen --iface can0 --info --errors  # CANopen: nodes, state, err
 canopener-cli interfaces                            # what adapters it sees, and why one isn't working
 canopener-cli decode capture.log --csv frames.csv   # decode a saved log
 canopener-cli capture FOLDER --trim 5 2             # trim a capture: 5 min before, 2 min after its timestamps
+canopener-cli capture FOLDER --machine model=GTH-1056 --machine serial=AB123 --question "FF12 doesn't decode"
+canopener-cli upload --setup                        # the upload server's address and token
+canopener-cli upload FOLDER                         # upload a saved capture now (no folder: what's waiting)
 canopener-cli update                                # check for and install updates
 canopener-cli --help                                # everything else
 ```
@@ -327,4 +377,7 @@ canopener-cli --help                                # everything else
 | `~/.config/canopener/profile_list.json` | Which profiles the picker shows, and their order |
 | `~/.config/canopener/spn_names.csv` | Optional extra SPN names, `spn,name` per line |
 | `~/.config/canopener/github-token.json` | GitHub sign-in for plugin installs, mode 600 |
+| `~/.config/canopener/upload-token.json` | The upload server's token, mode 600 |
+| `~/.config/canopener/upload-queue.json` | Captures waiting to upload (each folder's `upload.json` has its state) |
+| `~/.config/canopener/recent_machines.json` | Machines you've entered, for **Recent machines** |
 | `~/<repo name>/` | Plugins installed from GitHub; a non-git copy found there is kept as `.old-<date>` |

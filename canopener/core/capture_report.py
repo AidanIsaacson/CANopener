@@ -30,8 +30,8 @@ from ..j1939.dtc import decode_dm, fmi_text
 from ..j1939.ids import parse_id
 from ..j1939.signals import all_signals, id_signals
 from ..j1939.spn import spn_name
-from . import canopen, profiles, units
-from .capture import LIVE_CSV, SUMMARY_TXT, Capture, fmt_elapsed
+from . import canopen, identity, profiles, units
+from .capture import LIVE_CSV, SUMMARY_TXT, TRAFFIC_CSV, Capture, fmt_elapsed
 from .measure import ChannelSeries, read_measurements, value_at
 from .session import Session
 
@@ -379,9 +379,44 @@ def summary_text(a: _Analysis) -> str:
     return "\n".join(L) + "\n"
 
 
+def _example(a: _Analysis, row: identity.TrafficRow) -> str:
+    """The latest payload of one stream, as hex (for the README's undecoded table)."""
+    s = a.session
+    got = s.latest_std.get(row.key) if row.kind == "11-bit" else s.latest.get((row.key, row.sa))
+    return bytes(got[1][:16]).hex(" ").upper() if got else ""
+
+
+def write_traffic_csv(rows: list, path: str):
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["kind", "id", "source", "name", "frames", "rate_hz", "dlc", "decoded", "first", "last"])
+        for r in rows:
+            w.writerow([r.kind, r.ident, r.source, r.name, r.frames, f"{r.rate_hz:.3f}", r.dlc,
+                        "yes" if r.decoded else "no", f"{r.first:.6f}", f"{r.last:.6f}"])
+
+
+def bus_summary(a: _Analysis, rows: list) -> dict:
+    """What capture_readme shows: identity heard, senders, undecoded traffic (JSON-friendly)."""
+    und = [r for r in rows if not r.decoded]
+    return {
+        "identity": list(dict.fromkeys(identity.seen_lines(a.session, a.obd.info)
+                                       + list(a.c.meta.get("identity_before") or []))),
+        "ecus": [{"name": sa_name(e.sa), "frames": e.frames} for e in a.session.ecu_list() if e.sa < 0xF8],
+        "traffic_count": len(rows),
+        "undecoded_count": len(und),
+        "undecoded_frames": sum(r.frames for r in und),
+        "undecoded": [{"ident": r.ident, "source": r.source, "name": r.name, "frames": r.frames,
+                       "rate_hz": round(r.rate_hz, 2), "dlc": r.dlc, "example": _example(a, r)}
+                      for r in und[:200]],
+    }
+
+
 def write_outputs(capture: Capture, system: str = units.METRIC, progress=None) -> _Analysis:
     a = analyze(capture, system, progress)
     write_live_csv(a, os.path.join(capture.folder, LIVE_CSV))
     with open(os.path.join(capture.folder, SUMMARY_TXT), "w") as f:
         f.write(summary_text(a))
+    rows = identity.traffic(a.session)
+    write_traffic_csv(rows, os.path.join(capture.folder, TRAFFIC_CSV))
+    capture.meta["bus"] = bus_summary(a, rows)
     return a

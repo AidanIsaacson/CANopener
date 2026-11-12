@@ -1,4 +1,5 @@
-"""The data log: record the bus *and* every meter at once, tag timestamps, save, trim, copy to USB.
+"""The data log: record the bus *and* every meter at once, tag timestamps, save, trim, copy to USB,
+pick the machine (from the bus or a recent one) and upload it (``core/upload.py``).
 
 Device-wide on purpose: it records whatever the instrument can read (CAN frames and every
 meter channel), so it's a top-level mode and also a page in CAN. Start/stop and Timestamp also
@@ -11,7 +12,7 @@ import os
 import pygame
 
 from ...core import capture as cap
-from ...core import config, storage
+from ...core import config, storage, upload
 from ...core.capture import Capture, fmt_elapsed
 from .. import input as inp
 from ..ui import ListView
@@ -55,13 +56,53 @@ class LogScreen(Screen):
             return [SoftKey("Save", ctx.save_log, enabled=not busy), SoftKey("Trim", self.trim, enabled=not busy),
                     SoftKey("Discard", self.discard, enabled=not busy), SoftKey("New log", ctx.start_log)]
         if c.state == cap.SAVED:
-            return [SoftKey("New log", ctx.start_log, enabled=not busy), SoftKey("Trim", self.trim, enabled=not busy),
-                    SoftKey("Copy to USB", self.export, enabled=not busy)]
+            up = ctx.upload_status()
+            return [SoftKey("New log", ctx.start_log, enabled=not busy),
+                    SoftKey("Upload again" if up.state == "done" else "Upload", self.upload,
+                            enabled=not busy and up.state not in ("queued", "uploading")),
+                    SoftKey("Machine", self.machine), SoftKey("More", self.more, enabled=not busy)]
         keys = [SoftKey("Start", ctx.start_log, enabled=not busy), SoftKey("Plan", self.plan),
-                SoftKey("+ Timestamp", ctx.tag)]
+                SoftKey("Machine", self.machine)]
         if ctx.pending_captures():
             keys.append(SoftKey("Recover", self.recover))
+        elif cap.saved_captures():
+            keys.append(SoftKey("Open", self.recover))
+        keys.append(SoftKey("+ Timestamp", ctx.tag))
         return keys
+
+    def machine(self):
+        opts = self.ctx.machine_options()
+        if not opts:
+            self.ctx.toast("Nothing on the bus names the machine yet: CAN > Codes > Full scan asks for it. "
+                           "Machines typed on the desktop show here too.")
+            return
+        choose(self.app, "Which machine is this?", opts, None, self.ctx.set_machine)
+
+    def upload(self):
+        if upload.target(self.ctx.settings) is None and self.pick_destination():
+            return
+        self.ctx.upload_log()
+
+    def pick_destination(self) -> bool:
+        """Choose a private GitHub repository to upload to (signed in to GitHub). False if not signed in."""
+        def show(names):
+            if not names:
+                self.ctx.toast("Your GitHub sign-in can't see any repositories: install the CANopener GitHub "
+                               "App on a private one")
+                return
+            choose(self.app, "Upload to which private repository?", [(n, n) for n in names],
+                   self.ctx.settings.get("upload.github_repo") or None, self.ctx.upload_to_github)
+        return self.ctx.github_repos(show)
+
+    def more(self):
+        where = upload.target(self.ctx.settings)
+        opts = [("Trim to the stretch around the timestamps", self.trim), ("Copy to USB", self.export),
+                (f"Upload to... (now: {where.describe(self.ctx.settings) if where else 'nowhere'})", self._destination)]
+        choose(self.app, "Saved log", opts, None, lambda fn: fn())
+
+    def _destination(self):
+        if not self.pick_destination():
+            self.ctx.toast("Sign in to GitHub first: System > Software > Plugins > Sign in to GitHub")
 
     def plan(self):
         templates = cap.load_templates()
@@ -94,8 +135,10 @@ class LogScreen(Screen):
                 self.ctx.discard_log)
 
     def recover(self):
+        """Unsaved logs to recover, then recent saved ones (to upload, trim or copy again)."""
         pending = self.ctx.pending_captures()
         opts = [(os.path.basename(p).replace(cap.PENDING_PREFIX, "Unsaved "), p) for p in pending]
+        opts += [(os.path.basename(p), p) for p in cap.saved_captures()[:20]]
 
         def load(folder):
             try:
@@ -103,8 +146,10 @@ class LogScreen(Screen):
             except (OSError, ValueError) as e:
                 self.ctx.toast(f"Can't read it: {e}")
                 return
-            self.ctx.toast("Recovered: Save keeps it")
-        choose(self.app, "Recover an unsaved log", opts, None, load)
+            self.ctx.toast("Recovered: Save keeps it" if self.ctx.capture.state == cap.STOPPED
+                           else "Opened: Upload, Machine and More work on it")
+        choose(self.app, "Open a log" if not pending else "Recover an unsaved log (or open a saved one)",
+               opts, None, load)
 
     def export(self):
         drives = storage.removable_drives()
@@ -162,8 +207,13 @@ class LogScreen(Screen):
             meters = len(ctx.hub.channels())
             lines += [src, f"{meters} meter channel(s)" if meters else "No meters on",
                       "Records everything on the bus and every meter channel, on one timeline."]
+        if c.machine:
+            lines.append(f"Machine: {c.machine_summary()}")
         if c.state == cap.SAVED and c.folder:
             lines.append(f"In {os.path.relpath(c.folder, config.data_dir())}")
+            up = ctx.upload_status()
+            if up.text:
+                lines.append(up.text)
         for line in lines:
             used = ui.paragraph(line, pygame.Rect(x, y, left.w - 4 * t.pad, left.bottom - y), "body", "dim")
             y += used + t.pad // 2

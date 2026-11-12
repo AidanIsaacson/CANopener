@@ -76,6 +76,22 @@ timestamps. Captures survive a crash, and one button copies them to a USB stick.
 
 How to use it: [Recording a job](USAGE.md#recording-a-job-the-log-tool).
 
+### From the machine to someone who can read it, in two presses
+
+A log is only half the job when the data doesn't make sense and the person who can make sense of
+it isn't standing next to the machine. So each capture says what it is: the make, model and serial
+(filled in from what the machine reports about itself), the concern, and a line on **what to look
+at**. A `README.md` in the folder spells all of that out, along with how it was connected and every
+message nothing decoded, the usual place "the data doesn't parse" starts.
+
+Then **Upload** sends it to your own server (one small program in a container; it can sit behind a
+Cloudflare tunnel on a home server). It goes in pieces, so a bad signal only costs the piece in
+flight, and it waits for a connection if there isn't one. Back at a desk, you, a colleague or an
+AI assistant with a read-only key can find it by machine or serial and start from its README:
+*"I just uploaded a log from the LiftMaster, serial AB123: the data doesn't parse, take a look."*
+
+How to use it: [Machine details and uploading captures](USAGE.md#machine-details-and-uploading-captures).
+
 ## Naming what CANopener doesn't know
 
 Most forklift and equipment traffic is the maker's own, and nobody publishes what it means. So

@@ -19,6 +19,11 @@ clock as the frames in ``capture.log``. The channels are listed in ``capture.jso
 "channels"), and the report puts them in ``live_data.csv`` and the summary next to the CAN data.
 A capture can also record measurements with no bus connected (``session=None``).
 
+Machine details (``machine``: make, model, serial, ... see ``MACHINE_FIELDS``) say what was
+logged, and ``question`` says what to look at. Both can be edited at any time; ``README.md`` (see
+``capture_readme``) is rewritten with ``capture.json``, so a capture folder explains itself to
+whoever opens it next, including an upload's reader (``core/upload.py``).
+
 Markers and metadata are written to disk on every change, so a crash mid-recording leaves a
 pending folder that ``pending_captures()`` finds and ``Capture.load()`` can recover.
 """
@@ -43,10 +48,26 @@ LIVE_CSV = "live_data.csv"
 FULL_LOG = "capture_full.log"       # the untrimmed log, when trimming keeps it
 FULL_MEASUREMENTS = "measurements_full.csv"
 SUMMARY_TXT = "summary.txt"
+ADAPTER_TRACE = "adapter_trace.txt"     # a Bluetooth OBD adapter's own text, while recording through one
+README_MD = "README.md"
+TRAFFIC_CSV = "traffic.csv"
 PENDING_PREFIX = ".recording_"
 
 IDLE, RECORDING, STOPPED, SAVED = "idle", "recording", "stopped", "saved"
 TRIM_BEFORE, TRIM_AFTER = 300.0, 120.0      # default seconds kept before the first / after the last tag
+
+# Machine details: (key, label). Free text; the bus can suggest most of them (core.identity).
+MACHINE_FIELDS = (
+    ("make", "Make"),
+    ("model", "Model"),
+    ("serial", "Serial / VIN"),
+    ("unit", "Unit / fleet no."),
+    ("hours", "Hours"),
+    ("customer", "Customer / site"),
+)
+MACHINE_KEYS = tuple(k for k, _ in MACHINE_FIELDS)
+RECENT_MACHINES = "recent_machines.json"
+MAX_RECENT = 25
 
 
 @dataclass
@@ -75,9 +96,12 @@ def fmt_elapsed(seconds: float) -> str:
 
 
 class Capture:
-    def __init__(self, name: str = "", notes: str = "", plan: list[str] | None = None):
+    def __init__(self, name: str = "", notes: str = "", plan: list[str] | None = None,
+                 machine: dict | None = None, question: str = ""):
         self.name = name
         self.notes = notes
+        self.machine: dict[str, str] = clean_machine(machine)
+        self.question = question            # what to look at in the data (for whoever analyses it)
         self.markers: list[Marker] = [Marker(label) for label in (plan or [])]
         self.state = IDLE
         self.started: float | None = None
@@ -102,6 +126,26 @@ class Capture:
     def next_title(self) -> str:
         i = self.next_index()
         return self.title(i) if i is not None else f"{len(self.markers) + 1} - Timestamp {len(self.markers) + 1}"
+
+    # ------------------------------------------------------------------
+    # machine details
+    # ------------------------------------------------------------------
+    def set_machine(self, machine: dict | None = None, *, name: str | None = None, notes: str | None = None,
+                    question: str | None = None):
+        """Replace the machine details (and optionally the name, concern and question) and write
+        them out. Works in any state, a saved capture included."""
+        if machine is not None:
+            self.machine = clean_machine(machine)
+        if name is not None:
+            self.name = name
+        if notes is not None:
+            self.notes = notes
+        if question is not None:
+            self.question = question
+        self._changed()
+
+    def machine_summary(self) -> str:
+        return machine_summary(self.machine)
 
     def add_planned(self, label: str | None = None) -> int:
         self.markers.append(Marker(label or f"Timestamp {len(self.markers) + 1}"))
@@ -255,8 +299,9 @@ class Capture:
         return [m.label for m in self.markers if m.planned]
 
     def fresh_copy(self) -> "Capture":
-        """A new, idle capture with the same plan and notes, e.g. to repeat the test."""
-        c = Capture(self.name, self.notes, self.plan_labels())
+        """A new, idle capture with the same plan, notes and machine, e.g. to repeat the test.
+        (The question is about one recording, so it starts empty.)"""
+        c = Capture(self.name, self.notes, self.plan_labels(), self.machine)
         c.root = self.root
         return c
 
@@ -284,8 +329,14 @@ class Capture:
         self.folder = config.ensure_dir(os.path.join(self.root, f"{PENDING_PREFIX}{stamp}"))
         self.meta = dict(meta or {})
         self.meta.setdefault("app_version", __version__)
+        if session is not None:             # what the machine said about itself before the recording
+            from .identity import seen_lines
+            heard = seen_lines(session)
+            if heard:
+                self.meta["identity_before"] = heard
         if session is not None:
             session.start_recording(self.log_path)
+            self._start_trace(session)
         else:
             open(self.log_path, "w").close()     # no bus: an empty log keeps every tool working
         if measurements is not None:
@@ -298,6 +349,7 @@ class Capture:
     def stop(self):
         if self.state != RECORDING:
             return
+        self._stop_trace()
         done = self._session.stop_recording() if self._session else None
         self.frames = done[1] if done else self.frames
         self._session = None
@@ -308,6 +360,26 @@ class Capture:
         self.stopped = time.time()
         self.state = STOPPED
         self._write_state()
+
+    def _start_trace(self, session):
+        """Through a Bluetooth OBD adapter, keep its raw conversation beside the log: the frames in
+        capture.log are rebuilt from it (non-CAN cars), so this is what shows a reply that didn't parse."""
+        backend = getattr(session, "backend", None)
+        if backend is None or not hasattr(backend, "trace_path"):
+            return
+        path = os.path.join(self.folder, ADAPTER_TRACE)
+        with open(path, "w") as f:
+            proto = getattr(backend, "protocol_name", "") or "not found yet"
+            f.write(f"# Bluetooth OBD adapter: {getattr(backend, 'version', '') or '?'}, vehicle protocol "
+                    f"{proto}. '>' = sent, '<' = the adapter's reply lines, as it printed them.\n")
+        backend.trace_path = path
+        self._traced = backend
+
+    def _stop_trace(self):
+        backend = getattr(self, "_traced", None)
+        if backend is not None:
+            backend.trace_path = None
+            self._traced = None
 
     @property
     def recorded_frames(self) -> int:
@@ -320,7 +392,7 @@ class Capture:
 
     def default_folder_name(self) -> str:
         stamp = datetime.datetime.fromtimestamp(self.started or time.time()).strftime("%Y%m%d_%H%M%S")
-        return f"{stamp}_{safe_name(self.name) or 'capture'}"
+        return f"{stamp}_{safe_name(self.name) or safe_name(self.machine_summary()) or 'capture'}"
 
     def save(self, parent_dir: str | None = None, *, extra_files: dict[str, str] | None = None,
              system: str = "metric", progress=None) -> str:
@@ -367,7 +439,8 @@ class Capture:
 
     def to_dict(self) -> dict:
         return {
-            "name": self.name, "notes": self.notes, "state": self.state,
+            "name": self.name, "notes": self.notes, "machine": dict(self.machine), "question": self.question,
+            "state": self.state,
             "started": self.started, "stopped": self.stopped, "frames": self.recorded_frames,
             "samples": self.recorded_samples,
             "markers": [asdict(m) for m in self.markers], "meta": self.meta,
@@ -380,6 +453,8 @@ class Capture:
         with open(tmp, "w") as f:
             json.dump(self.to_dict(), f, indent=2)
         os.replace(tmp, os.path.join(self.folder, META_JSON))
+        from .capture_readme import write_readme  # imported here: capture_readme imports this module
+        write_readme(self)
         with open(os.path.join(self.folder, MARKERS_CSV), "w", newline="") as f:
             w = csv.writer(f)
             w.writerow(["number", "label", "title", "time", "elapsed_s", "elapsed", "note"])
@@ -395,7 +470,7 @@ class Capture:
     def load(cls, folder: str) -> "Capture":
         with open(os.path.join(folder, META_JSON)) as f:
             d = json.load(f)
-        c = cls(d.get("name", ""), d.get("notes", ""))
+        c = cls(d.get("name", ""), d.get("notes", ""), machine=d.get("machine"), question=d.get("question", ""))
         c.markers = [Marker(**m) for m in d.get("markers", [])]
         c.started, c.stopped = d.get("started"), d.get("stopped")
         c.frames = d.get("frames", 0)
@@ -455,6 +530,58 @@ def saved_captures(root: str | None = None) -> list[str]:
         return []
     return [os.path.join(root, n) for n in names
             if not n.startswith(".") and os.path.exists(os.path.join(root, n, META_JSON))]
+
+
+# ----------------------------------------------------------------------------
+# Machine details
+# ----------------------------------------------------------------------------
+def clean_machine(machine: dict | None) -> dict[str, str]:
+    """Only the known keys, as stripped strings, empty ones left out."""
+    out = {}
+    for k in MACHINE_KEYS:
+        v = (machine or {}).get(k)
+        v = "" if v is None else str(v).strip()
+        if v:
+            out[k] = v
+    return out
+
+
+def machine_summary(machine: dict | None) -> str:
+    """ "Make Model, SN 123, unit 14" (whatever is filled in), "" for none."""
+    m = clean_machine(machine)
+    head = " ".join(m[k] for k in ("make", "model") if k in m)
+    tail = [f"SN {m['serial']}" if "serial" in m else "", f"unit {m['unit']}" if "unit" in m else ""]
+    return ", ".join(p for p in [head] + tail if p)
+
+
+def _recent_path() -> str:
+    return os.path.join(config.config_dir(), RECENT_MACHINES)
+
+
+def recent_machines() -> list[dict[str, str]]:
+    """Machines used before, newest first (to pick again without typing)."""
+    try:
+        with open(_recent_path()) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return []
+    return [m for m in (clean_machine(x) for x in d if isinstance(x, dict)) if m] if isinstance(d, list) else []
+
+
+def remember_machine(machine: dict | None):
+    """Put ``machine`` at the top of the recent list (a same make / model / serial replaces the old one)."""
+    m = clean_machine(machine)
+    if not m:
+        return
+
+    def key(x):
+        return tuple(x.get(k, "").lower() for k in ("make", "model", "serial"))
+    rest = [x for x in recent_machines() if key(x) != key(m)]
+    config.ensure_dir(config.config_dir())
+    tmp = _recent_path() + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump([m] + rest[:MAX_RECENT - 1], f, indent=2)
+    os.replace(tmp, _recent_path())
 
 
 # ----------------------------------------------------------------------------
