@@ -130,9 +130,14 @@ class ObdTab(QtWidgets.QWidget):
         self.stream_btn = QtWidgets.QPushButton("▶ Stream")
         self.stream_btn.setToolTip("Keep polling: the ticked values when 'Hide unticked' is on, else all")
         self.stream_btn.clicked.connect(self.toggle_stream)
+        self.try_btn = QtWidgets.QPushButton("Try anyway")
+        self.try_btn.setToolTip("The vehicle lists no live values: ask for the common ones anyway (engine speed, "
+                                "coolant temperature ...). Some older computers answer them. Reads only.")
+        self.try_btn.clicked.connect(self.try_anyway)
+        self.try_btn.setVisible(False)
         self.rate = QtWidgets.QLabel("")
         self.rate.setStyleSheet("color: gray")
-        for i, w in enumerate((self.live_btn, self.stream_btn)):
+        for i, w in enumerate((self.live_btn, self.stream_btn, self.try_btn)):
             self.live.controls.insertWidget(i, w)
         self.live.controls.addWidget(self.rate)
 
@@ -243,6 +248,7 @@ class ObdTab(QtWidgets.QWidget):
         self.mil_label.setText("")
         self.ready_summary.setText("")
         self._freeze_by_ecu = {}
+        self.try_btn.setVisible(False)
         if session is not None and session.offline:
             self._show_log()         # the Live Data page has decoded the log by now
         self._update_enabled()
@@ -259,7 +265,7 @@ class ObdTab(QtWidgets.QWidget):
     def _update_enabled(self):
         ok = self.can_talk and not self._jobs
         for b in (self.check_btn, self.clear_btn, self.live_btn, self.freeze_btn, self.ready_btn,
-                  self.results_btn, self.info_btn, self.tests_btn):
+                  self.results_btn, self.info_btn, self.tests_btn, self.try_btn):
             b.setEnabled(ok)
         self.stream_btn.setEnabled(self.can_talk)
         self.run_test_btn.setEnabled(ok and self.test_pick.count() > 0)
@@ -346,14 +352,33 @@ class ObdTab(QtWidgets.QWidget):
     def read_live(self, then=None):
         """Find the supported PIDs and read each once: the rows appear in Live Data."""
         def probe(c: ObdClient):
-            for ecu, pid in c.live_pids():
+            pids = c.live_pids()
+            for ecu, pid in pids:
                 c.read_pid(ecu, pid)
+            return pids
 
-        def done(_):
+        def done(pids):
             self.tick()
+            none = not pids and not self.model.order
+            self.try_btn.setVisible(none)
+            if none:
+                self.ctx.status_message.emit("OBD-II: the vehicle lists no live values. Try anyway asks for the "
+                                             "common ones.")
             if then is not None:
                 then()
         self._job("reading live data", probe, done)
+
+    def try_anyway(self):
+        """Ask for common live values the vehicle didn't list (``ObdClient.try_unlisted``)."""
+        def done(found):
+            self.tick()
+            if found:
+                self.try_btn.setVisible(False)
+                self.ctx.status_message.emit(f"OBD-II: {len(found)} value(s) answered anyway")
+            else:
+                self.ctx.status_message.emit("OBD-II: nothing answered: this vehicle doesn't give live values "
+                                             "over OBD-II")
+        self._job("asking for common values", lambda c: c.try_unlisted(), done)
 
     def _read_freeze(self):
         self._job("reading freeze frame", lambda c: c.read_freeze_frame(), self._show_freeze)

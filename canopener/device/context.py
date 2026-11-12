@@ -77,6 +77,7 @@ class DeviceContext:
         self.obd_codes: dict | None = None  # last OBD-II read: module -> {stored/pending/permanent: [codes]}
         self.obd_client = None
         self.obd_streamer = None
+        self.obd_none_listed = False        # the vehicle said it has no live values: offer Try anyway
         self.capture = Capture(plan=list(self.settings.get("log.plan") or []))
         self.last_saved: str | None = None
         self.uploads = upload.UploadQueue(self.settings)     # started by the app (start_uploads)
@@ -276,6 +277,7 @@ class DeviceContext:
         self.j1939_live.clear()
         self.obd_live.clear()
         self._bus_level, self._bus_was_ok = link.OFF, False
+        self.obd_none_listed = False
         if self.protocol == profiles.OBD2:
             from ..core.obd import ObdClient
             from ..core.obd_stream import ObdStreamer
@@ -575,8 +577,28 @@ class DeviceContext:
         client = self.obd_client
 
         def found(pids):
+            if not pids:
+                self.obd_none_listed = True
+                self.toast("The vehicle lists no live values. Try anyway asks for the common ones.")
+                return
             st.start(pids)
         self.run_job("Finding live values", client.live_pids, found)
+
+    def try_obd_anyway(self):
+        """Ask for common live values the vehicle didn't list; stream whichever answer."""
+        st, client = self.obd_streamer, self.obd_client
+        if st is None or client is None or not client.available:
+            self.toast("Try anyway needs an OBD-II connection that can transmit")
+            return
+
+        def done(found):
+            if not found:
+                self.toast("Nothing answered: this vehicle doesn't give live values over OBD-II")
+                return
+            self.obd_none_listed = False
+            self.toast(f"{len(found)} value(s) answered: streaming them")
+            st.start(found)
+        self.run_job("Asking for common values", client.try_unlisted, done)
 
     def _obd_poll_list(self) -> list[tuple[int, int]]:
         m = self.obd_live
@@ -596,6 +618,12 @@ class DeviceContext:
                 "front_end": f"device {__version__}"}
         if self.connection is not None and self.connection.kind == SOCKETCAN:
             meta.update(interface=self.settings.get("can.iface"), bitrate=self.settings.get("can.bitrate"))
+        elif self.connection is not None and self.connection.kind in (ELM, ELM_SIM):
+            b = self.connection.session.backend
+            meta.update(adapter=b.channel, adapter_chip=b.stn or b.version,
+                        timestamps="taken on this unit when each answer arrived over Bluetooth")
+            if b.protocol_name:
+                meta["vehicle_protocol"] = b.protocol_name
         if self.session is not None:
             meta["listen_only"] = self.session.listen_only
         cal = self.calibration.snapshot()

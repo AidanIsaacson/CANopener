@@ -380,6 +380,9 @@ class Capture:
         if backend is not None:
             backend.trace_path = None
             self._traced = None
+            proto = getattr(backend, "protocol_name", "")
+            if proto and not self.meta.get("vehicle_protocol"):
+                self.meta["vehicle_protocol"] = proto      # found by the search during the recording
 
     @property
     def recorded_frames(self) -> int:

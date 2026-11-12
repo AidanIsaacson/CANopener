@@ -122,7 +122,8 @@ class LivePage(Screen):
         ctx = self.ctx
         keys = [SoftKey("List" if self.big else "Grid", self.toggle_big, enabled=bool(self.picked()) or self.big),
                 SoftKey("All" if self.only_picked else "Picked", self.toggle_picked, active=self.only_picked),
-                SoftKey("Reset min/max", self.reset)]
+                SoftKey("Try anyway", ctx.try_obd_anyway, enabled=not ctx.busy)
+                if ctx.protocol == profiles.OBD2 and ctx.obd_none_listed else SoftKey("Reset min/max", self.reset)]
         if ctx.protocol == profiles.OBD2:
             st = ctx.obd_streamer
             keys.append(SoftKey("Stop" if st and st.running else "Stream", ctx.toggle_obd_stream,
@@ -191,7 +192,9 @@ class LivePage(Screen):
             msg = ("Nothing yet. Connect to a bus (Connect page), or switch on a meter."
                    if not self.only_picked else "Nothing picked: press All, then tick values with Select.")
             if self.ctx.protocol == profiles.OBD2 and self.ctx.live:
-                msg = "A car only answers when asked: press Stream."
+                msg = ("The vehicle lists no live values. Try anyway asks for the common ones (engine speed, "
+                       "coolant temperature ...): some older computers answer anyway."
+                       if self.ctx.obd_none_listed else "A car only answers when asked: press Stream.")
             ui.paragraph(msg, rect.inflate(-ui.theme.pad * 4, -ui.theme.pad * 4), "body", "dim")
             return
         t = ui.theme

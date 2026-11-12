@@ -167,7 +167,7 @@ becomes one row of pages:
 | Page | What you get |
 |---|---|
 | **Trouble Codes** | **Check codes** reads every module (engine, transmission ...): stored, pending and permanent codes, with descriptions, and the check-engine light. **Clear codes** asks first and tells you what else it resets. Pick a sensor code and press **Show in Live Data** to watch that sensor, or **Show freeze frame**. |
-| **Live Data** | Every value the car offers, streaming, with min / max and charts. |
+| **Live Data** | Every value the car offers, streaming, with min / max and charts. If the vehicle says it offers none (some older and off-road engine computers), **Try anyway** asks for the common ones (engine speed, coolant temperature, ...): some answer even so. |
 | **Freeze Frame** | The values saved when the code was set. |
 | **Readiness** | Inspection monitors: complete, incomplete or not supported, and a READY / NOT READY verdict. |
 | **On-Board Tests** | Ask the car to run a test, e.g. the EVAP leak test. |

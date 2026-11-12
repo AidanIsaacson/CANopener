@@ -32,6 +32,9 @@ PENDING_TIMEOUT = 5.0       # a 'response pending' ECU gets this long (P2* in IS
 LIVE_PID_ORDER = [0x05, 0x0C, 0x0D, 0x11, 0x04, 0x0F, 0x10, 0x0B, 0x33, 0x2F, 0x46, 0x5C, 0x42, 0x5E, 0x1F]
 DTC_MODES = (("stored", obd.MODE_STORED_DTCS), ("pending", obd.MODE_PENDING_DTCS),
              ("permanent", obd.MODE_PERMANENT_DTCS))
+# "Try anyway": common live values to ask for when a vehicle lists none (or too few). Some older
+# computers answer PIDs their support mask leaves out; asking is a read like any other.
+TRY_ANYWAY_PIDS = [0x0C, 0x05, 0x0D, 0x11, 0x04, 0x0F, 0x0B, 0x10, 0x0E, 0x06, 0x07, 0x42, 0x2F, 0x1F]
 # Mode 01 PIDs that aren't live values (support masks, monitor status, freeze DTC).
 NOT_LIVE = set(obd.SUPPORT_PIDS) | {0x01, 0x02, 0x41}
 
@@ -218,6 +221,17 @@ class ObdClient:
             pids = [p for p in pids if p not in NOT_LIVE]
             pids.sort(key=lambda p: (LIVE_PID_ORDER.index(p) if p in LIVE_PID_ORDER else 99, p))
             out += [(ecu, p) for p in pids]
+        return out
+
+    def try_unlisted(self, pids: list[int] | None = None) -> list[tuple[int, int]]:
+        """Ask for common live values whether the vehicle lists them or not (``TRY_ANYWAY_PIDS``):
+        (ecu, pid) for each that answered with a value. Reads only (Mode 01); about half a second
+        per PID nobody answers."""
+        out = []
+        for pid in TRY_ANYWAY_PIDS if pids is None else pids:
+            for ecu, r in sorted(self.query_all(obd.MODE_CURRENT_DATA, pid).items()):
+                if r.ok and r.values:
+                    out.append((ecu, pid))
         return out
 
     def read_pid(self, ecu: int, pid: int) -> obd.ObdResponse | None:
