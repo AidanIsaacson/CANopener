@@ -240,7 +240,16 @@ two Picos, the sync input, the Pi's ADC, the ESP32, the parts behind the meter P
 installed (the default: never touched), Installed (missing = a red lamp with a hint, retried) or
 Use if found. "Set all from build stage" fills them in. Meter sources for the meter Pico, the ESP32
 and the Pi's ADC start from these; the Meters rows above stay for a bench Pi or a laptop.
-[ELECTRONICS.md](ELECTRONICS.md) section 19 has the list. Waveforms and logic captures (kHz-MHz) don't belong in a CSV row
+[ELECTRONICS.md](ELECTRONICS.md) section 19 has the list.
+
+**When a part isn't found:** on **System > Installed options**, put the focus on it and press
+**Diagnose** (soft key 1), or **Run all** (soft key 2) for everything set to Installed or Use if
+found. It runs the checks for that part and shows what they printed: the config.txt lines that load
+its overlay, the kernel's messages about its driver, what `/sys` and `/dev` show, and a command or
+two (`ip link`, `lsusb`, `i2cdetect`), each with a line saying what to look for. Nothing is changed
+and nothing needs root. **Save** puts the report in `~/canopener/diagnostics/`; **Copy to USB**
+saves it and copies it to a stick. **Installed options > Diagnostics** runs single parts and opens
+saved reports. Over SSH: `canopener-cli hardware --diagnose can_a --save`. Waveforms and logic captures (kHz-MHz) don't belong in a CSV row
 per sample: they will be their own files in the capture folder, on the same timebase, listed in
 `capture.json`.
 

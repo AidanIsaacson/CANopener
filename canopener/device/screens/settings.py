@@ -13,7 +13,7 @@ from ... import __version__
 from ...core import config, hardware, meters, sound, storage, system, themes, units, updates
 from ...core.connection import SIM_CARS
 from ..input import ACTION_NAMES
-from . import calibrate
+from . import calibrate, diagnostics
 from .base import InfoDialog, Row, RowList, Screen, SoftKey, choose, confirm, cycle, label_of
 
 
@@ -249,7 +249,9 @@ class SettingsScreen(Screen):
                 Row("Set all from build stage", select=lambda: choose(
                     self.app, "Built up to stage", stages, None,
                     lambda st: (hw.set_stage(st), self.ctx.apply_meters())),
-                    hint="then change single parts below")]
+                    hint="then change single parts below"),
+                Row("Diagnostics", select=lambda: self.app.push(diagnostics.DiagnosticsScreen(self.app)),
+                    kind="menu", hint="run the checks for a part, read and save the output")]
 
         def setter(oid):
             return lambda v: (hw.set_state(oid, v), self.ctx.apply_meters())
@@ -425,6 +427,21 @@ class SettingsScreen(Screen):
                 self.ctx.toast(f"{what} failed: {e}")
         confirm(self.app, f"{what}?", "A recording in progress is stopped and saved, and the bus disconnected.",
                 what, go)
+
+    def softkeys(self):
+        if self.section != "Installed options":
+            return []
+        return [SoftKey("Diagnose", self._diagnose_focused),
+                SoftKey("Run all", lambda: diagnostics.DiagnosticsScreen(self.app).run_fitted())]
+
+    def _diagnose_focused(self):
+        """Soft key 1 on Installed options: the checks for the part the focus is on."""
+        row = self.rows.focused()
+        opt = next((o for o in hardware.OPTIONS if row is not None and row.label.startswith(o.name + " (")), None)
+        if opt is None:
+            self.app.push(diagnostics.DiagnosticsScreen(self.app))
+        else:
+            diagnostics.run(self.app, [opt.id], opt.name)
 
     def on_action(self, action, n=1):
         return self.rows.on_action(action, n)

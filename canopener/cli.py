@@ -10,6 +10,7 @@
     canopener-cli setup --iface can0 --bitrate auto   # configure + bring up (listen-only probe)
     canopener-cli find --iface can0 --sound           # keep listening while probing; chime on lock
     canopener-cli hardware --stage 2b --set can_b=auto  # installed options: what's fitted, what's found
+    canopener-cli hardware --diagnose can_a --save      # the checks for a part that isn't found, saved
     canopener-cli bluetooth scan                      # Bluetooth OBD adapters nearby (then: pair, rename, test)
     canopener-cli obd --elm                           # OBD-II through the picked Bluetooth OBD adapter
     canopener-cli obd --elm sim --bench 10            # how fast an adapter answers (here: the simulated one)
@@ -654,6 +655,19 @@ def cmd_hardware(a) -> int:
         if st.level == hardware.BAD or a.verbose:
             print(f"{'':<23}{st.detail or o.hint}")
     print(f"\nStored in {hw.settings.file} (\"hardware\"). Not installed = never touched.")
+    if a.diagnose is not None:
+        from . import __version__
+        from .core import diagnostics
+        ids = a.diagnose or [o.id for o in hardware.OPTIONS if hw.state(o.id) != hardware.NO]
+        unknown = [i for i in ids if i not in hardware.BY_ID]
+        if unknown:
+            sys.exit(f"unknown option(s): {', '.join(unknown)}. Options: {', '.join(hardware.BY_ID)}")
+        if not ids:
+            sys.exit("Nothing is set to Installed: name the options to check, e.g. --diagnose can_a")
+        text = diagnostics.report(diagnostics.run(ids, hw), hw, __version__)
+        print("\n" + text, end="")
+        if a.save:
+            print(f"\nSaved: {diagnostics.save(text)}")
     return 0
 
 
@@ -908,6 +922,9 @@ def main(argv=None) -> int:
     hw.add_argument("--set", action="append", metavar="ID=STATE", help="one option: yes / no / auto (repeatable)")
     hw.add_argument("--port", action="append", metavar="ID=PATH", help="serial port of a Pico or the ESP32")
     hw.add_argument("-v", "--verbose", action="store_true", help="show what each option is and where to look")
+    hw.add_argument("--diagnose", nargs="*", metavar="ID", help="run the checks for these options (default: every "
+                    "one set to yes / auto): config.txt, kernel messages, sysfs, ip link, lsusb, i2cdetect")
+    hw.add_argument("--save", action="store_true", help="--diagnose: also save the report in ~/canopener/diagnostics")
     hw.set_defaults(fn=cmd_hardware)
 
     cl = sub.add_parser("clear", help="clear J1939 fault codes: active (DM11, default) or stored (DM3); "

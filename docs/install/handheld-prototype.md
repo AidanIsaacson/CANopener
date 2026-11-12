@@ -208,3 +208,9 @@ options > Set all from build stage** on the handheld.
 - [ ] **System > Meters > ADC input divider** is **21.04 (1M / 49.9k)**, and a probe on a 12 V
       battery reads about 12 V on the meter.
 - [ ] Calibrate each channel: [Calibrating the meter](../DEVICE.md#calibrating-the-meter).
+
+**A part isn't found?** On **System > Installed options**, put the focus on it and press
+**Diagnose**: it shows the config lines, kernel messages and `/sys` entries for that part, and
+**Save** keeps the report ([DEVICE.md](../DEVICE.md#meters-and-the-data-log-the-groundwork)). On a
+Pi 5, `/dev/ttyAMA10` is the board's debug connector, not the CAN module: the CAN module only ever
+appears as a network interface (`can0` / `can1`).

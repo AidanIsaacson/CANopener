@@ -995,3 +995,44 @@ def test_calibration_runs_channel_to_channel_from_system_meters(app_for):
     press(app, pygame.K_RETURN)
     assert isinstance(app.top, CalibrationScreen)
     app.step([])
+
+
+# --- diagnostics -------------------------------------------------------------------
+def test_installed_options_diagnose_a_part_save_and_reopen(app_for, monkeypatch):
+    """System > Installed options: soft key 1 runs the checks for the focused part on a worker
+    thread, shows the report, Save writes it, and Diagnostics lists it to open again."""
+    from canopener.core import diagnostics as diag
+    from canopener.device.screens.diagnostics import DiagnosticsScreen, ReportScreen
+    ran = []
+
+    def fake_run(ids, hw=None, runner=None):
+        ran.append(list(ids))
+        return {"system": [], **{i: [diag.Result(diag.Check("Kernel messages", "kernel"), "dmesg",
+                                                  "mcp251xfd spi0.0: Failed to detect MCP251xFD")] for i in ids}}
+    monkeypatch.setattr(diag, "run", fake_run)
+    app = app_for()
+    system_row(app, "Set all from build stage")
+    page = app.top
+    assert page.title == "Installed options" and [k.label for k in app.softkey_slots()[:2]] == ["Diagnose", "Run all"]
+    rows = page.rows.refresh()
+    page.rows.view.focus = next(i for i, r in enumerate(rows) if r.label.startswith("CAN stack A ("))
+    press(app, pygame.K_F1)                               # Diagnose the focused part
+    assert app.ctx.wait_idle(5)
+    app.step([])
+    report = app.top
+    assert isinstance(report, ReportScreen) and ran == [["can_a"]] and "Failed to detect" in report.text
+    for _ in range(3):
+        press(app, pygame.K_PAGEDOWN)                     # scrolls
+    press(app, pygame.K_F1)                               # Save
+    assert report.path and os.path.exists(report.path) and "Saved" in app.ctx.current_toast()
+    press(app, pygame.K_ESCAPE)                           # back on Installed options
+    assert app.top is page
+    press(app, pygame.K_F2)                               # Run all: nothing is set to Installed yet
+    assert "Nothing is set to Installed" in app.ctx.current_toast()
+    app.push(DiagnosticsScreen(app))
+    app.step([])
+    saved = [r for r in app.top.rows.refresh() if r.label.startswith("diagnostics-")]
+    assert len(saved) == 1
+    saved[0].select()
+    assert isinstance(app.top, ReportScreen) and app.top.path == report.path
+    app.step([])

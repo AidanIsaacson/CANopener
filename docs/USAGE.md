@@ -310,6 +310,7 @@ canopener-cli scan --elm --listen-only              # a J1939 truck through the 
 canopener-cli uds --iface can0 --find               # which modules answer (also with --elm)
 canopener-cli canopen --iface can0 --info --errors  # CANopen: nodes, state, errors, identity
 canopener-cli interfaces                            # what adapters it sees, and why one isn't working
+canopener-cli hardware --diagnose can_a --save      # handheld: checks for a part that isn't found, saved
 canopener-cli decode capture.log --csv frames.csv   # decode a saved log
 canopener-cli capture FOLDER --trim 5 2             # trim a capture: 5 min before, 2 min after its timestamps
 canopener-cli update                                # check for and install updates
