@@ -294,7 +294,9 @@ repository, to read somewhere else a minute later.
   repository. Then on the handheld: sign in (**System → Software → Plugins → Sign in to GitHub**),
   and the first **Upload** asks which repository (**More → Upload to…** changes it). Desktop:
   **Log → Upload settings… → Send to: GitHub**, and the repository as `owner/name`; command line:
-  `canopener-cli upload --github owner/name`. Public repositories are refused: captures hold
+  `canopener-cli upload --github owner/name`. Captures go on a `captures` branch of their own,
+  so a plugin's repository works too (plugin updates never download that branch). Public
+  repositories are refused: captures hold
   serial numbers and customers. The write permission applies to every repository the App is
   installed on, so a lost handheld could write to those too: install it only where it's needed.
 

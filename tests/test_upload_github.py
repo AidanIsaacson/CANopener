@@ -22,8 +22,8 @@ class FakeGitHub:
         self.private, self.writable = private, writable
         self.blobs: dict[str, bytes] = {}
         self.trees: dict[str, dict] = {"t0": {}}
-        self.commits: dict[str, dict] = {} if empty else {"c0": {"tree": "t0", "message": "init"}}
-        self.head = None if empty else "c0"
+        self.commits: dict[str, dict] = {} if empty else {"c0": {"tree": "t0", "message": "init", "parents": []}}
+        self.refs: dict[str, str] = {} if empty else {"main": "c0"}
         self.n = 0
 
     def _id(self, kind):
@@ -37,10 +37,11 @@ class FakeGitHub:
         if path == r and method == "GET":
             return 200, {"full_name": "me/logs", "private": self.private, "default_branch": "main",
                          "permissions": {"push": True}}
-        if path == f"{r}/git/ref/heads/main":
-            if not self.head:
+        if path.startswith(f"{r}/git/ref/heads/"):
+            name = path.rsplit("/", 1)[1]
+            if not self.refs:
                 return 409, {"message": "Git Repository is empty."}
-            return 200, {"object": {"sha": self.head}}
+            return (200, {"object": {"sha": self.refs[name]}}) if name in self.refs else (404, {"message": "Not Found"})
         if not self.writable and method != "GET":
             return 403, {"message": "Resource not accessible by integration"}
         if path == f"{r}/contents/README.md" and method == "PUT":
@@ -48,8 +49,9 @@ class FakeGitHub:
             self.blobs[sha] = base64.b64decode(body["content"])
             tree = self._id("t")
             self.trees[tree] = {"README.md": sha}
-            self.head = self._id("c")
-            self.commits[self.head] = {"tree": tree, "message": body["message"]}
+            c = self._id("c")
+            self.commits[c] = {"tree": tree, "message": body["message"], "parents": []}
+            self.refs[body.get("branch", "main")] = c
             return 201, {}
         if path.startswith(f"{r}/git/commits/") and method == "GET":
             return 200, {"tree": {"sha": self.commits[path.rsplit("/", 1)[1]]["tree"]}}
@@ -59,20 +61,27 @@ class FakeGitHub:
             return 201, {"sha": sha}
         if path == f"{r}/git/trees":
             sha = self._id("t")
-            self.trees[sha] = {**self.trees[body["base_tree"]], **{e["path"]: e["sha"] for e in body["tree"]}}
+            base = self.trees[body["base_tree"]] if "base_tree" in body else {}
+            self.trees[sha] = {**base, **{e["path"]: e["sha"] for e in body["tree"]}}
             return 201, {"sha": sha}
         if path == f"{r}/git/commits" and method == "POST":
-            assert body["parents"] == [self.head]
             sha = self._id("c")
-            self.commits[sha] = {"tree": body["tree"], "message": body["message"]}
+            self.commits[sha] = {"tree": body["tree"], "message": body["message"], "parents": body["parents"]}
             return 201, {"sha": sha}
-        if path == f"{r}/git/refs/heads/main" and method == "PATCH":
-            self.head = body["sha"]
+        if path == f"{r}/git/refs" and method == "POST":
+            name = body["ref"].removeprefix("refs/heads/")
+            assert name not in self.refs
+            self.refs[name] = body["sha"]
+            return 201, {}
+        if path.startswith(f"{r}/git/refs/heads/") and method == "PATCH":
+            name = path.rsplit("/", 1)[1]
+            assert self.commits[body["sha"]]["parents"] == [self.refs[name]]       # a fast-forward
+            self.refs[name] = body["sha"]
             return 200, {}
         return 404, {"message": "Not Found"}
 
-    def files(self) -> dict[str, bytes]:
-        tree = self.trees[self.commits[self.head]["tree"]]
+    def files(self, branch="captures") -> dict[str, bytes]:
+        tree = self.trees[self.commits[self.refs[branch]]["tree"]]
         return {p: self.blobs[s] for p, s in tree.items()}
 
 
@@ -96,14 +105,22 @@ def test_github_upload_commits_readable_files_and_the_zip(tmp_path, gh):
     q.run_once()
     st = q.status(c.folder)
     assert st.state == upload.DONE, st.text
-    assert st.url == f"https://github.com/me/logs/tree/main/captures/{st.key}"
+    assert st.url == f"https://github.com/me/logs/tree/captures/captures/{st.key}"
     files = fake.files()
+    assert fake.refs["main"] == "c0" and fake.files("main") == {}          # the code's branch is untouched
+    assert fake.commits[fake.refs["captures"]]["parents"] == []             # no history in common with it
+    assert b"plugin installs never download it" in files["README.md"]
     base = f"captures/{st.key}/"
     assert files[base + "README.md"].startswith(b"# Unit 14")
     assert base + "capture.log" in files and base + "traffic.csv" in files
     with zipfile.ZipFile(io.BytesIO(files[base + f"{st.key}.zip"])) as z:
         assert "capture.json" in z.namelist() and "upload.json" not in z.namelist()
-    assert fake.commits[fake.head]["message"] == f"Capture {st.key}: Acme LiftMaster 40, SN AB123"
+    assert fake.commits[fake.refs["captures"]]["message"] == f"Capture {st.key}: Acme LiftMaster 40, SN AB123"
+    first = fake.refs["captures"]
+    q.enqueue(c.folder)                                                     # uploaded again: a commit on top
+    q.run_once()
+    assert q.status(c.folder).state == upload.DONE
+    assert fake.commits[fake.refs["captures"]]["parents"] == [first]
 
 
 def test_github_refuses_public_and_explains_write_access(tmp_path, gh):
@@ -134,7 +151,7 @@ def test_github_empty_repository_gets_a_first_commit(tmp_path, monkeypatch):
     q.enqueue(c.folder)
     q.run_once()
     assert q.status(c.folder).state == upload.DONE
-    assert "README.md" in fake.files() and any(p.endswith("/README.md") for p in fake.files() if "/" in p)
+    assert "README.md" in fake.files("main") and any(p.endswith("/README.md") for p in fake.files())
 
 
 def test_not_signed_in_is_not_configured(tmp_path):

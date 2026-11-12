@@ -119,6 +119,16 @@ class PluginStatus:
         return self.ok and self.behind > 0 and not self.ahead
 
 
+def _one_branch(path: str, token: str | None, runner):
+    """Fetch only the branch this checkout is on (new clones are made ``--single-branch``): a
+    plugin repository can hold other branches, such as uploaded captures (core/upload_github.py),
+    that a device has no reason to download."""
+    branch = _git(["rev-parse", "--abbrev-ref", "HEAD"], path, token, runner=runner).stdout.strip()
+    if branch and branch != "HEAD":
+        _git(["config", "remote.origin.fetch", f"+refs/heads/{branch}:refs/remotes/origin/{branch}"], path, token,
+             runner=runner)
+
+
 def check(src: Source, token: str | None = None, runner=subprocess.run, fetch: bool = True) -> PluginStatus:
     """Is it installed, and is there something newer? Only fetches; changes nothing."""
     path = src.path
@@ -131,6 +141,7 @@ def check(src: Source, token: str | None = None, runner=subprocess.run, fetch: b
             return PluginStatus(src.repo, path, False, f"{path} is a checkout of something else "
                                 f"({remote.stdout.strip() or 'no origin'}); left alone.", installed=True)
         if fetch:
+            _one_branch(path, token, runner)
             r = _git(["fetch", "--quiet"], path, token, runner=runner)
             if r.returncode != 0:
                 return PluginStatus(src.repo, path, False, f"Couldn't check for updates: {_why(r)}", installed=True)
@@ -175,7 +186,8 @@ def install(src: Source, token: str | None = None, runner=subprocess.run, python
         if progress:
             progress(f"Downloading {src.repo}…")
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        r = _git(["clone", "--quiet", src.clone_url, path], None, token, timeout=CLONE_TIMEOUT, runner=runner)
+        r = _git(["clone", "--quiet", "--single-branch", src.clone_url, path], None, token, timeout=CLONE_TIMEOUT,
+                 runner=runner)
         if r.returncode != 0:
             return False, f"Couldn't download {src.repo}: {_why(r)}{note}"
         if progress:

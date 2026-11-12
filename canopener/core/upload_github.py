@@ -2,7 +2,10 @@
 
 For when there's no upload server (or no laptop): the handheld already signs in to GitHub with no
 keyboard (``core.github``, approved on a phone), so it can commit a saved capture to a private
-repository of yours. One upload is one commit, under ``captures/<key>/``:
+repository of yours. Captures go on their own branch (``upload.github_branch``, "captures"),
+started with no history in common with the code, so the repository can be one that's also a plugin
+source (``core.plugin_repos`` fetches only its own branch). One upload is one commit, under
+``captures/<key>/``:
 
 * the files worth reading straight away (``README.md``, ``summary.txt``, ``capture.json``,
   ``markers.csv``, ``traffic.csv``, ``adapter_trace.txt``, and ``capture.log`` when it's small),
@@ -32,6 +35,9 @@ READABLE = ("README.md", "summary.txt", "capture.json", "markers.csv", "traffic.
 SMALL_LOG = 20 * 1024 * 1024        # capture.log is committed as a file too when it's this small
 MAX_FILE = 95 * 1024 * 1024         # GitHub refuses files over 100 MB
 TIMEOUT = 120
+BRANCH_README = (b"# CANopener captures\n\nUploaded by CANopener: one folder per capture under captures/, "
+                 b"each with a README.md.\nThis branch has no history in common with the others: plugin "
+                 b"installs never download it.\n")
 
 
 def _urllib_http(method: str, url: str, body: dict | None, headers: dict) -> tuple[int, object]:
@@ -125,23 +131,25 @@ class GitHubUploader(Uploader):
         if not info.get("private"):
             raise UploadError(f"{info.get('full_name', repo)} is public: pick a private repository for uploads.",
                               retry=False)
-        branch = info.get("default_branch") or "main"
+        default = info.get("default_branch") or "main"
+        branch = str(settings.get("upload.github_branch") or "").strip() or default
         files = self._files(bundle, bundle.folder)
         total = sum(os.path.getsize(p) for _, p in files) or 1
         sent = 0
         if progress:
             progress(0, total)
         head = self._branch_head(repo, branch)
-        if head is None:                    # empty repository: the Contents API makes its first commit
+        if head is None and self._branch_head(repo, default) is None:
+            # An empty repository takes no blobs: the Contents API makes its first commit.
             self._api("PUT", f"/repos/{repo}/contents/README.md", {
                 "message": "CANopener captures",
-                "content": base64.b64encode(b"# CANopener captures\n\nUploaded by CANopener: one folder per "
-                                            b"capture under captures/, each with a README.md.\n").decode()})
-            head = self._branch_head(repo, branch)
-            if head is None:
-                raise UploadError("GitHub didn't make the repository's first commit.")
-        base_tree = self._api("GET", f"/repos/{repo}/git/commits/{head}")["tree"]["sha"]
+                "content": base64.b64encode(BRANCH_README).decode(), "branch": default})
+            head = self._branch_head(repo, branch) if branch == default else None
         tree = []
+        if head is None:                    # a new branch, with no history of its own (not the code's)
+            readme = self._api("POST", f"/repos/{repo}/git/blobs",
+                               {"content": base64.b64encode(BRANCH_README).decode(), "encoding": "base64"})
+            tree.append({"path": "README.md", "mode": "100644", "type": "blob", "sha": readme["sha"]})
         for name, path in files:
             with open(path, "rb") as f:
                 blob = self._api("POST", f"/repos/{repo}/git/blobs",
@@ -151,11 +159,18 @@ class GitHubUploader(Uploader):
             sent += os.path.getsize(path)
             if progress:
                 progress(sent, total)
-        new_tree = self._api("POST", f"/repos/{repo}/git/trees", {"base_tree": base_tree, "tree": tree})["sha"]
+        body = {"tree": tree}
+        if head is not None:
+            body["base_tree"] = self._api("GET", f"/repos/{repo}/git/commits/{head}")["tree"]["sha"]
+        new_tree = self._api("POST", f"/repos/{repo}/git/trees", body)["sha"]
         summary = bundle.manifest.get("machine_summary") or bundle.manifest.get("name") or bundle.key
         commit = self._api("POST", f"/repos/{repo}/git/commits", {
-            "message": f"Capture {bundle.key}: {summary}", "tree": new_tree, "parents": [head]})["sha"]
-        self._api("PATCH", f"/repos/{repo}/git/refs/heads/{urllib.parse.quote(branch)}", {"sha": commit})
+            "message": f"Capture {bundle.key}: {summary}", "tree": new_tree,
+            "parents": [head] if head else []})["sha"]
+        if head is None:
+            self._api("POST", f"/repos/{repo}/git/refs", {"ref": f"refs/heads/{branch}", "sha": commit})
+        else:
+            self._api("PATCH", f"/repos/{repo}/git/refs/heads/{urllib.parse.quote(branch)}", {"sha": commit})
         full = info.get("full_name", repo)
         return {"key": bundle.key, "url": f"https://github.com/{full}/tree/{branch}/captures/{bundle.key}"}
 
