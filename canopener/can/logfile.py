@@ -1,4 +1,10 @@
-"""candump log files: reading (log and screen formats), writing, and real-time replay."""
+"""CAN log files: reading, writing (candump), and real-time replay.
+
+Written logs are always candump ``-l`` format. Read as well: candump's screen formats, Vector ASC
+(CANalyzer / CANoe text logs, hex) and PEAK TRC (PCAN-View, versions 1.x and 2.x). ASC times are
+seconds from the start of the log; TRC times become wall-clock when the file gives its start time.
+CAN FD and error frames in those files are skipped.
+"""
 
 import datetime
 import re
@@ -14,6 +20,19 @@ LOG_RE = re.compile(r"\((\d+(?:\.\d+)?)\)\s+\S+\s+([0-9A-Fa-f]{3,8})#(R|[0-9A-Fa
 # candump -ta:         (1700000000.123456)  can0  18FECA00   [8]  00 00 ...
 SCREEN_RE = re.compile(
     r"^\s*(?:\((\d+(?:\.\d+)?)\)\s+)?\S+\s+([0-9A-Fa-f]{3,8})\s+\[(\d)\]\s*((?:[0-9A-Fa-f]{2}\s*)*)")
+
+# Vector ASC:    1.234567 1  18FEF100x       Rx   d 8 FF FF FF 68 13 FF FF FF   (x = 29-bit ID)
+ASC_RE = re.compile(r"^\s*(\d+\.\d+)\s+\d+\s+([0-9A-Fa-f]{1,8})(x?)\s+(?:Rx|Tx)\s+d\s+(\d)\s*((?:[0-9A-Fa-f]{2}\s*)*)",
+                    re.IGNORECASE)
+# PEAK TRC 1.x:      1)      1234.5  Rx         18FEF100  8  FF FF ...      (time in ms; Rx/Tx from 1.1)
+TRC1_RE = re.compile(r"^\s*\d+\)\s+(\d+(?:\.\d+)?)\s+(?:(?:Rx|Tx)\s+)?([0-9A-Fa-f]{4,8})\s+(\d)\s+"
+                     r"((?:[0-9A-Fa-f]{2}\s*)*)$")
+# PEAK TRC 2.x:      1      1234.567 DT     18FEF100 Rx 8  FF ...   (2.1 adds a bus number and a "-")
+TRC2_RE = re.compile(r"^\s*\d+\s+(\d+(?:\.\d+)?)\s+DT\s+(?:\d+\s+)?([0-9A-Fa-f]{4,8})\s+(?:Rx|Tx)\s+(?:-\s+)?"
+                     r"(\d)\s*((?:[0-9A-Fa-f]{2}\s*)*)$")
+# ;$STARTTIME=45678.5208333      days since 1899-12-30 (the spreadsheet date), local time
+TRC_START_RE = re.compile(r"^;\s*\$STARTTIME=(\d+(?:\.\d+)?)")
+_DAYS_TO_1970 = 25569
 
 # Header/marker comment lines some field loggers write into the .log (lines starting with '#',
 # which the frame parsers ignore). Times are ISO-8601 wall clock, e.g.
@@ -44,6 +63,21 @@ def parse_line(line: str, line_no: int = 0) -> CanFrame | None:
         data = bytes.fromhex("".join(hx.split()))[:int(dlc)]
         t = float(ts) if ts else line_no * 0.001
         return CanFrame(int(ids, 16), data, len(ids) > 3, t)
+    return _parse_other(line)
+
+
+def _parse_other(line: str, trc_start: float = 0.0) -> CanFrame | None:
+    """A frame from a Vector ASC or PEAK TRC line. ``trc_start`` is the TRC file's start time as
+    epoch seconds (0 = unknown: times count from the start of the log)."""
+    m = ASC_RE.match(line)
+    if m:
+        ts, ids, ext, dlc, hx = m.groups()
+        return CanFrame(int(ids, 16), bytes.fromhex("".join(hx.split()))[:int(dlc)], bool(ext), float(ts))
+    m = TRC2_RE.match(line) or TRC1_RE.match(line)
+    if m:
+        ms, ids, dlc, hx = m.groups()
+        return CanFrame(int(ids, 16), bytes.fromhex("".join(hx.split()))[:int(dlc)], len(ids) > 4,
+                        trc_start + float(ms) / 1000)
     return None
 
 
@@ -64,11 +98,17 @@ def read_log_with_markers(path: str) -> tuple[list[CanFrame], list[tuple[float, 
     frames: list[CanFrame] = []
     markers_iso: list[tuple[str, str]] = []
     start_iso = end_iso = None
+    trc_start = 0.0
     with open(path, errors="replace") as f:
         for i, line in enumerate(f):
             fr = parse_line(line, i)
             if fr:
+                if trc_start and fr.timestamp < 1e8:        # a TRC frame: put it on the wall clock
+                    fr = CanFrame(fr.can_id, fr.data, fr.extended, fr.timestamp + trc_start)
                 frames.append(fr)
+                continue
+            if (m := TRC_START_RE.match(line)):
+                trc_start = (float(m.group(1)) - _DAYS_TO_1970) * 86400
                 continue
             if (m := MARKER_RE.search(line)):
                 markers_iso.append((m.group(1), m.group(2).strip().strip("=").strip()))

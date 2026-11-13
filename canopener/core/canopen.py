@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 from .. import canopen
 from ..can.frame import CanFrame
-from ..canopen import cob, emcy, nmt, objects, sdo
+from ..canopen import cob, emcy, nmt, objects, pdo, sdo
 from ..canopen.sdo import SdoAbort, SdoError
 from ..j1939.addresses import sa_name
 
@@ -185,6 +185,22 @@ class CanopenClient:
                 continue
             answered = True
             out.append((objects.name(index, sub), objects.show(index, sub, v)))
+        return out
+
+    def read_tpdos(self, node: int, limit: int = 8) -> list[pdo.Pdo]:
+        """Ask ``node`` what it packs into each transmit PDO (objects 0x1800.. / 0x1A00..). Reads
+        only. Stops at the first PDO the node doesn't have; a node with no readable mapping gives
+        an empty list."""
+        out = []
+        for n in range(limit):
+            try:
+                cob_id = objects.as_uint(self.upload(node, pdo.TPDO_COMM + n, 1))
+                count = objects.as_uint(self.upload(node, pdo.TPDO_MAP + n, 0))
+                mapped = tuple(pdo.Mapped.from_value(objects.as_uint(self.upload(node, pdo.TPDO_MAP + n, i)))
+                               for i in range(1, min(count, 64) + 1))
+            except SdoAbort:
+                break
+            out.append(pdo.Pdo(n + 1, cob_id, mapped))
         return out
 
     def error_history(self, node: int) -> list[int]:

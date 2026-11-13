@@ -76,3 +76,29 @@ def test_replay_backend_keeps_timing(tmp_path):
             got.append(fr)
     assert 0.15 < time.time() - t0 < 1.0
     assert b.recv() is None and b.finished
+
+
+def test_vector_asc_and_peak_trc_lines(tmp_path):
+    from canopener.can.logfile import parse_line, read_log
+    f = parse_line("   1.234567 1  18FEF100x       Rx   d 8 FF FF FF 68 13 FF FF FF  Length = 0")
+    assert (f.can_id, f.extended, f.timestamp, f.data.hex()) == (0x18FEF100, True, 1.234567, "ffffff6813ffffff")
+    f = parse_line("   2.000000 1  181             Rx   d 4 01 02 03 04")
+    assert (f.can_id, f.extended, len(f.data)) == (0x181, False, 4)
+    assert parse_line("   0.000000 Start of measurement") is None
+    assert parse_line("date Thu Nov 12 02:03:04 pm 2026") is None
+    f = parse_line("     1)      1234.5  Rx         18FEF100  8  FF FF FF 68 13 FF FF FF")
+    assert (f.can_id, f.extended, f.timestamp) == (0x18FEF100, True, 1.2345)
+    f = parse_line("     2)      2000.0  Rx             0181  2  0A 0B")
+    assert (f.can_id, f.extended, f.data) == (0x181, False, b"\x0a\x0b")
+    f = parse_line("      3      3000.250 DT     18FECA03 Rx 8  00 FF 00 00 00 00 FF FF")
+    assert (f.can_id, f.extended, f.timestamp) == (0x18FECA03, True, 3.00025)
+    f = parse_line("      4      4000.000 DT 1     0181 Rx - 2  0A 0B")
+    assert (f.can_id, f.extended, f.data) == (0x181, False, b"\x0a\x0b")
+    trc = tmp_path / "bus.trc"
+    trc.write_text(";$FILEVERSION=1.1\n;$STARTTIME=25570.0\n;\n"
+                   "     1)      1000.0  Rx         18FEF100  8  FF FF FF 68 13 FF FF FF\n"
+                   "     2)      1500.0  Rx         18FEF100  8  FF FF FF 68 13 FF FF FF\n")
+    frames = read_log(str(trc))
+    assert [fr.timestamp for fr in frames] == [86401.0, 86401.5]            # one day after 1970, plus the offset
+    line = "(1700000000.123456) can0 18FECA00#0000FFFF00000000"             # candump is unchanged
+    assert parse_line(line).timestamp == 1700000000.123456

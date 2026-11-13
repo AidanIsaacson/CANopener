@@ -998,7 +998,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if kind == connection.REPLAY:
             if not self._replay_path:
                 path, _ = QtWidgets.QFileDialog.getOpenFileName(
-                    self, "Replay candump log", config.data_dir(), "CAN logs (*.log *.txt);;All files (*)")
+                    self, "Replay candump log", config.data_dir(), "CAN logs (*.log *.txt *.asc *.trc);;All files (*)")
                 if not path:
                     return
                 self._replay_path = path
@@ -1102,7 +1102,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def replay_log(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Replay candump log", config.data_dir(), "CAN logs (*.log *.txt);;All files (*)")
+            self, "Replay candump log", config.data_dir(), "CAN logs (*.log *.txt *.asc *.trc);;All files (*)")
         if not path:
             return
         self.disconnect()
@@ -1113,7 +1113,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def open_log(self, path=None):
         if not path:
             path, _ = QtWidgets.QFileDialog.getOpenFileName(
-                self, "Open candump log", config.data_dir(), "CAN logs (*.log *.txt);;All files (*)")
+                self, "Open candump log", config.data_dir(), "CAN logs (*.log *.txt *.asc *.trc);;All files (*)")
             if not path:
                 return
         self.disconnect()

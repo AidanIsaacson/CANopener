@@ -368,6 +368,58 @@ def cmd_uds(a) -> int:
     return 0
 
 
+def _save_imported(importers, doc: dict, notes: list[str], file_name: str | None, force: bool) -> int:
+    for n in notes:
+        print(f"  note: {n}", file=sys.stderr)
+    if not doc.get("signals"):
+        print("Nothing to save.", file=sys.stderr)
+        return 1
+    try:
+        path = importers.save(doc, file_name, force)
+    except FileExistsError as e:
+        print(f"{e} already exists: pick another --name, or pass --force to replace it.", file=sys.stderr)
+        return 1
+    except ValueError as e:
+        print(f"Couldn't make a profile from it: {e}", file=sys.stderr)
+        return 1
+    print(f"Saved profile \"{doc['name']}\" with {len(doc['signals'])} value(s): {path}")
+    print(f"Use it: pick it in the app's profile list, or  canopener-cli --profile {os.path.basename(path)[:-5]} ...")
+    return 0
+
+
+def cmd_import(a) -> int:
+    """A DBC, EDS or DCF file -> a profile in the user's profiles folder."""
+    from .canopen import eds as edslib
+    from .core import importers
+    ext = os.path.splitext(a.file)[1].lower()
+    name = a.name or os.path.splitext(os.path.basename(a.file))[0]
+    try:
+        if ext == ".dbc":
+            with open(a.file, encoding="latin-1") as f:
+                doc, notes = importers.dbc_profile(f.read(), name, a.protocol)
+        elif ext in (".eds", ".dcf"):
+            eds = edslib.load(a.file)
+            node = int(a.node, 16) if a.node else eds.node_id
+            if not node:
+                print("Which node is the device? Pass --node (hex), e.g. --node 05.", file=sys.stderr)
+                return 2
+            doc, notes = importers.eds_profile(eds, node, a.name)
+        else:
+            print("Import reads .dbc (signal databases) and .eds / .dcf (CANopen device descriptions).",
+                  file=sys.stderr)
+            return 2
+    except OSError as e:
+        print(f"Couldn't read {a.file}: {e}", file=sys.stderr)
+        return 2
+    if a.show:
+        import json
+        print(json.dumps(doc, indent=2, ensure_ascii=False))
+        for n in notes:
+            print(f"  note: {n}", file=sys.stderr)
+        return 0
+    return _save_imported(importers, doc, notes, a.name, a.force)
+
+
 def cmd_canopen(a) -> int:
     from .canopen import nmt as nmtlib
     from .core import canopen as co
@@ -425,6 +477,32 @@ def cmd_canopen(a) -> int:
             if a.info:
                 for label, text in co.node_details(info)[1:]:
                     print(f"      {label:<34} {text}")
+        if a.pdo_map or a.save_profile:
+            if s.listen_only:
+                print("Reading the PDO mapping has to ask the nodes: not in listen-only.", file=sys.stderr)
+                return 2
+            from .core import importers
+            maps = {}
+            for n in targets:
+                try:
+                    maps[n] = client.read_tpdos(n)
+                except co.SdoError as e:
+                    print(f"  node {n:02X}: {e}")
+            print("Process data (what each node says is in its PDOs):")
+            for n, pdos in sorted(maps.items()):
+                if not pdos:
+                    print(f"  node {n:02X}: no readable PDO mapping")
+                for p in pdos:
+                    where = f"ID {p.can_id:03X}" if p.can_id is not None else "switched off"
+                    what = ", ".join("padding" if m.is_padding else f"{m.index:04X}:{m.sub:02X} ({m.bits} bit)"
+                                     for m in p.mapped)
+                    print(f"  node {n:02X} {p.label} ({where}): {what or 'nothing mapped'}")
+            if a.save_profile:
+                names = {i.node: i.name for i in s.canopen_nodes() if getattr(i, "name", "")}
+                doc, notes = importers.pdo_profile(maps, a.save_profile, node_names=names)
+                rc = _save_imported(importers, doc, notes, a.save_profile, a.force)
+                if rc:
+                    return rc
         codes = co.codes(s, history=True)
         print("Errors:" if codes else "Errors: none reported")
         for c in codes:
@@ -1067,7 +1145,22 @@ def main(argv=None) -> int:
                     help="send an NMT command to --node (default every node; asks first)")
     co.add_argument("--clear-errors", action="store_true", help="clear --node's error history (asks first)")
     co.add_argument("--yes", action="store_true", help="don't ask before --nmt / --clear-errors")
+    co.add_argument("--pdo-map", action="store_true",
+                    help="ask each node what's in its process data (PDO mapping), so it can be decoded")
+    co.add_argument("--save-profile", metavar="NAME",
+                    help="with the PDO mapping: save a profile that decodes those PDOs (name them later)")
+    co.add_argument("--force", action="store_true", help="replace a profile of the same name")
     co.set_defaults(fn=cmd_canopen)
+
+    im = sub.add_parser("import", help="make a profile from a DBC file, or a CANopen device's EDS / DCF file")
+    im.add_argument("file", help="the .dbc, .eds or .dcf file")
+    im.add_argument("--name", help="the profile's name (default: the file's, or the device's product name)")
+    im.add_argument("--node", help="EDS: the device's node ID in hex (a DCF usually says)")
+    im.add_argument("--protocol", choices=["j1939", "canopen", "j1939+canopen"],
+                    help="DBC: which screens the profile uses (default: from the IDs in the file)")
+    im.add_argument("--show", action="store_true", help="print the profile instead of saving it")
+    im.add_argument("--force", action="store_true", help="replace a profile of the same name")
+    im.set_defaults(fn=cmd_import)
 
     sub.add_parser("allow-setup", help="install a sudoers rule so bringing up a CAN interface "
                    "needs no password (only 'ip link set canN ...', no stored password)"

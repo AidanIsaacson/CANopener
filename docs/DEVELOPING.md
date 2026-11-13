@@ -126,6 +126,12 @@ write the descriptions in your own words. Put them in a profile for that maker o
 SAE-standard only. Say in the profile's `"description"` where they came from, and end anything
 not yet confirmed with `?`.
 
+**Importing instead of typing.** `core/importers.py` turns a DBC file, a CANopen EDS / DCF file
+(`canopen/eds.py`) or a node's PDO mapping read off the bus (`canopen/pdo.py`,
+`CanopenClient.read_tpdos`) into a profile document; `canopener-cli import` and
+`canopener-cli canopen --pdo-map --save-profile` are the front ends. They write to the user's
+profiles folder, never into the repository.
+
 **Keep OEM data private.** Profiles generated from dealer-tool data, paid or licensed manuals or
 anything under NDA belong in `~/.config/canopener/profiles/` or a private plugin, never in this
 public repository, however they're reworded (a test fails if dealer-tool files appear here).

@@ -184,6 +184,22 @@ right) picks one; CANopener recognises a machine from the modules it hears and o
 * **Profiles → Save profile as…** copies the one in use under a new name (one per machine).
 * **Profiles → Import profile…** loads one someone exported.
 
+**From another tool's files.** If you have a **DBC** file for the machine (the signal database
+most CAN tools use), or the **EDS** file a CANopen controller's maker supplies, CANopener makes a
+profile from it:
+
+```bash
+canopener-cli import machine.dbc                    # every message and signal in the file
+canopener-cli import controller.eds --node 05       # a CANopen device's process data, named
+canopener-cli canopen --iface can0 --pdo-map --save-profile "Truck 14"   # no file: ask the nodes
+```
+
+The last one asks each CANopen node what it packs into its messages and makes a profile that
+splits them into values. Without the EDS they're numbered rather than named (`2001:01`), ready
+for [labeling](#naming-things-canopener-doesnt-know). Imported profiles are saved in your own
+profiles folder; a file you were given under a licence stays on your machine. Check a few values
+against the machine before trusting an import.
+
 Writing one by hand: [DEVELOPING.md](DEVELOPING.md#machine-profiles).
 
 ## Naming things CANopener doesn't know
@@ -355,9 +371,12 @@ canopener-cli obd --elm --bench 10                  # how fast it answers on thi
 canopener-cli bluetooth probe --protocols           # what the adapter can do
 canopener-cli scan --elm --listen-only              # a J1939 truck through the adapter
 canopener-cli uds --iface can0 --find               # which modules answer (also with --elm)
+canopener-cli uds --iface can0 --info --supported   # a module's VIN, part / serial numbers, every code it can set
 canopener-cli canopen --iface can0 --info --errors  # CANopen: nodes, state, errors, identity
+canopener-cli canopen --iface can0 --pdo-map        # CANopen: what each node packs into its messages
+canopener-cli import machine.dbc                    # a profile from a DBC, EDS or DCF file
 canopener-cli interfaces                            # what adapters it sees, and why one isn't working
-canopener-cli decode capture.log --csv frames.csv   # decode a saved log
+canopener-cli decode capture.log --csv frames.csv   # decode a saved log (candump, Vector .asc, PEAK .trc)
 canopener-cli capture FOLDER --trim 5 2             # trim a capture: 5 min before, 2 min after its timestamps
 canopener-cli capture FOLDER --machine model=GTH-1056 --machine serial=AB123 --question "FF12 doesn't decode"
 canopener-cli upload --setup                        # the upload server's address and token

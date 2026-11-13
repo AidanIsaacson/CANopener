@@ -1,7 +1,37 @@
 # Changelog
 
-What changed in each version, newest first. Versions are git tags (`v0.3.2`): to put a unit back
-on an older one, `git checkout v0.3.1` in its checkout.
+What changed in each version, newest first. Versions are git tags (`v0.3.3`): to put a unit back
+on an older one, `git checkout v0.3.2` in its checkout.
+
+## 0.3.3 (2026-11-12)
+
+The protocol libraries, filled out. Layouts are the published standard ones, written in our own
+words; the ones not cross-checked against a real machine yet are worth a look on one.
+
+- **J1939 live data: 149 standard values across 47 messages** (was 39 across 17). New: torque
+  mode and demand, cruise / brake / clutch / parking-brake switches, PTO, fan drive, turbo speed,
+  fuel economy and totals, trip and total distance, transmission oil temperature and pressure,
+  lockup and range, ABS / ASR status, retarder, hydraulic pressure, NOx before and after the SCR,
+  DPF regeneration status and lamps, DPF and exhaust temperatures, GPS position, and more.
+  Switches and states read as words ("Pressed", "Regeneration needed").
+- **J1939 codes:** all-pending (DM27) and permanent (DM28) codes are read in the emissions and
+  full scans. Machine info adds calibration IDs with their verification numbers (DM19) and the
+  distance / time with the MIL on (DM21). Decoders for DM29 (code counts) and DM31 (which lamp
+  each code lights). 318 SPN names (was 285) and labels for about 40 more messages.
+- **OBD-II: 21 more live PIDs**, mostly diesel and aftertreatment: EGR, intake and throttle
+  actuators, boost, turbo speed and inlet pressure, exhaust pressure, charge-air temperature, DPF
+  pressures and temperatures, NOx sensors, DEF level and dosing, transmission gear.
+- **UDS:** `canopener-cli uds --info` reads a module's standard identification (VIN, part and
+  serial numbers, hardware and software versions, dates) with each item named; `--supported`
+  lists every code the module can set. Codes show what kind of fault their last byte means
+  ("short to ground").
+- **CANopen: process data without a hand-written profile.** `canopener-cli canopen --pdo-map`
+  asks each node what's in its PDOs; `--save-profile NAME` saves a profile that splits them into
+  values. `canopener-cli import device.eds --node 05` does the same from the maker's EDS / DCF
+  file, with every value named.
+- **DBC import:** `canopener-cli import machine.dbc` makes a profile from a DBC file (J1939 and
+  11-bit messages, scale, offset, units, value tables).
+- **Logs:** Vector `.asc` and PEAK `.trc` files open, replay and decode like candump logs.
 
 ## 0.3.2 (2026-11-12)
 

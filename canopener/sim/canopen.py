@@ -67,7 +67,26 @@ class _Node:
             d[(objects.ERROR_HISTORY, 0)] = bytes([len(self.history)])
             for i, v in enumerate(self.history):
                 d[(objects.ERROR_HISTORY, i + 1)] = u32(v)
+        # What's in each transmit PDO (so a tool can read the mapping instead of being told it).
+        for n, mapping in enumerate(PDO_MAPS.get(self.node, ())):
+            d[(0x1800 + n, 0)] = bytes([2])
+            d[(0x1800 + n, 1)] = u32(cob.TPDO[n] + self.node)
+            d[(0x1800 + n, 2)] = bytes([254])
+            d[(0x1A00 + n, 0)] = bytes([len(mapping)])
+            for i, (index, sub_, bits) in enumerate(mapping):
+                d[(0x1A00 + n, i + 1)] = u32((index << 16) | (sub_ << 8) | bits)
         return d
+
+
+# (index, sub, bits) of each object in each node's TPDOs, matching ``_pdos`` below. The objects
+# are made-up manufacturer ones (0x2xxx); 0x0005 is the standard 8-bit "dummy" used as padding.
+PDO_MAPS = {
+    TRACTION: (((0x2001, 1, 16), (0x2001, 2, 16), (0x2001, 3, 16), (0x2001, 4, 8),
+                (0x2002, 1, 1), (0x2002, 2, 1), (0x2002, 3, 1), (0x0001, 0, 5)),
+               ((0x2003, 1, 8), (0x2003, 2, 8))),
+    PUMP: (((0x2101, 1, 16), (0x2101, 2, 16), (0x2101, 3, 8)),),
+    BATTERY: (((0x2201, 1, 8), (0x2201, 2, 16), (0x2201, 3, 8)),),
+}
 
 
 class CanopenSimulator:
