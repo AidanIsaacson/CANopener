@@ -18,6 +18,8 @@ everything standard that only reads, and writes down every reply exactly as the 
    (``1A 80`` - ``1A 9F``), plus whether three more read services exist. Reads by definition
    (ISO 14230-3 ReadDataByLocalIdentifier / ReadEcuIdentification); the transcript lists the ones
    that answered and counts the refusals.
+   First a few numbers are tried in other request shapes (more bytes after the number), in case
+   the plain shape is what's refused. The full scans only run with ``full=True``.
 5. **Where it has the common-identifier read** (service ``22``, two-byte numbers): every page sampled
    (``22 xx 00`` / ``22 xx 01``), then a full scan of each page that answered and of ``CID_PAGES``.
 
@@ -38,9 +40,9 @@ from .elm327 import NONCAN_PROTOCOLS, PROTOCOLS, ElmBackend, classify
 
 REPORT_FILE = "kline_probe.txt"
 # About how long ``run`` takes on a real vehicle, for the front-ends' wording.
-ABOUT = "2 to 10 minutes"
-WARNING = ("Asks the engine computer read-only questions over the K-line (40, or a couple of thousand if it "
-           "has data to list), including ones it says it doesn't support, and tries each wake-up (ISO 9141-2, "
+ABOUT = "about 2 minutes; the full scan up to 10"
+WARNING = ("Asks the engine computer read-only questions over the K-line (about 80, or a couple of thousand "
+           "with the full scan), including ones it says it doesn't support, and tries each wake-up (ISO 9141-2, "
            "KWP2000). It doesn't clear codes, change "
            "settings or run tests. Live data pauses while it runs (" + ABOUT + "). Key on, engine running or not.")
 REQUEST_TIMEOUT = 12.0          # a first request includes the wake-up (5-baud: 2-3 s, retried by some adapters)
@@ -96,6 +98,13 @@ EXISTS = [("1200", "read freeze frame data"), ("17FF00", "read status of codes")
 # every page is sampled at xx 00 / xx 01 and a page with an answer is scanned in full, as are these,
 # where public notes on K-line command sets of this kind put their values.
 CID_PAGES = (0x11, 0x12, 0x13, 0x14, 0x15)
+# Request shapes: a module that refuses every number of a read the same way may want more bytes
+# after the number (ISO 14230-3 allows a transmission mode and a count there). A few numbers are
+# tried with each ending, and the bare freeze-frame read in a few lengths: an answer that differs
+# from the plain refusal shows the shape. (service, numbers, endings)
+SHAPES = [(0x21, ("01", "80", "81"), ("01", "04", "0401", "0101")),
+          (0x22, ("0000", "1101", "1201", "1301"), ("01", "04", "0401", "0101"))]
+FREEZE_SHAPES = ("12", "1201", "120000", "120001", "12000000", "1200000401")
 SCAN_GIVE_UP = 3                # this many requests in a row with no reply: the session is gone
 DEFAULT_SESSION = ("1081", "start the default diagnostic session")
 
@@ -208,8 +217,9 @@ def _read(request: bytes, bodies: list, lines: list) -> tuple[str, bool]:
 
 
 class _Probe:
-    def __init__(self, b: ElmBackend, progress, settle: float = SETTLE):
+    def __init__(self, b: ElmBackend, progress, settle: float = SETTLE, full: bool = False):
         self.b = b
+        self.full = full
         self.settle = settle
         self.say = progress or (lambda _t: None)
         self.report = Report(adapter=b.stn or b.version or "ELM327", started=time.time(),
@@ -362,30 +372,62 @@ class _Probe:
             if step.positive or (step.data and step.data[0][0] == 0x7F and step.data[0][2] != 0x11):
                 exists.add(cmd[:2])
                 self.find(f"Service {cmd[:2]} ({what}) exists ({where}): {step.result}")
+        ending = self.shapes(where)
+        if not self.full:
+            self.find("Quick run: the full scans of block and identifier numbers were left out.")
+            return
         for sid, numbers, what in SCANS:
             self.say(f"Scanning every {what} ({sid:02X} {numbers[0]:02X}-{numbers[-1]:02X})")
-            answered = self._sweep([f"{sid:02X}{n:02X}" for n in numbers], what, f"{sid:02X}xx")
+            end = ending.get(sid, "")
+            answered = self._sweep([f"{sid:02X}{n:02X}{end}" for n in numbers], what, f"{sid:02X}xx{end}")
             if answered is None:
                 return
             self.find(f"{what.capitalize()}s that answer ({sid:02X} xx, {where}): "
-                      + (", ".join(f"{s.command[2:]} ({len(s.data[0]) - 2} bytes)" for s in answered) or "none"))
+                      + (", ".join(f"{s.command[2:4]} ({len(s.data[0]) - 2} bytes)" for s in answered) or "none"))
         if "22" not in exists:
             return
         self.say("Sampling every common-identifier page (22 xx 00 / 01)")
-        sample = self._sweep([f"22{hi:02X}{lo:02X}" for hi in range(256) for lo in (0, 1)],
+        end = ending.get(0x22, "")
+        sample = self._sweep([f"22{hi:02X}{lo:02X}{end}" for hi in range(256) for lo in (0, 1)],
                              "common identifier (sample)", "22xx00/01")
         if sample is None:
             return
         pages = sorted(set(CID_PAGES) | {int(s.command[2:4], 16) for s in sample})
         for hi in pages:
             self.say(f"Scanning common identifiers 22 {hi:02X} 00-FF")
-            answered = self._sweep([f"22{hi:02X}{lo:02X}" for lo in range(256)], "common identifier", f"22{hi:02X}xx")
+            answered = self._sweep([f"22{hi:02X}{lo:02X}{end}" for lo in range(256)], "common identifier",
+                                   f"22{hi:02X}xx{end}")
             if answered is None:
                 return
             sizes = sorted({len(s.data[0]) - 3 for s in answered})
             self.find(f"Common identifiers that answer (22 {hi:02X} xx, {where}): "
                       + (f"{len(answered)} ({', '.join(str(n) for n in sizes)} data bytes): "
-                         + " ".join(s.command[4:] for s in answered) if answered else "none"))
+                         + " ".join(s.command[4:6] for s in answered) if answered else "none"))
+
+    def shapes(self, where: str) -> dict:
+        """Try the request shapes (see SHAPES). Returns {service: the ending that got an answer}."""
+        self.say("Trying request shapes")
+        plain = {}                      # service -> how the bare request was refused
+        ending = {}
+        for sid, numbers, endings in SHAPES:
+            for number in numbers:
+                for end in ("",) + endings:
+                    step = self.ask(f"{sid:02X}{number}{end}", "shape: number" + (f" + {end}" if end else " alone"))
+                    code = step.data[0][2] if step.data and step.data[0][0] == 0x7F and len(step.data[0]) >= 3 else None
+                    if not end:
+                        plain[(sid, number)] = code
+                    elif step.positive or (step.data and code != plain.get((sid, number))):
+                        self.find(f"Service {sid:02X} reacts to the shape '{sid:02X} {number} {end}' ({where}): "
+                                  f"{step.result}")
+                        if step.positive:
+                            ending.setdefault(sid, end)
+        for cmd in FREEZE_SHAPES:
+            step = self.ask(cmd, "shape: freeze frame read")
+            if step.positive or (step.data and step.data[0][0] == 0x7F and step.data[0][2] != 0x12):
+                self.find(f"Service 12 reacts to the shape '{cmd}' ({where}): {step.result}")
+        if not ending:
+            self.find(f"No request shape changed the refusals ({where}).")
+        return ending
 
     def _sweep(self, commands: list, what: str, label: str) -> list | None:
         """Ask each command; keep the steps that answered, count the refusals. None if the module
@@ -409,14 +451,15 @@ class _Probe:
         return None if silent >= SCAN_GIVE_UP else answered
 
 
-def run(b: ElmBackend, progress=None, settle: float | None = None) -> Report:
+def run(b: ElmBackend, progress=None, settle: float | None = None, full: bool = False) -> Report:
     """Probe an opened K-line ``ElmBackend`` (see the module text). Holds the adapter throughout
-    and sets it up again at the end. ``settle`` is the silence left before each new wake-up.
+    and sets it up again at the end. ``settle`` is the silence left before each new wake-up; ``full`` adds the
+    scans of every block / identifier number (minutes more).
     Raises ValueError if the connection can't be probed."""
     why = can_probe(b)
     if why:
         raise ValueError(why)
-    p = _Probe(b, progress, SETTLE if settle is None else settle)
+    p = _Probe(b, progress, SETTLE if settle is None else settle, full)
     with b._lock:
         try:
             if b.protocol:

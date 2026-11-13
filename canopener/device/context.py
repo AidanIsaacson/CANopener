@@ -564,7 +564,7 @@ class DeviceContext:
             return "The deep probe has to ask questions: connect without listen-only"
         return kline_probe.can_probe(self.session.backend)
 
-    def kline_probe(self, then=None) -> bool:
+    def kline_probe(self, then=None, full: bool = False) -> bool:
         """The K-line deep probe (``can.kline_probe``: read-only), recorded into a log so it can be
         uploaded: a log is started for it if none is running, then stopped and saved.
         ``then(title, lines)`` gets the summary on the UI thread."""
@@ -588,7 +588,7 @@ class DeviceContext:
             self.busy = f"Deep probe: {text}"
 
         def work():
-            report = kline_probe.run(backend, progress)
+            report = kline_probe.run(backend, progress, full=full)
             if capture.folder:
                 with open(os.path.join(capture.folder, kline_probe.REPORT_FILE), "a") as f:
                     f.write("\n".join(report.lines()) + "\n\n")      # a second run in one log is added below

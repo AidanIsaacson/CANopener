@@ -957,7 +957,8 @@ def _elm_tool(a, settings) -> int:
                 print(why, file=sys.stderr)
                 return 1
             print(kline_probe.WARNING, file=sys.stderr)
-            report = kline_probe.run(b, progress=lambda t: print(f"  {t}...", file=sys.stderr, flush=True))
+            report = kline_probe.run(b, progress=lambda t: print(f"  {t}...", file=sys.stderr, flush=True),
+                                     full=a.scan)
             text = "\n".join(report.lines()) + "\n"
             if a.out:
                 with open(os.path.expanduser(a.out), "w") as f:
@@ -1094,6 +1095,8 @@ def main(argv=None) -> int:
                    help="probe: also try each OBD-II protocol with a standard read (wakes K-line cars: slow)")
     b.add_argument("--listen", type=float, metavar="SECONDS", help="probe: also listen passively this long")
     b.add_argument("--j1939", action="store_true", help="probe --listen: listen on J1939 (250k) instead")
+    b.add_argument("--scan", action="store_true",
+                   help="kline: also try every data-block and identifier number (up to 10 minutes)")
     b.add_argument("--out", metavar="FILE", help="kline: write the full transcript here and print the summary")
     b.add_argument("--monitor-seconds", type=float, default=5.0, help="console: how long ATMA etc. run")
     b.set_defaults(fn=cmd_bluetooth)

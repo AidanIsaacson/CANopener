@@ -3,6 +3,15 @@
 What changed in each version, newest first. Versions are git tags (`v0.3.3`): to put a unit back
 on an older one, `git checkout v0.3.2` in its checkout.
 
+## 0.3.7 (2026-11-13)
+
+- **Deep probe: tries other request shapes, and is quick again.** A module that refuses every
+  block or identifier number the same way may want more bytes after the number, so the probe
+  tries a few numbers with the endings the standard allows and reports any answer that differs.
+  The scans of every number are now a separate menu entry (**Deep probe with the full scan**,
+  `--scan` on the command line) and use the shape that answered; the plain deep probe is back to
+  about two minutes.
+
 ## 0.3.6 (2026-11-13)
 
 - **Deep probe: scans common identifiers too.** Where the module has the two-byte

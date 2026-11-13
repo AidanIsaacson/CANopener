@@ -202,11 +202,13 @@ class CodesPage(Screen):
 
     def more_obd(self):
         def pick(what):
-            if what == "kline":
-                self.kline_probe()
-        choose(self.app, "Codes", [("Deep probe (older K-line vehicles): what else answers?", "kline")], None, pick)
+            if what in ("kline", "kline-full"):
+                self.kline_probe(full=what == "kline-full")
+        choose(self.app, "Codes", [("Deep probe (older K-line vehicles): what else answers? 2 min", "kline"),
+                                   ("Deep probe with the full scan of every number: up to 10 min", "kline-full")],
+               None, pick)
 
-    def kline_probe(self):
+    def kline_probe(self, full: bool = False):
         """The read-only K-line deep probe: says what it does first, since it takes a while."""
         from ...can.kline_probe import WARNING
         ctx = self.ctx
@@ -215,7 +217,8 @@ class CodesPage(Screen):
             self.app.push(InfoDialog(self.app, "Deep probe", [why]))
             return
         confirm(self.app, "Run the deep probe?", WARNING, "Run",
-                lambda: ctx.kline_probe(then=lambda title, lines: self.app.push(InfoDialog(self.app, title, lines))),
+                lambda: ctx.kline_probe(then=lambda title, lines: self.app.push(InfoDialog(self.app, title, lines)),
+                                        full=full),
                 danger=False)
 
     def _show_cleared(self, lines, ok):

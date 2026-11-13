@@ -71,6 +71,11 @@ engine off, and a refusal (`7F 1A 94`) with the engine running. Replies don't ec
 5. where service `22` exists: every two-byte page sampled (`22 xx 00` / `22 xx 01`), then a full
    scan of the pages that answered and of pages 11-15 (0.3.6; up to ten minutes in all).
 
+**Third result (2026-11-13, 0.3.6):** no common identifier answers in the plain shape either:
+all 512 samples and all of pages 11-15 are refused `7F 22 12`. From 0.3.7 the probe first tries
+a few numbers with extra bytes after them (`01`, `04`, `04 01`, `01 01`), and the full scans are
+optional (handheld: the second menu entry; `--scan`).
+
 It leaves 5.5 s of silence before each new wake-up (a module ignores one until its last session
 has timed out), so it takes two to four minutes, then sets the adapter up again from scratch. The
 transcript (`kline_probe.txt`) has every command, how long it took, and each reply line as the
