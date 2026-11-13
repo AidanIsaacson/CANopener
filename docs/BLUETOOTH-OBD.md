@@ -51,8 +51,19 @@ The **deep probe** finds out what else the computer answers, without changing an
    (`21 01`, `21 00`). If a read is refused, it starts the default diagnostic session (`10 81`)
    and asks once more.
 
+4. where step 3 shows the data-block read exists (it answered, or refused only the block
+   number): every block number (`21 00` - `21 FF`) and identification option (`1A 80` - `1A 9F`),
+   and whether `12`, `17` and `22` exist.
+
+**First result (2026-11-13, the same forklift, vLinker MC+):** generic OBD-II stays empty however
+it's asked (`0120`, `0200`, `0900` answer with zeros; everything else NO DATA). KWP2000 with the
+OBD header doesn't wake it (5-baud or fast). **KWP2000 fast init to module 0x10 from tester 0xFC
+does** (key bytes `5D 8F`), and not from 0xF1. In that session: `3E` answers, `1A 80` answers
+`5A 00 00`, service `21` exists (blocks 00 and 01 refused as numbers, `7F 21 12`), while `10`,
+`13`, `18` and the OBD modes are "service not supported". 5-baud init at address 0x10 gets nothing.
+
 It leaves 5.5 s of silence before each new wake-up (a module ignores one until its last session
-has timed out), so it takes about two minutes, then sets the adapter up again from scratch. The
+has timed out), so it takes two to four minutes, then sets the adapter up again from scratch. The
 transcript (`kline_probe.txt`) has every command, how long it took, and each reply line as the
 adapter printed it, 'BUS INIT' lines included. What a maker's identification, codes or data blocks
 mean is not in this repository: that goes in a profile or the plugin, from our own captures.

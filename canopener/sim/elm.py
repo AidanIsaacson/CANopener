@@ -288,6 +288,8 @@ class ElmSimulator:
             return bytes([0x5A, payload[1]]) + b"SIM-ECU"
         if sid == 0x18:
             return b"\x58\x00"
+        if sid == 0x21 and len(payload) == 2:           # one data block exists
+            return b"\x61\x10\x0c\x80\x50" if payload[1] == 0x10 else bytes([0x7F, sid, 0x12])
         return bytes([0x7F, sid, 0x11])
 
     def _noncan_line(self, proto: str, src: int, data: bytes) -> str:

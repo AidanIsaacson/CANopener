@@ -13,6 +13,11 @@ everything standard that only reads, and writes down every reply exactly as the 
    addresses 0xF1 and 0xFC): tester present, read identification, read codes by status, read a
    data block. If one is refused for the session, the default diagnostic session is started
    (``10 81``, what the module is in anyway) and it is asked again.
+4. **Where the module has the data-block read** (service ``21``: it answered, or refused only the
+   block number), **every block number** (``21 00`` - ``21 FF``) and **every identification option**
+   (``1A 80`` - ``1A 9F``), plus whether three more read services exist. Reads by definition
+   (ISO 14230-3 ReadDataByLocalIdentifier / ReadEcuIdentification); the transcript lists the ones
+   that answered and counts the refusals.
 
 Nothing here clears, writes, resets or runs a test. No maker-specific identifiers are requested:
 what a maker's blocks mean belongs in a profile or the plugin, worked out from our own captures.
@@ -31,9 +36,10 @@ from .elm327 import NONCAN_PROTOCOLS, PROTOCOLS, ElmBackend, classify
 
 REPORT_FILE = "kline_probe.txt"
 # About how long ``run`` takes on a real vehicle, for the front-ends' wording.
-ABOUT = "about 2 minutes"
-WARNING = ("Asks the engine computer about 40 read-only questions over the K-line, including ones it says it "
-           "doesn't support, and tries each wake-up (ISO 9141-2, KWP2000). It doesn't clear codes, change "
+ABOUT = "2 to 4 minutes"
+WARNING = ("Asks the engine computer read-only questions over the K-line (40, or about 350 if it has data "
+           "blocks to list), including ones it says it doesn't support, and tries each wake-up (ISO 9141-2, "
+           "KWP2000). It doesn't clear codes, change "
            "settings or run tests. Live data pauses while it runs (" + ABOUT + "). Key on, engine running or not.")
 REQUEST_TIMEOUT = 12.0          # a first request includes the wake-up (5-baud: 2-3 s, retried by some adapters)
 TESTERS = (0xF1, 0xFC)          # tester addresses tried: the standard one, and one some makers' tools use
@@ -80,6 +86,11 @@ KWP_READS = [
     ("0100", "OBD-II supported live values, addressed", False),
     ("03", "OBD-II stored codes, addressed", False),
 ]
+# The scan, where service 21 exists: (service, the numbers to try, what one is)
+SCANS = [(0x21, range(0x00, 0x100), "data block"), (0x1A, range(0x80, 0xA0), "identification option")]
+# Do these read services exist at all? (Any refusal but 'service not supported' says yes.)
+EXISTS = [("1200", "read freeze frame data"), ("17FF00", "read status of codes"), ("220000", "read data by common ID")]
+SCAN_GIVE_UP = 3                # this many requests in a row with no reply: the session is gone
 DEFAULT_SESSION = ("1081", "start the default diagnostic session")
 
 NRC = {0x10: "general reject", 0x11: "service not supported", 0x12: "sub-function not supported / bad format",
@@ -210,13 +221,14 @@ class _Probe:
         self.report.steps.append(step)
         return step
 
-    def ask(self, cmd: str, what: str) -> Step:
+    def ask(self, cmd: str, what: str, keep: bool = True) -> Step:
         t0 = time.time()
         lines = self.b.command(cmd, REQUEST_TIMEOUT, keep_progress=True)
         bodies = [d for d in (message_body(line, self.kwp) for line in lines) if d]
         result, positive = _read(bytes.fromhex(cmd), bodies, lines)
         step = Step(self.section, cmd, what, lines, time.time() - t0, result, bodies, positive)
-        self.report.steps.append(step)
+        if keep:
+            self.report.steps.append(step)
         return step
 
     def close_protocol(self):
@@ -329,6 +341,44 @@ class _Probe:
             s = steps.get(cmd)
             if s is not None and s.positive:
                 self.find(f"Codes by {cmd} ({where}): {_hex(s.data[0])}")
+        blocks = [steps[c] for c in ("2101", "2100") if c in steps]
+        if any(s.positive or (s.data and s.data[0][0] == 0x7F and s.data[0][2] != 0x11) for s in blocks):
+            self.scan(where)
+
+    def scan(self, where: str):
+        """Every data-block number and identification option, in the session that's open. Only the
+        ones that answered are listed one by one; refusals are counted by their code."""
+        self.section = f"Scan of the read services ({where})"
+        for cmd, what in EXISTS:
+            step = self.ask(cmd, what)
+            if step.positive or (step.data and step.data[0][0] == 0x7F and step.data[0][2] != 0x11):
+                self.find(f"Service {cmd[:2]} ({what}) exists ({where}): {step.result}")
+        for sid, numbers, what in SCANS:
+            self.say(f"Scanning every {what} ({sid:02X} {numbers[0]:02X}-{numbers[-1]:02X})")
+            answered, refused, silent, tried = [], {}, 0, 0
+            for n in numbers:
+                step = self.ask(f"{sid:02X}{n:02X}", f"read {what} {n:02X}", keep=False)
+                tried += 1
+                if step.positive:
+                    self.report.steps.append(step)
+                    answered.append(f"{n:02X} ({len(step.data[0]) - 2} bytes)")
+                if step.data:
+                    silent = 0
+                    if not step.positive:
+                        refused[step.result] = refused.get(step.result, 0) + 1
+                else:
+                    silent += 1
+                    refused[step.result] = refused.get(step.result, 0) + 1
+                    if silent >= SCAN_GIVE_UP:
+                        self.find(f"The scan of {sid:02X} stopped at {n:02X}: the module went quiet ({step.result})")
+                        break
+            counts = "; ".join(f"{k} x{v}" for k, v in sorted(refused.items(), key=lambda kv: -kv[1]))
+            self.report.steps.append(Step(self.section, f"{sid:02X}xx", f"every {what}: {tried} tried", [], 0.0,
+                                          f"{len(answered)} answered" + (f"; {counts}" if counts else "")))
+            self.find(f"{what.capitalize()}s that answer ({sid:02X} xx, {where}): "
+                      + (", ".join(answered) if answered else "none"))
+            if silent >= SCAN_GIVE_UP:
+                return
 
 
 def run(b: ElmBackend, progress=None, settle: float | None = None) -> Report:

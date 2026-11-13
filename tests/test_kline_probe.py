@@ -59,6 +59,18 @@ def test_probe_finds_kwp_services_and_retries_in_the_default_session():
     assert any("KWP2000 (module 0x10, tester 0xF1, fast init) answered" in f and "1A80" in f for f in report.findings)
     assert any(f.startswith("Codes by 1800FF00") for f in report.findings)
     assert sent[-1] != "ATIIA10" and "ATIIA33" in sent and protocol == "5"
+    # service 21 refused only the block number, so every block and identification option was tried
+    assert {f"21{n:02X}" for n in range(256)} <= set(sent) and {f"1A{n:02X}" for n in range(0x80, 0xA0)} <= set(sent)
+    assert any(f.startswith("Data blocks that answer (21 xx, module 0x10, tester 0xF1, fast init): 10 (3 bytes)")
+               for f in report.findings)
+    text = "\n".join(report.lines())
+    assert "> 2110" in text and "61 10 0C 80 50" in text and "> 2111" not in text    # refusals are only counted
+    assert "every data block: 256 tried" in text and "x255" in text
+
+
+def test_scan_is_skipped_without_the_data_block_service():
+    report, sent, _ = _probe("iso9141")
+    assert "2110" not in sent and not any("Data blocks" in f for f in report.findings)
 
 
 def test_probe_refuses_can_and_j1939_connections():

@@ -3,6 +3,15 @@
 What changed in each version, newest first. Versions are git tags (`v0.3.3`): to put a unit back
 on an older one, `git checkout v0.3.2` in its checkout.
 
+## 0.3.5 (2026-11-13)
+
+- **Deep probe: lists a K-line computer's data blocks.** Where the module has the KWP2000
+  data-block read (service `21`), the probe now tries every block number (`21 00` - `21 FF`) and
+  every identification option (`1A 80` - `1A 9F`), and checks whether three more read services
+  exist. Still read-only. The transcript lists what answered and counts the refusals; the run
+  takes two to four minutes.
+- First result from a real machine (docs/BLUETOOTH-OBD.md, "Thin K-line computers").
+
 ## 0.3.4 (2026-11-13)
 
 For older K-line machines whose generic OBD-II answers are thin (no live data listed, no codes
