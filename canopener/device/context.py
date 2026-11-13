@@ -590,8 +590,8 @@ class DeviceContext:
         def work():
             report = kline_probe.run(backend, progress)
             if capture.folder:
-                with open(os.path.join(capture.folder, kline_probe.REPORT_FILE), "w") as f:
-                    f.write("\n".join(report.lines()) + "\n")
+                with open(os.path.join(capture.folder, kline_probe.REPORT_FILE), "a") as f:
+                    f.write("\n".join(report.lines()) + "\n\n")      # a second run in one log is added below
             return report
 
         def done(report):

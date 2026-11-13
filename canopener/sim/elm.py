@@ -288,6 +288,9 @@ class ElmSimulator:
             return bytes([0x5A, payload[1]]) + b"SIM-ECU"
         if sid == 0x18:
             return b"\x58\x00"
+        if sid == 0x22 and len(payload) == 3:           # two common identifiers exist, on different pages
+            known = {b"\x11\x01": b"\x50", b"\x30\x00": b"\x0c\x80"}
+            return b"\x62" + payload[1:] + known[payload[1:]] if payload[1:] in known else bytes([0x7F, sid, 0x12])
         if sid == 0x21 and len(payload) == 2:           # one data block exists
             return b"\x61\x10\x0c\x80\x50" if payload[1] == 0x10 else bytes([0x7F, sid, 0x12])
         return bytes([0x7F, sid, 0x11])

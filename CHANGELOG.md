@@ -3,6 +3,15 @@
 What changed in each version, newest first. Versions are git tags (`v0.3.3`): to put a unit back
 on an older one, `git checkout v0.3.2` in its checkout.
 
+## 0.3.6 (2026-11-13)
+
+- **Deep probe: scans common identifiers too.** Where the module has the two-byte
+  common-identifier read (service `22`), the probe samples every page (`22 xx 00` / `22 xx 01`),
+  then scans in full each page that answered and pages 11-15. A run on such a machine now takes
+  up to ten minutes. Still read-only.
+- A second deep probe in the same log is added to `kline_probe.txt` below the first (it replaced
+  it before).
+
 ## 0.3.5 (2026-11-13)
 
 - **Deep probe: lists a K-line computer's data blocks.** Where the module has the KWP2000

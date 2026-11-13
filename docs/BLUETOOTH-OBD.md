@@ -62,6 +62,15 @@ does** (key bytes `5D 8F`), and not from 0xF1. In that session: `3E` answers, `1
 `5A 00 00`, service `21` exists (blocks 00 and 01 refused as numbers, `7F 21 12`), while `10`,
 `13`, `18` and the OBD modes are "service not supported". 5-baud init at address 0x10 gets nothing.
 
+**Second result (2026-11-13, 0.3.5):** all 256 data-block numbers are refused the same way
+(`7F 21 12`), so service `21` wants something else or has nothing in this session. Services `12`
+and `22` exist (`7F 12 12`, `7F 22 12`); `17` does not. Identification: `1A 81` and `1A 82` give
+short ASCII strings, `1A 83` four bytes after about 5 s of "response pending" with the key on and
+engine off, and a refusal (`7F 1A 94`) with the engine running. Replies don't echo the option byte.
+
+5. where service `22` exists: every two-byte page sampled (`22 xx 00` / `22 xx 01`), then a full
+   scan of the pages that answered and of pages 11-15 (0.3.6; up to ten minutes in all).
+
 It leaves 5.5 s of silence before each new wake-up (a module ignores one until its last session
 has timed out), so it takes two to four minutes, then sets the adapter up again from scratch. The
 transcript (`kline_probe.txt`) has every command, how long it took, and each reply line as the

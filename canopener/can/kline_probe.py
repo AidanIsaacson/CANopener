@@ -18,6 +18,8 @@ everything standard that only reads, and writes down every reply exactly as the 
    (``1A 80`` - ``1A 9F``), plus whether three more read services exist. Reads by definition
    (ISO 14230-3 ReadDataByLocalIdentifier / ReadEcuIdentification); the transcript lists the ones
    that answered and counts the refusals.
+5. **Where it has the common-identifier read** (service ``22``, two-byte numbers): every page sampled
+   (``22 xx 00`` / ``22 xx 01``), then a full scan of each page that answered and of ``CID_PAGES``.
 
 Nothing here clears, writes, resets or runs a test. No maker-specific identifiers are requested:
 what a maker's blocks mean belongs in a profile or the plugin, worked out from our own captures.
@@ -36,9 +38,9 @@ from .elm327 import NONCAN_PROTOCOLS, PROTOCOLS, ElmBackend, classify
 
 REPORT_FILE = "kline_probe.txt"
 # About how long ``run`` takes on a real vehicle, for the front-ends' wording.
-ABOUT = "2 to 4 minutes"
-WARNING = ("Asks the engine computer read-only questions over the K-line (40, or about 350 if it has data "
-           "blocks to list), including ones it says it doesn't support, and tries each wake-up (ISO 9141-2, "
+ABOUT = "2 to 10 minutes"
+WARNING = ("Asks the engine computer read-only questions over the K-line (40, or a couple of thousand if it "
+           "has data to list), including ones it says it doesn't support, and tries each wake-up (ISO 9141-2, "
            "KWP2000). It doesn't clear codes, change "
            "settings or run tests. Live data pauses while it runs (" + ABOUT + "). Key on, engine running or not.")
 REQUEST_TIMEOUT = 12.0          # a first request includes the wake-up (5-baud: 2-3 s, retried by some adapters)
@@ -90,6 +92,10 @@ KWP_READS = [
 SCANS = [(0x21, range(0x00, 0x100), "data block"), (0x1A, range(0x80, 0xA0), "identification option")]
 # Do these read services exist at all? (Any refusal but 'service not supported' says yes.)
 EXISTS = [("1200", "read freeze frame data"), ("17FF00", "read status of codes"), ("220000", "read data by common ID")]
+# Common identifiers (service 22, two bytes) are too many to try them all (65536, hours on a K-line):
+# every page is sampled at xx 00 / xx 01 and a page with an answer is scanned in full, as are these,
+# where public notes on K-line command sets of this kind put their values.
+CID_PAGES = (0x11, 0x12, 0x13, 0x14, 0x15)
 SCAN_GIVE_UP = 3                # this many requests in a row with no reply: the session is gone
 DEFAULT_SESSION = ("1081", "start the default diagnostic session")
 
@@ -346,39 +352,61 @@ class _Probe:
             self.scan(where)
 
     def scan(self, where: str):
-        """Every data-block number and identification option, in the session that's open. Only the
-        ones that answered are listed one by one; refusals are counted by their code."""
+        """Every data-block number and identification option, then the common-identifier pages,
+        in the session that's open. Only the ones that answered are listed one by one; refusals
+        are counted by their code."""
         self.section = f"Scan of the read services ({where})"
+        exists = set()
         for cmd, what in EXISTS:
             step = self.ask(cmd, what)
             if step.positive or (step.data and step.data[0][0] == 0x7F and step.data[0][2] != 0x11):
+                exists.add(cmd[:2])
                 self.find(f"Service {cmd[:2]} ({what}) exists ({where}): {step.result}")
         for sid, numbers, what in SCANS:
             self.say(f"Scanning every {what} ({sid:02X} {numbers[0]:02X}-{numbers[-1]:02X})")
-            answered, refused, silent, tried = [], {}, 0, 0
-            for n in numbers:
-                step = self.ask(f"{sid:02X}{n:02X}", f"read {what} {n:02X}", keep=False)
-                tried += 1
-                if step.positive:
-                    self.report.steps.append(step)
-                    answered.append(f"{n:02X} ({len(step.data[0]) - 2} bytes)")
-                if step.data:
-                    silent = 0
-                    if not step.positive:
-                        refused[step.result] = refused.get(step.result, 0) + 1
-                else:
-                    silent += 1
-                    refused[step.result] = refused.get(step.result, 0) + 1
-                    if silent >= SCAN_GIVE_UP:
-                        self.find(f"The scan of {sid:02X} stopped at {n:02X}: the module went quiet ({step.result})")
-                        break
-            counts = "; ".join(f"{k} x{v}" for k, v in sorted(refused.items(), key=lambda kv: -kv[1]))
-            self.report.steps.append(Step(self.section, f"{sid:02X}xx", f"every {what}: {tried} tried", [], 0.0,
-                                          f"{len(answered)} answered" + (f"; {counts}" if counts else "")))
-            self.find(f"{what.capitalize()}s that answer ({sid:02X} xx, {where}): "
-                      + (", ".join(answered) if answered else "none"))
-            if silent >= SCAN_GIVE_UP:
+            answered = self._sweep([f"{sid:02X}{n:02X}" for n in numbers], what, f"{sid:02X}xx")
+            if answered is None:
                 return
+            self.find(f"{what.capitalize()}s that answer ({sid:02X} xx, {where}): "
+                      + (", ".join(f"{s.command[2:]} ({len(s.data[0]) - 2} bytes)" for s in answered) or "none"))
+        if "22" not in exists:
+            return
+        self.say("Sampling every common-identifier page (22 xx 00 / 01)")
+        sample = self._sweep([f"22{hi:02X}{lo:02X}" for hi in range(256) for lo in (0, 1)],
+                             "common identifier (sample)", "22xx00/01")
+        if sample is None:
+            return
+        pages = sorted(set(CID_PAGES) | {int(s.command[2:4], 16) for s in sample})
+        for hi in pages:
+            self.say(f"Scanning common identifiers 22 {hi:02X} 00-FF")
+            answered = self._sweep([f"22{hi:02X}{lo:02X}" for lo in range(256)], "common identifier", f"22{hi:02X}xx")
+            if answered is None:
+                return
+            sizes = sorted({len(s.data[0]) - 3 for s in answered})
+            self.find(f"Common identifiers that answer (22 {hi:02X} xx, {where}): "
+                      + (f"{len(answered)} ({', '.join(str(n) for n in sizes)} data bytes): "
+                         + " ".join(s.command[4:] for s in answered) if answered else "none"))
+
+    def _sweep(self, commands: list, what: str, label: str) -> list | None:
+        """Ask each command; keep the steps that answered, count the refusals. None if the module
+        went quiet (the session is gone: the scan stops)."""
+        answered, refused, silent, tried = [], {}, 0, 0
+        for cmd in commands:
+            tried += 1
+            step = self.ask(cmd, f"read {what} {cmd[2:]}", keep=False)
+            if step.positive:
+                self.report.steps.append(step)
+                answered.append(step)
+            else:
+                refused[step.result] = refused.get(step.result, 0) + 1
+            silent = 0 if step.data else silent + 1
+            if silent >= SCAN_GIVE_UP:
+                self.find(f"The scan of {label} stopped at {cmd}: the module went quiet ({step.result})")
+                break
+        counts = "; ".join(f"{k} x{v}" for k, v in sorted(refused.items(), key=lambda kv: -kv[1]))
+        self.report.steps.append(Step(self.section, label, f"every {what}: {tried} tried", [], 0.0,
+                                      f"{len(answered)} answered" + (f"; {counts}" if counts else "")))
+        return None if silent >= SCAN_GIVE_UP else answered
 
 
 def run(b: ElmBackend, progress=None, settle: float | None = None) -> Report:

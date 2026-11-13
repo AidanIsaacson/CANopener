@@ -66,6 +66,13 @@ def test_probe_finds_kwp_services_and_retries_in_the_default_session():
     text = "\n".join(report.lines())
     assert "> 2110" in text and "61 10 0C 80 50" in text and "> 2111" not in text    # refusals are only counted
     assert "every data block: 256 tried" in text and "x255" in text
+    # service 22 exists: every page sampled, then the usual pages and the one the sample found (0x30) in full
+    assert "223000" in sent and "2230FF" in sent and "2211FF" in sent and "2240FF" not in sent
+    where = "module 0x10, tester 0xF1, fast init"
+    assert f"Common identifiers that answer (22 11 xx, {where}): 1 (1 data bytes): 01" in report.findings
+    assert any("22 30 xx" in f and "(2 data bytes): 00" in f for f in report.findings)
+    assert any("22 12 xx" in f and f.endswith("none") for f in report.findings)
+    assert "62 30 00 0C 80" in text
 
 
 def test_scan_is_skipped_without_the_data_block_service():
