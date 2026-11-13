@@ -82,3 +82,28 @@ def test_clear_reset_and_multi_frame_write():
         c.close()
     finally:
         conn.close()
+
+
+def test_identification_names_and_values():
+    assert uds.did_name(0xF190) == "VIN" and uds.did_name(0xF18C) == "ECU serial number"
+    assert uds.did_name(0xF40C) == "OBD PID 0x0C (OBD on UDS)" and uds.did_name(0x1234) == ""
+    assert uds.did_text(b"ABC123\x00\x00") == "ABC123" and uds.did_text(bytes([0x20, 0x24, 0x03])) == "20 24 03"
+    assert uds.read_supported_dtcs() == bytes([0x19, 0x0A])
+    assert uds.failure_type(0x11) == "short to ground" and uds.failure_type(0x1A) == "electrical failure"
+    assert uds.failure_type(0xF0) == ""
+
+
+def test_client_reads_identification_and_supported_codes_from_sim():
+    from canopener.core.connection import OBD_SIM, open_connection
+    from canopener.core.uds import UdsClient
+    conn = open_connection(OBD_SIM)
+    c = UdsClient(conn.session)
+    try:
+        ident = {name: value for _did, name, value in c.read_identification()}
+        assert ident["ECU serial number"] == "SIM-ECM-000042" and len(ident["VIN"]) == 17
+        assert ident["ECU manufacturing date"] == "20 24 03" and "Supplier ECU software version" in ident
+        known = c.read_supported_dtcs()
+        assert known and {code for code, _s, _f in c.read_dtcs()} <= {code for code, _s, _f in known}
+    finally:
+        c.close()
+        conn.close()

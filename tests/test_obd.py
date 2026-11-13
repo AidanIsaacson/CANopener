@@ -104,3 +104,22 @@ def test_new_pid_formulas():
     assert round(obd.decode(bytes.fromhex("4106 00")).value, 1) == -100.0   # full lean
     assert obd.decode(bytes.fromhex("412C 7F")).name == "Commanded EGR"
     assert obd.decode(bytes.fromhex("415C 64")).value == 60         # oil temp 0x64-40
+
+
+def test_diesel_and_aftertreatment_pids():
+    from canopener.obd.pids import PIDS
+    def vals(pid, data):
+        return {n.split(": ", 1)[1]: v for n, v, _u in PIDS[pid].values(bytes(data))}
+    assert vals(0x69, [0b111, 128, 51, 64, 0, 0, 0]) == {"commanded A": 50.1961, "actual A": 20.0, "error A": -50.0}
+    assert vals(0x6B, [0b0001, 140, 0, 0, 0]) == {"bank 1 sensor 1": 100.0}
+    assert vals(0x70, [0b00011, 0x19, 0x00, 0x0C, 0x80, 0, 0, 0, 0, 0]) == {"commanded A": 200.0, "sensor A": 100.0}
+    assert vals(0x74, [0b01, 0x27, 0x10, 0, 0]) == {"A": 100000.0}
+    assert vals(0x7A, [0b111, 0xFF, 0x38, 0x27, 0x10, 0x00, 0x64]) == {
+        "differential pressure": -2.0, "inlet pressure": 100.0, "outlet pressure": 1.0}
+    assert vals(0x7C, [0b0011, 0x11, 0x94, 0x0B, 0x54, 0, 0, 0, 0]) == {"bank 1 inlet": 410.0, "bank 1 outlet": 250.0}
+    assert vals(0x83, [0b0001, 0x01, 0x2C]) == {"bank 1 sensor 1": 300.0}
+    assert vals(0xA4, [0b11, 0x30, 0x03, 0xE8]) == {"actual gear": 3.0, "gear ratio": 1.0}
+    assert vals(0xA5, [0b1, 100, 0, 0]) == {"commanded": 50.0}
+    assert vals(0x6B, [0, 140, 0, 0, 0]) == {}             # nothing fitted: nothing shown
+    assert PIDS[0x8D].values(b"\xff") == [("Throttle position G", 100.0, "%")]
+    assert len(PIDS) >= 125

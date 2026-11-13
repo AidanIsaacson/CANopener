@@ -64,7 +64,8 @@ class ObdSimulator:
         self.cleared = False
         self.evap_test_running = False
         self.uds_dtcs = list(UDS_DTCS)
-        self.uds_data: dict[int, bytes] = {0xF190: VIN.encode("ascii")}
+        self.uds_data: dict[int, bytes] = {0xF190: VIN.encode("ascii"), 0xF18C: b"SIM-ECM-000042",
+                                           0xF195: b"SIM 1.4.2", 0xF18B: bytes([0x20, 0x24, 0x03])}
         self.resets = 0
         self._running = False
         self._thread: threading.Thread | None = None
@@ -238,6 +239,10 @@ class ObdSimulator:
             return bytes([0x7E, 0x00])
         if sid == 0x19 and len(body) >= 2 and body[1] == 0x02:   # ReadDTCInformation by status mask
             return bytes([0x59, 0x02, 0xFF]) + b"".join(bytes(d) for d in self.uds_dtcs)
+        if sid == 0x19 and len(body) >= 2 and body[1] == 0x0A:   # every code it can set (status 0 = not set)
+            known = {bytes(d[:3]): d[3] for d in UDS_DTCS}
+            now = {bytes(d[:3]): d[3] for d in self.uds_dtcs}
+            return bytes([0x59, 0x0A, 0xFF]) + b"".join(c + bytes([now.get(c, 0x00)]) for c in known)
         if sid == 0x14 and len(body) == 4:                 # ClearDiagnosticInformation
             self.uds_dtcs = []
             return bytes([0x54])

@@ -125,6 +125,23 @@ class UdsClient:
         payload = uds.parse_response(0x22, self.request(uds.read_data_by_identifier(did)))
         return payload[2:] if len(payload) >= 2 else payload   # drop the echoed DID
 
+    def read_supported_dtcs(self) -> list[tuple[str, int, list[str]]]:
+        """Every code the module knows how to set, with each one's status now."""
+        return uds.read_dtcs(self.request(uds.read_supported_dtcs()))
+
+    def read_identification(self, dids=uds.IDENTIFICATION_DIDS) -> list[tuple[int, str, str]]:
+        """Ask for the standard identification data (VIN, part and serial numbers, software
+        versions): ``(did, name, value)`` for each one the module answers. Reads only; a module
+        that stops answering altogether ends the list early."""
+        out = []
+        for did in dids:
+            try:
+                out.append((did, uds.did_name(did), uds.did_text(self.read_data_by_identifier(did))))
+            except uds.UdsError as e:
+                if e.nrc is None:               # silence, not a refusal: no point asking for the rest
+                    break
+        return out
+
 
 FIND_IDS = range(0x700, 0x7F0)
 

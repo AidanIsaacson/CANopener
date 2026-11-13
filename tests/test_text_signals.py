@@ -111,7 +111,8 @@ def test_profile_simulator_sends_text():
 
 
 def test_signals_without_type_are_unchanged():
-    assert not any(s.is_text for s in signals.SIGNALS)
+    # the only built-in text is the transmission's two range fields (ETC2, "D" / "N" / "R2")
+    assert {s.pgn for s in signals.SIGNALS if s.is_text} == {0xF005}
 
 
 def _sim_zapi(seconds=3.5):

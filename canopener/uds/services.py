@@ -49,6 +49,57 @@ NRC = {
 # ReadDTCInformation (0x19) sub-functions (public ISO 14229 list; common ones).
 RDTC_BY_STATUS_MASK = 0x02
 RDTC_SUPPORTED_NUMBER = 0x01
+RDTC_SUPPORTED_DTCS = 0x0A
+RDTC_SUBFUNCTIONS = {
+    0x01: "reportNumberOfDTCByStatusMask", 0x02: "reportDTCByStatusMask",
+    0x03: "reportDTCSnapshotIdentification", 0x04: "reportDTCSnapshotRecordByDTCNumber",
+    0x06: "reportDTCExtDataRecordByDTCNumber", 0x0A: "reportSupportedDTC",
+    0x0B: "reportFirstTestFailedDTC", 0x0C: "reportFirstConfirmedDTC",
+    0x0D: "reportMostRecentTestFailedDTC", 0x0E: "reportMostRecentConfirmedDTC",
+    0x14: "reportDTCFaultDetectionCounter", 0x15: "reportDTCWithPermanentStatus",
+}
+
+# The identification data identifiers every UDS module may answer (ISO 14229-1 Annex C), in plain
+# words. Everything else below 0xF100 and in 0xFD00-0xFEFF is the manufacturer's own.
+DID_NAMES = {
+    0xF180: "Boot software identification", 0xF181: "Application software identification",
+    0xF182: "Application data identification", 0xF183: "Boot software fingerprint",
+    0xF184: "Application software fingerprint", 0xF185: "Application data fingerprint",
+    0xF186: "Active diagnostic session", 0xF187: "Manufacturer spare part number",
+    0xF188: "Manufacturer ECU software number", 0xF189: "Manufacturer ECU software version",
+    0xF18A: "System supplier", 0xF18B: "ECU manufacturing date", 0xF18C: "ECU serial number",
+    0xF18D: "Supported functional units", 0xF18E: "Manufacturer kit assembly part number",
+    0xF190: "VIN", 0xF191: "Manufacturer ECU hardware number", 0xF192: "Supplier ECU hardware number",
+    0xF193: "Supplier ECU hardware version", 0xF194: "Supplier ECU software number",
+    0xF195: "Supplier ECU software version", 0xF196: "Exhaust regulation / type approval number",
+    0xF197: "System name / engine type", 0xF198: "Repair shop code / tester serial number",
+    0xF199: "Programming date", 0xF19A: "Calibration repair shop code / equipment serial number",
+    0xF19B: "Calibration date", 0xF19C: "Calibration equipment software number",
+    0xF19D: "ECU installation date", 0xF19E: "ODX file", 0xF19F: "Entity",
+}
+# The ones worth asking for when identifying a module (reads only).
+IDENTIFICATION_DIDS = (0xF190, 0xF197, 0xF18A, 0xF187, 0xF191, 0xF193, 0xF188, 0xF189, 0xF194, 0xF195,
+                       0xF18C, 0xF18B, 0xF199, 0xF180, 0xF181)
+
+
+def did_name(did: int) -> str:
+    if did in DID_NAMES:
+        return DID_NAMES[did]
+    if 0xF400 <= did <= 0xF4FF:
+        return f"OBD PID 0x{did & 0xFF:02X} (OBD on UDS)"
+    if 0xF800 <= did <= 0xF8FF:
+        return f"OBD vehicle info 0x{did & 0xFF:02X} (OBD on UDS)"
+    return ""
+
+
+def did_text(data: bytes) -> str:
+    """A data identifier's value for display: its text when it is text, its hex otherwise (a
+    date is usually three BCD bytes, which read correctly as hex: ``20 24 03``)."""
+    data = bytes(data)
+    stripped = data.strip(b"\x00\xff ")
+    if stripped and all(0x20 <= b < 0x7F for b in stripped):
+        return stripped.decode("ascii")
+    return data.hex(" ").upper()
 
 # Standard DTC status-byte bits (ISO 14229-1).
 STATUS_BITS = [
@@ -77,6 +128,11 @@ def read_data_by_identifier(did: int) -> bytes:
 
 def read_dtc_by_status_mask(mask: int = 0xFF) -> bytes:
     return bytes([0x19, RDTC_BY_STATUS_MASK, mask & 0xFF])
+
+
+def read_supported_dtcs() -> bytes:
+    """Every code the module can set, whatever its state (0x19 0x0A)."""
+    return bytes([0x19, RDTC_SUPPORTED_DTCS])
 
 
 ALL_DTC_GROUPS = 0xFFFFFF

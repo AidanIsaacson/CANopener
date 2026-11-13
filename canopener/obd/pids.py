@@ -7,7 +7,9 @@ fuel type ...). ``Pid.values(data)`` returns all of them as (name, value, unit) 
 
 Units use the same names as ``core.units`` (kPa, °C, km/h, %, rpm, V, g/s, L/h, s) so the rest of
 the app converts them (psi / °F ...) exactly like J1939 signals. Formulas are the public SAE J1979
-ones, cross-checked against python-OBD (GPL-2.0-or-later) for PIDs 0x00-0x5F. Standard PIDs only;
+ones, cross-checked against python-OBD (GPL-2.0-or-later) for PIDs 0x00-0x5F; the diesel and
+aftertreatment PIDs above that (EGR, turbo, DPF, NOx, DEF) follow the published J1979 layouts and
+are worth checking against a real vehicle. Standard PIDs only;
 monitor status (0x01 / 0x41) is decoded in full by ``readiness``.
 """
 
@@ -148,6 +150,24 @@ def _cat_temp(pid: int, label: str) -> Pid:
     return Pid(pid, f"Catalyst temp {label}", 2, "°C", lambda d: _u16(d) / 10 - 40)
 
 
+def _each(pid: int, name: str, labels, unit: str, fn, nbytes: int | None = None, bits=None) -> Pid:
+    """A multi-sensor PID: support bits in byte A, then one value per sensor. ``fn(d, n)`` reads
+    sensor ``n`` (0-based); ``bits`` are the support bits when they aren't simply 0, 1, 2 ..."""
+    bits = bits or range(len(labels))
+    return Pid(pid, name, nbytes or 1 + len(labels), fields=tuple(
+        (label, unit, _bit(0, bit, lambda d, n=n: fn(d, n))) for n, (label, bit) in enumerate(zip(labels, bits))))
+
+
+def _dpf(pid: int, bank: int) -> Pid:
+    return Pid(pid, f"DPF bank {bank}", 7, fields=(
+        ("differential pressure", "kPa", _bit(0, 0, lambda d: _s16(d, 1) / 100)),
+        ("inlet pressure", "kPa", _bit(0, 1, lambda d: _u16(d, 3) / 100)),
+        ("outlet pressure", "kPa", _bit(0, 2, lambda d: _u16(d, 5) / 100))))
+
+
+_B1B2 = ("bank 1 sensor 1", "bank 1 sensor 2", "bank 2 sensor 1", "bank 2 sensor 2")
+
+
 def _egt(pid: int, bank: int) -> Pid:
     return Pid(pid, f"Exhaust gas temp bank {bank}", 9, fields=tuple(
         (f"sensor {s + 1}", "°C", _bit(0, s, lambda d, s=s: _u16(d, 1 + 2 * s) / 10 - 40)) for s in range(4)))
@@ -237,7 +257,36 @@ PIDS: dict[int, Pid] = {p.pid: p for p in [
         ("sensor 1", "°C", _bit(0, 0, _temp(1))), ("sensor 2", "°C", _bit(0, 1, _temp(2))))),
     Pid(0x68, "Intake air temp", 3, fields=(
         ("bank 1 sensor 1", "°C", _bit(0, 0, _temp(1))), ("bank 1 sensor 2", "°C", _bit(0, 1, _temp(2))))),
+    Pid(0x69, "EGR", 7, fields=(
+        ("commanded A", "%", _bit(0, 0, lambda d: d[1] * 100 / 255)),
+        ("actual A", "%", _bit(0, 1, lambda d: d[2] * 100 / 255)),
+        ("error A", "%", _bit(0, 2, _trim(3))),
+        ("commanded B", "%", _bit(0, 3, lambda d: d[4] * 100 / 255)),
+        ("actual B", "%", _bit(0, 4, lambda d: d[5] * 100 / 255)),
+        ("error B", "%", _bit(0, 5, _trim(6))))),
+    _each(0x6A, "Diesel intake air flow control", ("commanded A", "position A", "commanded B", "position B"), "%",
+          lambda d, n: d[1 + n] * 100 / 255),
+    _each(0x6B, "EGR temp", _B1B2, "°C", lambda d, n: d[1 + n] - 40.0),
+    _each(0x6C, "Throttle actuator control", ("commanded A", "position A", "commanded B", "position B"), "%",
+          lambda d, n: d[1 + n] * 100 / 255),
+    _each(0x6F, "Turbocharger compressor inlet pressure", ("sensor A", "sensor B"), "kPa",
+          lambda d, n: float(d[1 + n])),
+    _each(0x70, "Boost pressure", ("commanded A", "sensor A", "commanded B", "sensor B"), "kPa",
+          lambda d, n: _u16(d, 1 + 2 * n) / 32, nbytes=10, bits=(0, 1, 3, 4)),
+    _each(0x73, "Exhaust pressure", ("bank 1", "bank 2"), "kPa", lambda d, n: _u16(d, 1 + 2 * n) / 100, nbytes=5),
+    _each(0x74, "Turbocharger speed", ("A", "B"), "rpm", lambda d, n: _u16(d, 1 + 2 * n) * 10.0, nbytes=5),
+    _each(0x77, "Charge air cooler temp", _B1B2, "°C", lambda d, n: d[1 + n] - 40.0),
     _egt(0x78, 1), _egt(0x79, 2),
+    _dpf(0x7A, 1), _dpf(0x7B, 2),
+    _each(0x7C, "DPF temp", ("bank 1 inlet", "bank 1 outlet", "bank 2 inlet", "bank 2 outlet"), "°C",
+          lambda d, n: _u16(d, 1 + 2 * n) / 10 - 40, nbytes=9),
+    _each(0x83, "NOx sensor", _B1B2, "ppm", lambda d, n: float(_u16(d, 1 + 2 * n)), nbytes=9),
+    Pid(0x84, "Manifold surface temp", 1, "°C", _temp()),
+    Pid(0x85, "NOx reagent (DEF) system", 10, fields=(
+        ("tank level", "%", _bit(0, 2, lambda d: d[5] * 100 / 255)),)),
+    _each(0x87, "Intake manifold absolute pressure", ("sensor A", "sensor B"), "kPa",
+          lambda d, n: _u16(d, 1 + 2 * n) / 32, nbytes=5),
+    Pid(0x8D, "Throttle position G", 1, "%", _pct),
     Pid(0x7F, "Engine run time", 13, fields=(
         ("total", "s", _bit(0, 0, lambda d: float(int.from_bytes(d[1:5], "big")))),
         ("idle", "s", _bit(0, 1, lambda d: float(int.from_bytes(d[5:9], "big")))),
@@ -246,7 +295,12 @@ PIDS: dict[int, Pid] = {p.pid: p for p in [
     Pid(0x9D, "Fuel rate (mass)", 4, fields=(
         ("engine", "g/s", lambda d: _u16(d) / 50), ("vehicle", "g/s", lambda d: _u16(d, 2) / 50))),
     Pid(0x9E, "Engine exhaust flow rate", 2, "kg/h", lambda d: _u16(d) / 5),
+    Pid(0x9B, "DEF sensor", 4, fields=(("tank level", "%", lambda d: d[3] * 100 / 255),)),
     Pid(0xA2, "Cylinder fuel rate", 2, "mg/stroke", lambda d: _u16(d) / 32),
+    Pid(0xA4, "Transmission gear", 4, fields=(
+        ("actual gear", "", _bit(0, 0, lambda d: float(d[1] >> 4))),
+        ("gear ratio", "", _bit(0, 1, lambda d: _u16(d, 2) / 1000)))),
+    Pid(0xA5, "DEF dosing", 4, fields=(("commanded", "%", _bit(0, 0, lambda d: d[1] / 2)),)),
     Pid(0xA6, "Odometer", 4, "km", lambda d: int.from_bytes(d[:4], "big") / 10),
 ]}
 
@@ -266,13 +320,15 @@ def pid_name(pid: int) -> str:
 # Live Data groups (for the group filter), by PID.
 _GROUPS = [
     ("Engine", (0x04, 0x0C, 0x0E, 0x1F, 0x43, 0x4D, 0x4E, 0x5D, 0x61, 0x62, 0x63, 0x64, 0x7F, 0x8E)),
-    ("Temperatures", (0x05, 0x0F, 0x3C, 0x3D, 0x3E, 0x3F, 0x46, 0x5C, 0x67, 0x68, 0x78, 0x79)),
+    ("Temperatures", (0x05, 0x0F, 0x3C, 0x3D, 0x3E, 0x3F, 0x46, 0x5C, 0x67, 0x68, 0x6B, 0x77, 0x78, 0x79, 0x84)),
     ("Fuel", (0x03, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x22, 0x23, 0x2F, 0x44, 0x51, 0x52, 0x59, 0x5E, 0x9D, 0xA2)),
-    ("Air & throttle", (0x0B, 0x10, 0x11, 0x33, 0x45, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4F, 0x50, 0x5A, 0x66)),
+    ("Air & throttle", (0x0B, 0x10, 0x11, 0x33, 0x45, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4F, 0x50, 0x5A, 0x66,
+                        0x6A, 0x6C, 0x6F, 0x70, 0x74, 0x87, 0x8D)),
     ("Oxygen sensors", tuple(range(0x13, 0x1C)) + (0x1D,) + tuple(range(0x24, 0x2C)) + tuple(range(0x34, 0x3C))
      + (0x55, 0x56, 0x57, 0x58)),
-    ("Emissions", (0x12, 0x2C, 0x2D, 0x2E, 0x30, 0x31, 0x32, 0x53, 0x54, 0x9E)),
-    ("Vehicle", (0x0D, 0x1C, 0x1E, 0x21, 0x42, 0x5B, 0xA6)),
+    ("Emissions", (0x12, 0x2C, 0x2D, 0x2E, 0x30, 0x31, 0x32, 0x53, 0x54, 0x69, 0x73, 0x7A, 0x7B, 0x7C, 0x83, 0x85,
+                   0x9B, 0x9E, 0xA5)),
+    ("Vehicle", (0x0D, 0x1C, 0x1E, 0x21, 0x42, 0x5B, 0xA4, 0xA6)),
 ]
 PID_GROUPS = {pid: name for name, pids in _GROUPS for pid in pids}
 

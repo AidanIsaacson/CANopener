@@ -333,19 +333,35 @@ def cmd_uds(a) -> int:
             if dtcs:
                 print("  DTCs:")
                 for code, status, flags in dtcs:
-                    print(f"    {code}  status=0x{status:02X}  {', '.join(flags) or '-'}")
+                    kind = udslib.failure_type(int(code[-2:], 16))
+                    print(f"    {code}  status=0x{status:02X}  {', '.join(flags) or '-'}"
+                          + (f"  [{kind}]" if kind and kind != "no sub-type" else ""))
             else:
                 print("  DTCs: none")
         except udslib.UdsError as e:
             print(f"  ReadDTCInformation: {e}")
+        if a.info:
+            ident = client.read_identification()
+            print("  Identification:" if ident else "  Identification: nothing answered")
+            for did, name, value in ident:
+                print(f"    {did:04X} {name + ':':<38} {value}")
+        if a.supported:
+            try:
+                known = client.read_supported_dtcs()
+                print(f"  Codes this module can set: {len(known)}")
+                for code, status, _flags in known:
+                    print(f"    {code}  status=0x{status:02X}")
+            except udslib.UdsError as e:
+                print(f"  Supported codes: {e}")
         if a.did is not None:
             did = int(a.did, 16)
+            label = f"DID {did:04X}" + (f" ({udslib.did_name(did)})" if udslib.did_name(did) else "")
             try:
                 data = client.read_data_by_identifier(did)
                 text = bytes(b for b in data if 0x20 <= b < 0x7F).decode("ascii", "replace")
-                print(f"  DID {did:04X}: {data.hex(' ').upper()}" + (f"  ({text})" if text.strip() else ""))
+                print(f"  {label}: {data.hex(' ').upper()}" + (f"  ({text})" if text.strip() else ""))
             except udslib.UdsError as e:
-                print(f"  DID {did:04X}: {e}")
+                print(f"  {label}: {e}")
     finally:
         client.close()
         conn.close()
@@ -1027,6 +1043,9 @@ def main(argv=None) -> int:
     ud.add_argument("--sim", action="store_true", help="read the built-in simulator instead")
     ud.add_argument("--module", default="7E0", help="module request CAN ID in hex (default 7E0)")
     ud.add_argument("--did", help="also read this data identifier (hex, e.g. F190)")
+    ud.add_argument("--info", action="store_true",
+                    help="also read the standard identification: VIN, part / serial numbers, software versions")
+    ud.add_argument("--supported", action="store_true", help="also list every code the module can set")
     ud.add_argument("--find", action="store_true",
                     help="find modules: ask every ID 700-7EF if something's there (TesterPresent; a minute or two)")
     _elm_args(ud)

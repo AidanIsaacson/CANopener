@@ -163,7 +163,8 @@ def test_bit_fields_and_states_decode_from_a_real_looking_frame():
     d = bytes([0x7E, 0xE8, 0x03, 0x7F, ord("D"), ord("2"), ord("D"), ord(" ")])
     assert etc2["Transmission selected gear"].decode(d) == 1 and etc2["Transmission current gear"].decode(d) == 2
     assert etc2["Transmission actual gear ratio"].decode(d) == 1.0
-    assert etc2["Transmission requested range"].decode(d) == "D2" and etc2["Transmission current range"].decode(d) == "D"
+    assert etc2["Transmission requested range"].decode(d) == "D2"
+    assert etc2["Transmission current range"].decode(d) == "D"
     na = bytes([0xFF] * 8)                                      # nothing fitted: every field reads "not available"
     assert all(s.decode(na) is None for sigs in SIGNALS_BY_PGN.values() for s in sigs)
 
@@ -178,7 +179,8 @@ def test_later_diagnostic_messages():
     assert describe(k.DM19, cal) == "CAL-ID-0001  CVN 1A2B3C4D"
     h = decode_dm21(bytes([0x10, 0x00, 0xE8, 0x03, 0xFF, 0xFF, 0x3C, 0x00]))
     assert (h.km_mil_on, h.km_since_clear, h.minutes_mil_on, h.minutes_since_clear) == (16, 1000, None, 60)
-    assert "since codes cleared 1,000 km / 60 min" in describe(k.DM21, bytes([0x10, 0, 0xE8, 3, 0xFF, 0xFF, 0x3C, 0]))
+    assert "since codes cleared 1,000 km / 60 min" in describe(k.DM21,
+                                                               bytes([0x10, 0, 0xE8, 3, 0xFF, 0xFF, 0x3C, 0]))
     c = decode_dm29(bytes([1, 2, 3, 0, 0xFF, 0xFF, 0xFF, 0xFF]))
     assert (c.pending, c.all_pending, c.mil_on, c.previously_mil_on, c.permanent) == (1, 2, 3, 0, None)
     one = Dtc(3936, 16, 5)

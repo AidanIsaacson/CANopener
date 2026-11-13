@@ -7,10 +7,13 @@ app's confirm-first transmit gate. No OEM identifiers are hardcoded here, and it
 from ``core/`` / ``gui/`` / ``sim/``.
 """
 
-from .dtc import decode_uds_dtc, parse_dtc_by_status_mask, read_dtcs
+from .dtc import FAILURE_TYPES, decode_uds_dtc, failure_type, parse_dtc_by_status_mask, read_dtcs
 from .services import (
     ALL_DTC_GROUPS,
+    DID_NAMES,
+    IDENTIFICATION_DIDS,
     NRC,
+    RDTC_SUBFUNCTIONS,
     RESET_HARD,
     RESET_KEY_OFF_ON,
     RESET_SOFT,
@@ -21,10 +24,13 @@ from .services import (
     build_request,
     clear_diagnostic_information,
     diagnostic_session,
+    did_name,
+    did_text,
     ecu_reset,
     parse_response,
     read_data_by_identifier,
     read_dtc_by_status_mask,
+    read_supported_dtcs,
     status_flags,
     tester_present,
 )
@@ -34,5 +40,6 @@ __all__ = [
     "read_dtc_by_status_mask", "tester_present", "diagnostic_session", "parse_response",
     "status_flags", "decode_uds_dtc", "parse_dtc_by_status_mask", "read_dtcs",
     "clear_diagnostic_information", "ecu_reset", "ALL_DTC_GROUPS", "RESETS", "RESET_HARD",
-    "RESET_KEY_OFF_ON", "RESET_SOFT",
+    "RESET_KEY_OFF_ON", "RESET_SOFT", "DID_NAMES", "IDENTIFICATION_DIDS", "RDTC_SUBFUNCTIONS", "did_name",
+    "did_text", "read_supported_dtcs", "FAILURE_TYPES", "failure_type",
 ]
