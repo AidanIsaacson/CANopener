@@ -260,3 +260,124 @@ def test_plugin_uploader_registry(tmp_path):
             assert "README.md" in z.namelist() and "upload.json" not in z.namelist()
     finally:
         upload._uploaders.pop("shelf", None)
+
+
+# ------------------------------------------------------------------ the server's housekeeping
+
+def _call(method, url, token):
+    req = urllib.request.Request(url, method=method, headers={"Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+def _uploaded(tmp_path, settings) -> str:
+    c = _saved_capture(tmp_path)
+    q = upload.UploadQueue(settings)
+    q.enqueue(c.folder)
+    q.run_once()
+    st = q.status(c.folder)
+    assert st.state == upload.DONE, st
+    return st.key
+
+
+def test_deleting_a_capture_needs_an_admin_token(tmp_path, settings, server):
+    base, cfg = server
+    key = _uploaded(tmp_path, settings)
+    assert _call("DELETE", f"{base}/api/captures/{key}", "read-token")[0] == 403      # no admin tokens: nobody can
+    assert _call("DELETE", f"{base}/api/captures/{key}", "both")[0] == 403
+    cfg.admin_tokens.append("admin-token")
+    assert _call("GET", f"{base}/api/whoami", "admin-token") == (200, {
+        "can_upload": False, "can_read": False, "can_delete": True, "server": cfg.name, "version": "2"})
+    assert _call("GET", f"{base}/api/captures", "admin-token")[0] == 403               # it can't read either
+    assert _call("DELETE", f"{base}/api/captures/{key}", "admin-token") == (200, {"deleted": key})
+    assert _call("GET", f"{base}/api/captures/{key}", "read-token")[0] == 404
+    assert json.loads(_get(f"{base}/api/captures")[1])["count"] == 0
+    assert not os.path.exists(os.path.join(cfg.data, "captures", key))
+    assert _call("DELETE", f"{base}/api/captures/{key}", "admin-token")[0] == 404
+
+
+def test_cleanup_expires_old_captures_and_unfinished_uploads(tmp_path, settings, server):
+    base, cfg = server
+    key = _uploaded(tmp_path, settings)
+    store = _server_module().Store(cfg)             # a second view of the same folder
+    stale = os.path.join(cfg.data, "incoming", "0" * 32)
+    os.makedirs(stale)
+    old = time.time() - 30 * 86400
+    os.utime(stale, (old, old))
+    store.cleanup()                                 # KEEP_DAYS is 0: captures are kept for ever
+    assert not os.path.exists(stale)
+    assert json.loads(_get(f"{base}/api/captures")[1])["count"] == 1
+    cfg.keep_days = 14
+    store.cleanup(now=time.time() + 13 * 86400)
+    assert json.loads(_get(f"{base}/api/captures")[1])["count"] == 1
+    store.cleanup(now=time.time() + 15 * 86400)
+    assert json.loads(_get(f"{base}/api/captures")[1])["count"] == 0
+    assert not os.path.exists(os.path.join(cfg.data, "captures", key))
+
+
+def test_an_odd_token_is_refused_not_a_server_error(server):
+    base, _ = server
+    import http.client
+    host, port = base.removeprefix("http://").split(":")
+    conn = http.client.HTTPConnection(host, int(port), timeout=10)
+    conn.putrequest("GET", "/api/whoami")
+    conn.putheader("Authorization", b"Bearer caf\xc3\xa9-token")
+    conn.endheaders()
+    assert conn.getresponse().status == 401
+    conn.close()
+
+
+def test_a_silent_connection_is_dropped(tmp_path):
+    import socket
+    mod = _server_module()
+    cfg = mod.Config({"DATA_DIR": str(tmp_path / "srv"), "HOST": "127.0.0.1", "PORT": "0", "REQUEST_TIMEOUT": "0.3"})
+    srv = mod.make_server(cfg)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        with socket.create_connection(srv.server_address, timeout=5) as sock:
+            sock.sendall(b"GET /api/health HTTP/1.1\r\n")        # ... and never the rest
+            assert sock.recv(100) == b""                         # the server hung up
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_a_half_unpacked_revision_from_a_crash_is_cleared(tmp_path, settings, server):
+    _base, cfg = server
+    c = _saved_capture(tmp_path)
+    key = upload.capture_key(c)
+    junk = os.path.join(cfg.data, "captures", key, "rev-0001.tmp", "files")
+    os.makedirs(junk)
+    with open(os.path.join(junk, "leftover.txt"), "w") as f:
+        f.write("from the crash")
+    q = upload.UploadQueue(settings)
+    q.enqueue(c.folder)
+    q.run_once()
+    assert q.status(c.folder).state == upload.DONE
+    files = os.listdir(os.path.join(cfg.data, "captures", key, "rev-0001", "files"))
+    assert "leftover.txt" not in files and "capture.log" in files
+
+
+def test_a_plugin_can_provide_the_server_as_a_fallback(tmp_path, server, monkeypatch):
+    base, _ = server
+    monkeypatch.delenv("CANOPENER_UPLOAD_TOKEN", raising=False)
+    s = Settings(str(tmp_path / "s.json"))
+    s.set("upload.allow_http", True)
+    u = upload.get_uploader("server")
+    assert not u.configured(s) and u.describe(s) == "not set up"
+    upload.set_default_server(lambda: (base, "up-token"))
+    try:
+        assert upload.target(s) is u and u.describe(s) == f"{base} (from a plugin)"
+        assert "can upload" in u.check(s)
+        assert s.get("upload.url") == "" and upload.load_token() == ""      # nothing written to the unit
+        s.set("upload.url", "https://own.example")          # half a setup of its own: still the default pair
+        assert u.server(s) == (base, "up-token", True)
+        upload.save_token("own-token")                      # both: the unit's own wins
+        assert u.server(s) == ("https://own.example", "own-token", False)
+        upload.set_default_server(lambda: 1 / 0)            # a broken plugin doesn't break uploading
+        assert u.server(s) == ("https://own.example", "own-token", False)
+    finally:
+        upload.set_default_server(None)

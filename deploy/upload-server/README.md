@@ -6,7 +6,8 @@ by you, or by an AI assistant you point at it ("I just uploaded a log from the L
 AB123: the data doesn't parse, take a look").
 
 It's one standard-library Python file (`server.py`, Python 3.10+, no database). This folder holds
-everything needed to run it in Docker behind nginx and a Cloudflare tunnel:
+everything needed to run it in Docker behind a reverse proxy (nginx and a Cloudflare tunnel, or a
+proxy you already run such as Nginx Proxy Manager):
 
 | File | What it is |
 |---|---|
@@ -29,7 +30,9 @@ The path a request takes: **app → Cloudflare (HTTPS) → cloudflared on the se
    `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
 2. **Container.** Copy this folder to the server, then `cp env.example .env`, put the tokens in
    `UPLOAD_TOKENS` / `READ_TOKENS` (comma-separated) and set `PUBLIC_URL` to the tunnel's hostname.
-   Run `docker compose up -d --build`. Check it: `curl http://127.0.0.1:8087/api/health`.
+   Make the data folder and give it to the container's user, which is not root:
+   `mkdir -p data && sudo chown 10001 data`. Then run `docker compose up -d --build`.
+   Check it: `curl http://127.0.0.1:8087/api/health`.
 3. **nginx.** Install `nginx-site.conf.example` as a site, with `server_name` changed to the
    hostname, then reload nginx. Check it: `curl http://127.0.0.1:8088/api/health`.
 4. **Cloudflare tunnel.** Add a public hostname to the tunnel (for example `logs.example.com`)
@@ -52,6 +55,55 @@ The path a request takes: **app → Cloudflare (HTTPS) → cloudflared on the se
 
 Updating: copy the new `server.py` over and run `docker compose up -d --build`. Captures in
 `./data` are kept. Back up `./data` like any other folder.
+
+### Behind a proxy you already run (no tunnel)
+
+If the server already has a reverse proxy on ports 80/443 with its own certificates (Nginx Proxy
+Manager, Caddy, Traefik, plain nginx), use that instead of steps 3 and 4:
+
+1. **DNS:** point a hostname at the server like your other sites. Use a dash, not an underscore
+   (`can-logs`, not `can_logs`): Let's Encrypt won't issue a certificate for a name with an
+   underscore.
+2. **Let the proxy reach the container.** `compose.yaml` publishes it on `127.0.0.1:8087` only. A
+   proxy running on the host itself can use that. A proxy in its own container (on Docker's
+   default bridge) can't, so publish the port on the bridge's address as well, in a
+   `compose.override.yaml` next to `compose.yaml`:
+
+   ```yaml
+   services:
+     canopener-upload:
+       ports:
+         - "172.17.0.1:8087:8080"    # docker0: this host and its containers, not the LAN
+   ```
+
+   Then forward to `http://172.17.0.1:8087`.
+3. **The proxy host:** HTTPS with a certificate, plain http redirected to https ("Force SSL"), no
+   login page or access list, and the settings from `nginx-site.conf.example` (in Nginx Proxy
+   Manager: the **Advanced** tab):
+
+   ```nginx
+   client_max_body_size 80m;
+   proxy_request_buffering off;
+   proxy_buffering off;
+   proxy_read_timeout 300s;
+   proxy_send_timeout 300s;
+   ```
+4. Carry on with step 5.
+
+On a server without systemd or Python (Unraid, a NAS), make the tokens with
+`openssl rand -base64 32 | tr '+/' '-_' | tr -d '='`.
+
+## Deleting captures and keeping the disk from filling
+
+Nothing is deleted unless you ask for it:
+
+- **One capture:** put a token in `ADMIN_TOKENS` (a separate one: it can delete, and nothing
+  else), then `curl -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" $B/api/captures/<key>`.
+  With `ADMIN_TOKENS` empty (the default) nothing can delete over the network.
+- **Old captures:** set `KEEP_DAYS=90` and captures are deleted 90 days after their last upload.
+  The default, `0`, keeps them for ever.
+- Unfinished uploads are deleted after `INCOMING_DAYS`. This and `KEEP_DAYS` are checked when the
+  server starts and every hour after.
 
 ## Reading captures
 
@@ -76,13 +128,13 @@ add or change anything.
 ## API
 
 All JSON. Errors are `{"error": "..."}` with a 4xx / 5xx status. Tokens go in
-`Authorization: Bearer <token>`. An upload token can only upload, a read token can only read (put
-one token in both lists for both).
+`Authorization: Bearer <token>`. An upload token can only upload, a read token can only read, an
+admin token can only delete (put one token in more than one list for more).
 
 | Call | Token | Body / query | Answer |
 |---|---|---|---|
 | `GET /api/health` | none | | `{ok, version}` |
-| `GET /api/whoami` | any | | `{can_upload, can_read, server, version}` |
+| `GET /api/whoami` | any | | `{can_upload, can_read, can_delete, server, version}` |
 | `POST /api/uploads` | upload | `{key, size, sha256, part_size, manifest}` | `201 {upload_id, part_size, parts, received: [part numbers]}` |
 | `GET /api/uploads/<id>` | upload | | same as above |
 | `PUT /api/uploads/<id>/parts/<n>` | upload | the part's bytes; header `X-Content-SHA256` | same as above |
@@ -91,6 +143,7 @@ one token in both lists for both).
 | `GET /api/captures/<key>` | read | | the manifest, plus `files`, `revisions`, `links` |
 | `GET /api/captures/<key>/files/<name>` | read | `max_bytes`: only the first N bytes | the file (`X-File-Size` has its full size) |
 | `GET /api/captures/<key>/bundle.zip` | read | | the zip as uploaded |
+| `DELETE /api/captures/<key>` | admin | | `{deleted}`: the capture and all its revisions are gone |
 
 **Uploading** is in parts, so no request is bigger than `part_size` (the server clamps it to 64 kB
 to `MAX_PART_MB`, 64 MB by default; Cloudflare refuses requests over 100 MB):
@@ -120,5 +173,5 @@ data/captures/<key>/rev-0001/           bundle.zip, manifest.json, files/ (the u
 data/incoming/<upload id>/              parts of an upload still in progress
 ```
 
-To delete a capture, remove its `data/captures/<key>` folder and its entry in `data/index.json`
-(stop the container first, or it may write the index back).
+To delete a capture by hand instead of with `DELETE`, remove its `data/captures/<key>` folder and
+its entry in `data/index.json` (stop the container first, or it may write the index back).

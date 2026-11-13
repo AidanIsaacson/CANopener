@@ -147,7 +147,18 @@ at import. It then appears under **Log → Upload settings… → Send to** on t
 used by the handheld when `upload.target` is its id). The bundle is the capture folder zipped,
 README included; the queue, retries and status are handled for it.
 
+A plugin can also hand every unit the built-in upload server's address and token, so nothing has
+to be typed in on each one: call `core.upload.set_default_server(fn)` at import, where `fn()`
+returns `(address, upload token)`. It's only the fallback (a unit with its own address and token
+keeps using them), and it shows as "(from a plugin)". Only do this from a private plugin: the
+token is a secret.
+
 ### Trying uploads locally
+
+(Run `python -m canopener...` and `python -c` from the checkout, not from your home folder: the
+data folder `~/canopener` has the package's name, and Python picks it up first there, failing with
+"cannot import name ... from 'canopener' (unknown location)". The installed commands
+`canopener`, `canopener-cli` and `canopener-device` work from anywhere.)
 
 Run the receiving server against a temporary folder and point the app at it (plain http is
 accepted for localhost only):
@@ -218,7 +229,6 @@ deploy/      Linux installer + USB adapter plug-in rules; Raspberry Pi launcher,
 firmware/    the handheld's coprocessors: meter Pico (MicroPython), logic Pico (stock sigrok-pico),
              ESP32 bridge (Arduino). Not part of the Python package
 hardware/    the custom board (KiCad, to come) and its groundwork notes
-legacy/      the original j1939_codes.py script and the v0.1 Pi app (frozen, for reference)
 tests/       pytest suite, including headless GUI tests
 docs/        user guides (FEATURES, INSTALL, USAGE, install/), the handheld (DEVICE, DESIGN,
              ELECTRONICS) and the software (DEVELOPING, ARCHITECTURE); index in docs/README.md

@@ -39,8 +39,8 @@ def test_profile_simulator_round_trip():
     p, conn = _connect()
     s = conn.session
     try:
-        deadline = time.time() + 4
-        while time.time() < deadline and not s.latest_for(0xFF42):
+        deadline = time.time() + 10          # every PGN read below, not just the last one sent
+        while time.time() < deadline and not all(s.latest_for(pgn) for pgn in (0xF004, 0xFF40, 0xFF41, 0xFF42)):
             time.sleep(0.05)
         by = {sig.name: sig for sig in p.signals}
         speed = by["Speed"].decode(s.latest_for(0xF004)[0][2])

@@ -3,12 +3,13 @@
 
 Standard library only (Python 3.10+), one file, no database: everything lives under DATA_DIR.
 See README.md next to this file for the API, the layout on disk and how to run it (Docker, behind
-nginx and a Cloudflare tunnel).
+a reverse proxy).
 
 Configuration (environment variables):
 
   UPLOAD_TOKENS      comma-separated tokens that may upload (the app / handheld units)
   READ_TOKENS        comma-separated tokens that may list and download (you, an AI assistant)
+  ADMIN_TOKENS       comma-separated tokens that may delete captures (default none: nothing can)
   DATA_DIR           where captures are kept (default /data)
   HOST, PORT         where to listen (default 0.0.0.0:8080)
   PUBLIC_URL         the address readers use (https://logs.example.com), for the links it returns
@@ -17,6 +18,8 @@ Configuration (environment variables):
   MAX_PART_MB        largest single part (default 64; keep under Cloudflare's 100 MB request limit)
   KEEP_REVISIONS     earlier uploads of the same capture kept (default 3)
   INCOMING_DAYS      unfinished uploads are deleted after this many days (default 7)
+  KEEP_DAYS          captures are deleted this many days after their last upload (default 0: never)
+  REQUEST_TIMEOUT    seconds a connection may sit idle before it's dropped (default 120)
 """
 
 import hashlib
@@ -34,7 +37,8 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
-VERSION = "1"
+VERSION = "2"
+CLEANUP_EVERY = 3600             # seconds between cleanups (unfinished uploads, expired captures)
 KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$")
 FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,159}$")
 ID_RE = re.compile(r"^[0-9a-f]{32}$")
@@ -55,10 +59,13 @@ class Config:
         self.name = env.get("SERVER_NAME") or "CANopener upload server"
         self.upload_tokens = [t.strip() for t in (env.get("UPLOAD_TOKENS") or "").split(",") if t.strip()]
         self.read_tokens = [t.strip() for t in (env.get("READ_TOKENS") or "").split(",") if t.strip()]
+        self.admin_tokens = [t.strip() for t in (env.get("ADMIN_TOKENS") or "").split(",") if t.strip()]
         self.max_upload = int(float(env.get("MAX_UPLOAD_MB") or 4096) * 1024 * 1024)
         self.max_part = int(float(env.get("MAX_PART_MB") or 64) * 1024 * 1024)
         self.keep = int(env.get("KEEP_REVISIONS") or 3)
         self.incoming_days = float(env.get("INCOMING_DAYS") or 7)
+        self.keep_days = float(env.get("KEEP_DAYS") or 0)
+        self.timeout = float(env.get("REQUEST_TIMEOUT") or 120)
 
 
 class ApiError(Exception):
@@ -103,7 +110,7 @@ class Store:
         self.lock = threading.RLock()
         for d in ("captures", "incoming"):
             os.makedirs(os.path.join(cfg.data, d), exist_ok=True)
-        self.purge_incoming()
+        self.cleanup()
 
     # --- paths ---
     def _incoming(self, uid: str) -> str:
@@ -122,10 +129,24 @@ class Store:
     def _save_index(self, entries: list[dict]):
         _write_json(os.path.join(self.cfg.data, "index.json"), entries)
 
-    # --- uploading ---
-    def purge_incoming(self):
+    # --- housekeeping ---
+    def cleanup(self, now: float | None = None):
+        """Delete unfinished uploads older than INCOMING_DAYS and, when KEEP_DAYS is set,
+        captures last uploaded longer ago than that. Runs at start and every hour."""
+        now = time.time() if now is None else now
+        self.purge_incoming(now)
+        if self.cfg.keep_days > 0:
+            cutoff = now - self.cfg.keep_days * 86400
+            for e in self.index():
+                if (e.get("uploaded") or now) < cutoff:
+                    try:
+                        self.delete(e.get("key"))
+                    except ApiError:
+                        pass
+
+    def purge_incoming(self, now: float | None = None):
         root = os.path.join(self.cfg.data, "incoming")
-        cutoff = time.time() - self.cfg.incoming_days * 86400
+        cutoff = (time.time() if now is None else now) - self.cfg.incoming_days * 86400
         for uid in os.listdir(root):
             p = os.path.join(root, uid)
             try:
@@ -133,6 +154,19 @@ class Store:
                     shutil.rmtree(p, ignore_errors=True)
             except OSError:
                 pass
+
+    def delete(self, key: str) -> dict:
+        """Remove a capture (every revision) and its index entry."""
+        with self.lock:
+            cdir = self._capture(key)
+            idx = self.index()
+            if not os.path.isdir(cdir) and not any(e.get("key") == key for e in idx):
+                raise ApiError(404, "no such capture")
+            shutil.rmtree(cdir, ignore_errors=True)
+            self._save_index([e for e in idx if e.get("key") != key])
+        return {"deleted": key}
+
+    # --- uploading ---
 
     def create(self, body: dict, who: str) -> dict:
         key, size, sha = body.get("key"), body.get("size"), str(body.get("sha256") or "").lower()
@@ -209,6 +243,7 @@ class Store:
             revs = sorted(int(n[4:]) for n in os.listdir(cdir) if re.fullmatch(r"rev-\d{4}", n))
             rev = (revs[-1] + 1) if revs else 1
             rdir = os.path.join(cdir, f"rev-{rev:04d}")
+            shutil.rmtree(rdir + ".tmp", ignore_errors=True)      # left by a crash part-way through
             files = self._extract(bundle, os.path.join(rdir + ".tmp", "files"))
             os.replace(bundle, os.path.join(rdir + ".tmp", "bundle.zip"))
             entry = {**meta["manifest"], "key": key, "revision": rev, "uploaded": time.time(),
@@ -296,11 +331,13 @@ class Handler(BaseHTTPRequestHandler):
     server_version = f"CANopenerUpload/{VERSION}"
     store: Store = None         # set by make_server
     cfg: Config = None
+    timeout = 120               # a connection that goes quiet is dropped (make_server sets REQUEST_TIMEOUT)
 
     # --- plumbing ---
     def log_message(self, fmt, *args):        # path only: never the Authorization header
         status = args[1] if len(args) > 1 else ""
-        sys.stderr.write(f"{self.address_string()} {self.command} {urlsplit(self.path).path} {status}\n")
+        who = (self.headers.get("X-Forwarded-For") or "").split(",")[0].strip() if self.headers else ""
+        sys.stderr.write(f"{who or self.address_string()} {self.command} {urlsplit(self.path).path} {status}\n")
 
     def _send(self, status: int, data=None, ctype: str = "application/json", body: bytes | None = None):
         if body is None:
@@ -358,21 +395,24 @@ class Handler(BaseHTTPRequestHandler):
             raise ApiError(400, "body must be a JSON object")
         return d
 
-    def _rights(self) -> tuple[bool, bool, str]:
+    def _rights(self) -> tuple[bool, bool, bool, str]:
+        """(may upload, may read, may delete, a short fingerprint of the token)."""
         auth = self.headers.get("Authorization") or ""
-        tok = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+        tok = auth[7:].strip().encode("utf-8", "replace") if auth.lower().startswith("bearer ") else b""
         if not tok:
-            return False, False, ""
-        up = any(hmac.compare_digest(tok, t) for t in self.cfg.upload_tokens)
-        rd = any(hmac.compare_digest(tok, t) for t in self.cfg.read_tokens)
-        return up, rd, hashlib.sha256(tok.encode()).hexdigest()[:8]
+            return False, False, False, ""
 
-    def _need(self, upload: bool = False, read: bool = False) -> str:
-        up, rd, who = self._rights()
-        if not (up or rd):
+        def known(tokens):      # bytes: compare_digest refuses non-ASCII text
+            return any(hmac.compare_digest(tok, t.encode()) for t in tokens)
+        return (known(self.cfg.upload_tokens), known(self.cfg.read_tokens), known(self.cfg.admin_tokens),
+                hashlib.sha256(tok).hexdigest()[:8])
+
+    def _need(self, upload: bool = False, read: bool = False, admin: bool = False) -> str:
+        up, rd, ad, who = self._rights()
+        if not (up or rd or ad):
             raise ApiError(401, "a valid token is needed (Authorization: Bearer ...)")
-        if (upload and not up) or (read and not rd):
-            raise ApiError(403, "this token can't " + ("upload" if upload else "read"))
+        if (upload and not up) or (read and not rd) or (admin and not ad):
+            raise ApiError(403, "this token can't " + ("upload" if upload else "read" if read else "delete"))
         return who
 
     def _route(self):
@@ -389,10 +429,11 @@ class Handler(BaseHTTPRequestHandler):
         if p == ["health"] and m in ("GET", "HEAD"):
             return self._send(200, {"ok": True, "version": VERSION})
         if p == ["whoami"] and m == "GET":
-            up, rd, _ = self._rights()
-            if not (up or rd):
+            up, rd, ad, _ = self._rights()
+            if not (up or rd or ad):
                 raise ApiError(401, "a valid token is needed (Authorization: Bearer ...)")
-            return self._send(200, {"can_upload": up, "can_read": rd, "server": self.cfg.name, "version": VERSION})
+            return self._send(200, {"can_upload": up, "can_read": rd, "can_delete": ad, "server": self.cfg.name,
+                                    "version": VERSION})
         if p == ["uploads"] and m == "POST":
             who = self._need(upload=True)
             return self._send(201, s.create(self._json(), who))
@@ -425,6 +466,9 @@ class Handler(BaseHTTPRequestHandler):
         if len(p) == 2 and p[0] == "captures" and m == "GET":
             self._need(read=True)
             return self._send(200, s.capture(p[1]))
+        if len(p) == 2 and p[0] == "captures" and m == "DELETE":
+            self._need(admin=True)
+            return self._send(200, s.delete(p[1]))
         if len(p) == 3 and p[0] == "captures" and p[2] == "bundle.zip" and m in ("GET", "HEAD"):
             self._need(read=True)
             return self._send_file(s.file_path(p[1], "bundle.zip"), None)
@@ -443,12 +487,21 @@ class Handler(BaseHTTPRequestHandler):
             sys.stderr.write(f"error: {e!r}\n")
             self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "server error (see its log)"})
 
-    do_GET = do_HEAD = do_POST = do_PUT = _handle
+    do_GET = do_HEAD = do_POST = do_PUT = do_DELETE = _handle
 
 
 def make_server(cfg: Config) -> ThreadingHTTPServer:
-    handler = type("BoundHandler", (Handler,), {"store": Store(cfg), "cfg": cfg})
+    handler = type("BoundHandler", (Handler,), {"store": Store(cfg), "cfg": cfg, "timeout": cfg.timeout})
     return ThreadingHTTPServer((cfg.host, cfg.port), handler)
+
+
+def _cleanup_forever(store: Store, every: float = CLEANUP_EVERY):
+    while True:
+        time.sleep(every)
+        try:
+            store.cleanup()
+        except Exception as e:          # never let housekeeping stop the server
+            sys.stderr.write(f"cleanup error: {e!r}\n")
 
 
 def main() -> int:
@@ -458,6 +511,7 @@ def main() -> int:
     if not cfg.read_tokens:
         print("READ_TOKENS is empty: nothing can read the captures back.", file=sys.stderr)
     srv = make_server(cfg)
+    threading.Thread(target=_cleanup_forever, args=(srv.RequestHandlerClass.store,), daemon=True).start()
     print(f"{cfg.name}: listening on {cfg.host}:{cfg.port}, data in {cfg.data}", file=sys.stderr)
     try:
         srv.serve_forever()

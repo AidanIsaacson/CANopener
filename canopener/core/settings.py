@@ -8,11 +8,16 @@ sources (meters) are switched on. The on-device Pygame UI reads and writes only 
 Keys are flat, dotted strings (``"can.bitrate"``). ``get`` falls back to ``DEFAULTS``, so a key
 added later needs no migration. Every ``set`` writes the file straight away (atomically), so a
 handheld that loses power keeps its settings.
+
+More than one program can have the file open (the handheld UI running while ``canopener-cli``
+changes something): a save writes only the keys this program changed on top of what's in the file
+now, and ``get`` notices a file another program changed (checked about once a second).
 """
 
 import json
 import os
 import threading
+import time
 
 from . import config
 
@@ -95,24 +100,51 @@ def path() -> str:
 class Settings:
     """A small JSON key/value store. Thread-safe; ``get`` never raises for a missing key."""
 
+    RECHECK = 1.0       # seconds between looks at the file for another program's changes
+
     def __init__(self, file: str | None = None):
         self.file = file or path()
         self._lock = threading.RLock()
         self._values: dict = {}
         self._listeners: list = []
+        self._stamp = None              # the file's (mtime_ns, size) when last read or written
+        self._checked = 0.0
         self.load()
 
-    def load(self):
+    def _file_stamp(self):
+        try:
+            st = os.stat(self.file)
+            return st.st_mtime_ns, st.st_size
+        except OSError:
+            return None
+
+    def _read(self) -> dict | None:
         try:
             with open(self.file) as f:
                 data = json.load(f)
         except (OSError, ValueError):
-            data = {}
+            return None
+        return data if isinstance(data, dict) else None
+
+    def load(self):
         with self._lock:
-            self._values = data if isinstance(data, dict) else {}
+            self._stamp = self._file_stamp()
+            self._checked = time.monotonic()
+            self._values = self._read() or {}
+
+    def _refresh(self):
+        """Pick up another program's changes, at most every ``RECHECK`` seconds. Listeners
+        aren't called: they'd run on whichever thread happened to read a setting."""
+        now = time.monotonic()
+        if now - self._checked < self.RECHECK:
+            return
+        self._checked = now
+        if self._file_stamp() != self._stamp:
+            self.load()
 
     def get(self, key: str, default=None):
         with self._lock:
+            self._refresh()
             if key in self._values:
                 return self._values[key]
         return DEFAULTS.get(key) if default is None else default
@@ -122,33 +154,43 @@ class Settings:
 
     def set(self, key: str, value):
         with self._lock:
+            self._refresh()
             if self._values.get(key, object()) == value:
                 return
-            self._values[key] = value
-            self.save()
+            self.save({key: value})
         for fn in list(self._listeners):
             fn(key, value)
 
     def update(self, values: dict):
         with self._lock:
-            self._values.update(values)
-            self.save()
+            self.save(dict(values))
         for key, value in values.items():
             for fn in list(self._listeners):
                 fn(key, value)
 
     def reset(self, key: str):
         with self._lock:
-            if self._values.pop(key, None) is not None:
-                self.save()
+            self._refresh()
+            if key in self._values:
+                self.save(removed=[key])
 
-    def save(self):
+    def save(self, changes: dict | None = None, removed=()):
+        """Write the file: what's in it now (another program may have changed it since we read
+        it), with ``changes`` set and ``removed`` taken out. With neither, our whole copy."""
         with self._lock:
+            if changes is not None or removed:
+                if self._file_stamp() != self._stamp:
+                    self._values = self._read() or self._values
+                self._values.update(changes or {})
+                for key in removed:
+                    self._values.pop(key, None)
             config.ensure_dir(os.path.dirname(self.file))
             tmp = self.file + ".tmp"
             with open(tmp, "w") as f:
                 json.dump(self._values, f, indent=2, sort_keys=True)
             os.replace(tmp, self.file)
+            self._stamp = self._file_stamp()
+            self._checked = time.monotonic()
 
     def on_change(self, fn):
         """Call ``fn(key, value)`` after each change (on the caller's thread)."""

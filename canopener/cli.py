@@ -641,8 +641,14 @@ def cmd_capture(a) -> int:
     return 0
 
 
+def _size(n: int) -> str:
+    return f"{n / 1048576:.1f} MB" if n >= 1048576 else f"{max(1, round(n / 1024))} kB"
+
+
 def _progress(sent: int, total: int):
-    print(f"\r  {sent / 1048576:6.1f} of {total / 1048576:.1f} MB", end="", file=sys.stderr, flush=True)
+    """One line that redraws in place on a terminal; nothing when the output is piped or logged."""
+    if sys.stderr.isatty():
+        print(f"\r\x1b[K  {_size(sent)} of {_size(total)}", end="", file=sys.stderr, flush=True)
 
 
 def cmd_upload(a) -> int:
@@ -697,7 +703,8 @@ def cmd_upload(a) -> int:
         if folder is None:
             break
         st = q.status(folder)
-        print(f"\r{os.path.basename(folder)}: {st.text}" + (f"\n  {st.url}" if st.url else ""), file=sys.stderr)
+        clear = "\r\x1b[K" if sys.stderr.isatty() else ""
+        print(f"{clear}{os.path.basename(folder)}: {st.text}" + (f"\n  {st.url}" if st.url else ""), file=sys.stderr)
         if st.state != upload.DONE:
             rc = 1
             break               # no connection: the rest would fail the same way

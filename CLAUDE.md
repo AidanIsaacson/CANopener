@@ -106,8 +106,6 @@ renaming a heading means fixing its links.
   check `profiles.speaks_j1939()` / `speaks_canopen()`, never "is it on the bus". Row sources are
   `core.canopen.source_name` ints (J1939 address, `node_src`, `id_src`). EMCY text is the CiA 301 class; OEM text only via a
   profile's `"emcy"`.
-* `legacy/` is frozen reference code. Don't import it, and don't copy J1939 tables from
-  `legacy/can_opener_v0.1`: they're wrong (see legacy/README.md).
 * Anything that runs as root goes through `core.interfaces.run_privileged` as explicit argv
   lists (never `sh -c` with user input). Keep `deploy/raspberry-pi/canopener.sudoers` matching
   the commands `setup_steps()` produces.

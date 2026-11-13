@@ -24,6 +24,10 @@ The module may define any of these; all are optional:
   ``canopener.device.modes.DeviceApi``. Keep the logic in Qt- and Pygame-free modules so both
   UIs can share it.
 
+At import a plugin may also call ``core.upload.register_uploader`` (another place for captures to
+go) or ``core.upload.set_default_server`` (the upload server's address and token for every unit
+that installs the plugin).
+
 A plugin that transmits anything beyond J1939 requests must ask the user first: the main app is
 read-only, and ``Session.send_frame`` refuses in listen-only mode.
 """

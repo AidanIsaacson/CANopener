@@ -338,6 +338,31 @@ def normalize_url(url: str) -> str:
     return url
 
 
+_default_server = None       # a plugin's () -> (address, token), see set_default_server
+
+
+def set_default_server(fn):
+    """Give units a server to upload to without any setup. A plugin calls this at import with a
+    function returning ``(address, upload token)`` (or ``("", "")`` when it has none); ``None``
+    takes it away. It is only the fallback: a unit with its own address **and** token (Upload
+    settings) keeps using those, and the two always travel as a pair, so a default token is never
+    sent to another address."""
+    global _default_server
+    _default_server = fn
+
+
+def default_server() -> tuple[str, str]:
+    """The plugin-provided ``(address, token)``, or ``("", "")``."""
+    if _default_server is None:
+        return "", ""
+    try:
+        url, token = _default_server()
+    except Exception:                # a plugin's mistake mustn't break uploading
+        return "", ""
+    url, token = normalize_url(str(url or "")), str(token or "").strip()
+    return (url, token) if url and token else ("", "")
+
+
 class HttpUploader(Uploader):
     """The receiving server in deploy/upload-server (or anything speaking its API)."""
     id = "server"
@@ -346,22 +371,35 @@ class HttpUploader(Uploader):
     def __init__(self, token_fn=load_token):
         self.token_fn = token_fn
 
+    def server(self, settings) -> tuple[str, str, bool]:
+        """``(address, token, from a plugin)``: this unit's own when it has both, else the
+        default a plugin provides (``set_default_server``), else whatever part is set here."""
+        url, token = normalize_url(settings.get("upload.url")), self.token_fn()
+        if not (url and token):
+            d_url, d_token = default_server()
+            if d_url:
+                return d_url, d_token, True
+        return url, token, False
+
     def configured(self, settings) -> bool:
-        return bool(normalize_url(settings.get("upload.url"))) and bool(self.token_fn())
+        url, token, _ = self.server(settings)
+        return bool(url) and bool(token)
 
     def describe(self, settings) -> str:
-        return normalize_url(settings.get("upload.url")) or "not set up"
+        url, _token, default = self.server(settings)
+        if not url:
+            return "not set up"
+        return f"{url} (from a plugin)" if default else url
 
     def _call(self, settings, method: str, path: str, body: bytes | None = None, ctype: str = "application/json",
               extra: dict | None = None) -> dict:
-        base = normalize_url(settings.get("upload.url"))
+        base, token, _ = self.server(settings)
         if not base:
             raise UploadError("No upload server is set (Upload settings).", retry=False)
         if not base.startswith("https://") and not settings.get("upload.allow_http") \
                 and urllib.parse.urlsplit(base).hostname not in ("localhost", "127.0.0.1"):
             raise UploadError("The upload server address must start with https:// (the token would travel in "
                               "the clear otherwise).", retry=False)
-        token = self.token_fn()
         if not token:
             raise UploadError("No upload token is set (Upload settings).", retry=False)
         headers = {"Authorization": f"Bearer {token}", **(extra or {})}
