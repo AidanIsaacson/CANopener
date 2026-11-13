@@ -2,6 +2,8 @@
 
 from . import fields
 from .constants import (
+    DM19,
+    DM21,
     PGN_COMPONENT_ID,
     PGN_ECU_ID,
     PGN_ENGINE_HOURS,
@@ -49,6 +51,14 @@ def describe(pgn: int, data) -> str:
         return " | ".join(parts)
     if pgn == PGN_VIN:
         return decode_ascii(d)
+    if pgn == DM19:
+        from .dtc import decode_dm19
+        cals = decode_dm19(d)
+        return "; ".join(c.text for c in cals) if cals else f"(raw) {fields.hexs(d)}"
+    if pgn == DM21:
+        from .dtc import decode_dm21
+        h = decode_dm21(d)
+        return h.text if h else f"(raw) {fields.hexs(d)}"
     return fields.hexs(d)
 
 

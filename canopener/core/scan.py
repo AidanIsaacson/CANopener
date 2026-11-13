@@ -20,6 +20,8 @@ from ..j1939.constants import (
     DM6,
     DM12,
     DM23,
+    DM27,
+    DM28,
     DTC_PGNS,
     GLOBAL_SA,
     INFO_PGNS,
@@ -36,9 +38,9 @@ from .session import Ack, Session
 
 ACTIVE = [DM1]
 STORED = [DM2]
-EMISSIONS = [DM6, DM12, DM23, DM5]
+EMISSIONS = [DM6, DM12, DM23, DM27, DM28, DM5]
 MACHINE_INFO = list(INFO_PGNS) + [PGN_ADDRESS_CLAIM]
-FULL = [DM1, DM2, DM6, DM12, DM23, DM4, DM5] + MACHINE_INFO
+FULL = [DM1, DM2, DM6, DM12, DM23, DM27, DM28, DM4, DM5] + MACHINE_INFO
 
 PRESETS = {
     "active": ("Active codes", ACTIVE, 2.5),

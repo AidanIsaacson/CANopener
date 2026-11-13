@@ -22,6 +22,17 @@ DM6 = 0xFECF    # Pending DTCs
 DM11 = 0xFED3   # Clear active: requested only by core.j1939_clear, after asking
 DM12 = 0xFED4   # Emissions-related active DTCs
 DM23 = 0xFDB5   # Emissions-related previously active DTCs
+DM19 = 0xD300   # Calibration IDs and their verification numbers (CVN)
+DM20 = 0xC200   # Monitor performance ratios
+DM21 = 0xC100   # Distance and time with the MIL on / since codes were cleared
+DM24 = 0xFDB6   # SPNs supported (expanded freeze frame, data stream, tests)
+DM25 = 0xFDB7   # Expanded freeze frame
+DM26 = 0xFDB8   # Diagnostic readiness, this operating cycle
+DM27 = 0xFD82   # All pending DTCs
+DM28 = 0xFD80   # Permanent DTCs
+DM29 = 0x9E00   # How many emissions-related DTCs of each kind
+DM30 = 0xA400   # Scaled test results
+DM31 = 0xA300   # Which lamp each DTC is lighting
 
 # Identification / counters (mostly on-request only)
 PGN_COMPONENT_ID = 0xFEEB
@@ -37,8 +48,11 @@ DTC_PGNS = {
     DM12: "Emis. active",
     DM2: "Stored",
     DM23: "Emis. stored",
+    DM27: "All pending",
+    DM28: "Permanent",
 }
-STATUS_ORDER = {"Active": 0, "Pending": 1, "Emis. active": 2, "Stored": 3, "Emis. stored": 4}
+STATUS_ORDER = {"Active": 0, "Pending": 1, "All pending": 1.5, "Emis. active": 2, "Stored": 3, "Emis. stored": 4,
+                "Permanent": 5}
 
 INFO_PGNS = {
     PGN_COMPONENT_ID: "Component ID",
@@ -47,6 +61,8 @@ INFO_PGNS = {
     PGN_VIN: "VIN",
     PGN_ENGINE_HOURS: "Engine hours",
     PGN_FUEL_CONSUMPTION: "Fuel consumption",
+    DM19: "Calibration ID",
+    DM21: "MIL distance / time",
 }
 
 PGN_LABEL = {
@@ -56,6 +72,25 @@ PGN_LABEL = {
     PGN_TPCM: "TP connection mgmt",
     PGN_ADDRESS_CLAIM: "Address claim",
     PGN_PROPA: "Proprietary A",
+    DM19: "DM19 calibration IDs", DM20: "DM20 monitor performance ratios",
+    DM21: "DM21 MIL distance / time", DM24: "DM24 SPNs supported", DM25: "DM25 expanded freeze frame",
+    DM26: "DM26 readiness this cycle", DM27: "DM27 all pending codes", DM28: "DM28 permanent codes",
+    DM29: "DM29 code counts", DM30: "DM30 scaled test results", DM31: "DM31 lamp for each code",
+    0xFECC: "DM3 clear stored codes", 0xFED3: "DM11 clear active codes",
+    0xF000: "ERC1 electronic retarder controller 1", 0xF008: "HPG hydraulic pressure governor",
+    0xF00A: "EGF1 engine gas flow", 0xF00E: "AT1IG1 aftertreatment 1 intake gas (NOx)",
+    0xF00F: "AT1OG1 aftertreatment 1 outlet gas (NOx)", 0xFD7C: "DPFC1 DPF control 1",
+    0xFD92: "EOI engine operating information", 0xFDB2: "AT1IMG aftertreatment 1 intermediate gas",
+    0xFDB3: "AT1OG2 aftertreatment 1 outlet gas 2", 0xFDB4: "AT1IG2 aftertreatment 1 intake gas 2",
+    0xFE69: "ET3 engine temperature 3", 0xFE6C: "TCO1 tachograph", 0xFE84: "ET2 engine temperature 2",
+    0xFE92: "EI engine information", 0xFEBD: "FD fan drive", 0xFEBF: "EBC2 wheel speeds",
+    0xFEC1: "VDHR vehicle distance (high resolution)", 0xFED5: "AS alternator speed",
+    0xFEDB: "EFL/P2 engine fluid level / pressure 2", 0xFEDC: "IO idle operation",
+    0xFEDD: "TC turbocharger", 0xFEDF: "EEC3 electronic engine controller 3",
+    0xFEE0: "VD vehicle distance", 0xFEE4: "SHUTDN shutdown", 0xFEE6: "TD time / date",
+    0xFEE8: "VDS vehicle direction / speed", 0xFEF0: "PTO power take-off", 0xFEF3: "VP vehicle position",
+    0xFEF8: "TRF1 transmission fluids 1", 0xFEFF: "WFI water in fuel indicator",
+    0xFEE3: "EC1 engine configuration 1", 0xFEDE: "ACL address claimed (commanded address)",
     DM1: "DM1 active codes",
     DM2: "DM2 stored codes",
     DM4: "DM4 freeze frames",

@@ -214,3 +214,84 @@ def decode_dm5(data) -> Readiness | None:
         None if data[1] == 0xFF else data[1],
         None if data[2] == 0xFF else data[2],
     )
+
+
+# ---------------------------------------------------------------- the later diagnostic messages
+
+@dataclass(frozen=True)
+class Calibration:
+    """One software calibration in a module (DM19)."""
+    cal_id: str         # up to 16 characters
+    cvn: int            # calibration verification number: a checksum the module works out itself
+
+    @property
+    def text(self) -> str:
+        return f"{self.cal_id or '(no ID)'}  CVN {self.cvn:08X}"
+
+
+def decode_dm19(data) -> list[Calibration]:
+    """DM19: 20 bytes per calibration, the 4-byte CVN then a 16-character ID (padded)."""
+    data = bytes(data)
+    out = []
+    for i in range(0, len(data) - 19, 20):
+        cvn = int.from_bytes(data[i:i + 4], "little")
+        cal = "".join(chr(b) for b in data[i + 4:i + 20] if 32 <= b < 127).strip()
+        if cal or cvn not in (0, 0xFFFFFFFF):
+            out.append(Calibration(cal, cvn))
+    return out
+
+
+@dataclass(frozen=True)
+class MilHistory:
+    """DM21: how far and how long with the MIL on, and since the codes were last cleared."""
+    km_mil_on: int | None
+    km_since_clear: int | None
+    minutes_mil_on: int | None
+    minutes_since_clear: int | None
+
+    @property
+    def text(self) -> str:
+        def one(v, unit):
+            return "n/a" if v is None else f"{v:,} {unit}"
+        return (f"MIL on for {one(self.km_mil_on, 'km')} / {one(self.minutes_mil_on, 'min')}; "
+                f"since codes cleared {one(self.km_since_clear, 'km')} / {one(self.minutes_since_clear, 'min')}")
+
+
+def decode_dm21(data) -> MilHistory | None:
+    data = bytes(data)
+    if len(data) < 8:
+        return None
+
+    def u16(i):
+        v = data[i] | (data[i + 1] << 8)
+        return None if v > 0xFAFF else v
+    return MilHistory(u16(0), u16(2), u16(4), u16(6))
+
+
+@dataclass(frozen=True)
+class DtcCounts:
+    """DM29: how many emissions-related codes of each kind a module holds."""
+    pending: int | None
+    all_pending: int | None
+    mil_on: int | None
+    previously_mil_on: int | None
+    permanent: int | None
+
+
+def decode_dm29(data) -> DtcCounts | None:
+    data = bytes(data)
+    if len(data) < 5:
+        return None
+    return DtcCounts(*(None if b > 0xFA else b for b in data[:5]))
+
+
+def decode_dm31(data) -> list[tuple[Dtc, Lamps]]:
+    """DM31: each code with the lamps it is lighting (6 bytes each: the code, then the two lamp
+    bytes laid out as in DM1)."""
+    data = bytes(data)
+    out = []
+    for i in range(0, len(data) - 5, 6):
+        d = decode_dtc(data[i:i + 4])
+        if d is not None:
+            out.append((d, Lamps.from_bytes(data[i + 4], data[i + 5])))
+    return out

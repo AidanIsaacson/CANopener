@@ -147,6 +147,20 @@ SPN_NAMES = {
     245: "Total vehicle distance", 246: "Total vehicle hours", 248: "Total PTO hours",
     249: "Total engine revolutions", 250: "Total fuel used",
     917: "Total vehicle distance (high resolution)", 918: "Trip distance (high resolution)",
+    # --- parameters decoded as live data (signals.py) that weren't named above ---
+    165: "Compass bearing", 186: "PTO speed", 187: "PTO set speed", 517: "Navigation-based vehicle speed",
+    520: "Actual retarder torque", 562: "Anti-slip regulation (ASR) brake control active", 580: "Altitude",
+    584: "Latitude", 585: "Longitude", 589: "Alternator speed", 595: "Cruise control active",
+    596: "Cruise control enable switch", 976: "PTO governor state", 1134: "Intercooler thermostat opening",
+    1208: "Engine oil pressure before the filter", 1243: "ABS fully operational",
+    1438: "ABS / EBS amber warning", 1439: "EBS red warning",
+    1636: "Intake manifold temperature (high resolution)", 1637: "Engine coolant temperature (high resolution)",
+    1762: "Hydraulic pressure", 2432: "Engine demand torque", 2978: "Estimated engine parasitic losses",
+    3236: "Exhaust gas mass flow rate", 3241: "Exhaust gas temperature 1 (before the DOC)",
+    3245: "Exhaust gas temperature 3 (after the DPF)", 3249: "Exhaust gas temperature 2 (DPF middle)",
+    3357: "Actual maximum available engine torque", 3543: "Engine operating state", 3697: "DPF lamp command",
+    3698: "High exhaust system temperature lamp", 3699: "DPF passive regeneration status",
+    3721: "Time since last DPF active regeneration",
 }
 
 SPN_OVERRIDES: dict[int, str] = {}

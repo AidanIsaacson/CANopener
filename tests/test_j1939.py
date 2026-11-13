@@ -86,7 +86,12 @@ def test_fields_not_available():
 def test_signal_encode_decode_round_trip():
     for sig in SIGNALS:
         buf = bytearray(b"\xff" * 8)
-        value = sig.offset + sig.scale * 100
+        if sig.is_text:
+            sig.encode_into(buf, "D1")
+            assert sig.decode(buf) == "D1", sig.name
+            continue
+        raw = 100 if sig.width_bits >= 8 else 1         # a switch or state field can't hold 100
+        value = sig.offset + sig.scale * raw
         sig.encode_into(buf, value)
         assert abs(sig.decode(buf) - value) < 1e-6, sig.name
 
@@ -95,7 +100,8 @@ def test_signals_do_not_overlap_within_a_pgn():
     for pgn, sigs in SIGNALS_BY_PGN.items():
         used = set()
         for s in sigs:
-            span = set(range(s.start, s.start + s.length))
+            first = s.start * 8 + s.bit
+            span = set(range(first, first + s.width_bits))
             assert not used & span, f"{s.name} overlaps in {pgn:04X}"
             used |= span
 
@@ -124,3 +130,59 @@ def test_names():
     assert spn_name(171) == "Ambient air temperature"
     assert sa_name(0x47) == "47 Chassis controller #1" and sa_name(0x54) == "54 Cab display #2"
     assert pgn_label(0xFF10) == "Proprietary B"
+
+
+def test_standard_signal_table_is_consistent():
+    """Every built-in signal fits in 8 bytes, has a named SPN, a labelled PGN, and its own place."""
+    from canopener.j1939.constants import PGN_LABEL
+    from canopener.j1939.spn import SPN_NAMES
+    seen = set()
+    for sig in SIGNALS:
+        assert sig.start * 8 + sig.bit + sig.width_bits <= 64, sig.name
+        assert sig.spn in SPN_NAMES, sig.name
+        assert sig.pgn in PGN_LABEL, sig.name
+        assert sig.location not in seen, sig.name
+        seen.add(sig.location)
+        if sig.enum:
+            assert all(raw < (1 << sig.width_bits) for raw, _ in sig.enum), sig.name
+    assert len(SIGNALS) > 140
+
+
+def test_bit_fields_and_states_decode_from_a_real_looking_frame():
+    from canopener.j1939.signals import SIGNALS_BY_PGN
+    by = {s.name: s for s in SIGNALS_BY_PGN[0xFEF1]}             # CCVS
+    d = bytes([0b11110111, 0x00, 0x40, 0b00010101, 0xFF, 80, 0b11100101, 0xFF])
+    assert by["Parking brake switch"].text(by["Parking brake switch"].decode(d)) == "On"
+    assert by["Vehicle speed"].decode(d) == 64.0
+    assert by["Cruise control active"].text(by["Cruise control active"].decode(d)) == "On"
+    assert by["Brake switch"].text(by["Brake switch"].decode(d)) == "Pressed"
+    assert by["Clutch switch"].text(by["Clutch switch"].decode(d)) == "Released"
+    assert by["Cruise control set speed"].decode(d) == 80
+    assert by["PTO governor state"].text(by["PTO governor state"].decode(d)) == "Set"
+    etc2 = {s.name: s for s in SIGNALS_BY_PGN[0xF005]}
+    d = bytes([0x7E, 0xE8, 0x03, 0x7F, ord("D"), ord("2"), ord("D"), ord(" ")])
+    assert etc2["Transmission selected gear"].decode(d) == 1 and etc2["Transmission current gear"].decode(d) == 2
+    assert etc2["Transmission actual gear ratio"].decode(d) == 1.0
+    assert etc2["Transmission requested range"].decode(d) == "D2" and etc2["Transmission current range"].decode(d) == "D"
+    na = bytes([0xFF] * 8)                                      # nothing fitted: every field reads "not available"
+    assert all(s.decode(na) is None for sigs in SIGNALS_BY_PGN.values() for s in sigs)
+
+
+def test_later_diagnostic_messages():
+    from canopener.j1939 import constants as k
+    from canopener.j1939.dtc import Dtc, decode_dm19, decode_dm21, decode_dm29, decode_dm31, encode_dm
+    from canopener.j1939.info import describe
+    cal = (0x1A2B3C4D).to_bytes(4, "little") + b"CAL-ID-0001".ljust(16, b"\x00")
+    got = decode_dm19(cal + (0xFFFFFFFF).to_bytes(4, "little") + b"\xff" * 16)
+    assert [(c.cal_id, c.cvn) for c in got] == [("CAL-ID-0001", 0x1A2B3C4D)]
+    assert describe(k.DM19, cal) == "CAL-ID-0001  CVN 1A2B3C4D"
+    h = decode_dm21(bytes([0x10, 0x00, 0xE8, 0x03, 0xFF, 0xFF, 0x3C, 0x00]))
+    assert (h.km_mil_on, h.km_since_clear, h.minutes_mil_on, h.minutes_since_clear) == (16, 1000, None, 60)
+    assert "since codes cleared 1,000 km / 60 min" in describe(k.DM21, bytes([0x10, 0, 0xE8, 3, 0xFF, 0xFF, 0x3C, 0]))
+    c = decode_dm29(bytes([1, 2, 3, 0, 0xFF, 0xFF, 0xFF, 0xFF]))
+    assert (c.pending, c.all_pending, c.mil_on, c.previously_mil_on, c.permanent) == (1, 2, 3, 0, None)
+    one = Dtc(3936, 16, 5)
+    pairs = decode_dm31(one.raw() + bytes([0x40, 0xFF]))
+    assert pairs[0][0].spn == 3936 and pairs[0][0].fmi == 16 and pairs[0][1].any_on
+    lamps, codes = __import__("canopener.j1939.dtc", fromlist=["decode_dm"]).decode_dm(encode_dm(0, 0xFF, [one]))
+    assert k.DTC_PGNS[k.DM28] == "Permanent" and k.DTC_PGNS[k.DM27] == "All pending" and codes[0].spn == 3936
