@@ -18,8 +18,8 @@ vehicle. Fix the code (and the simulator, so the tests keep it fixed) when it's 
 |---|---|---|---|
 | 1 | **A real adapter's replies** match what the backend expects: headers on show the PCI byte on CAN (`7E8 06 41 00 ...`), multi-frame answers come as raw frames, `ATAR` / `ATCRA` / `ATCP` are accepted | `canopener-cli bluetooth probe` and `canopener-cli obd --elm` on any CAN car. Paste the probe into [Adapters tried](#adapters-tried). | not checked |
 | 2 | **Timing** on a real adapter (round trip, values per second) | `canopener-cli obd --elm --bench 10` on the F-550 and a car. Record it in Adapters tried. | not checked |
-| 3 | **Response pending** (7F xx 78) after clearing codes: does the adapter keep listening (we raise its timeout with `ATSTFF` for clears / tests / resets)? | Clear codes on a car that's OK to clear, with the Log tool recording; check the clear result says *cleared* for each module. | not checked |
-| 4 | **Non-CAN cars** (J1850 PWM / VPW, ISO 9141-2, KWP2000): the reply shapes in `obd/noncan.py` (header + check byte shown with headers on; 3 codes per message; VIN in 5 numbered messages; the sequence byte on Mode 09 PID 00) | A 1996-2007 non-CAN car: `CANOPENER_ELM_TRACE=~/elm-trace.txt canopener-cli obd --elm --all` keeps the adapter's raw text (see [below](#raw-adapter-trace)). Compare VIN, codes and live data with another scan tool, and the raw lines with `obd/noncan.py`'s docstring. | not checked |
+| 3 | **Response pending** (7F xx 78) after clearing codes: does the adapter keep listening (we raise its timeout with `ATSTFF` for clears / tests / resets)? | Clear codes on a car that's OK to clear, with the Log tool recording; check the clear result says *cleared* for each module. | **partly, 2026-11-13** (vLinker MC+, ISO 9141-2 forklift): Mode 04 answered `44` straight away and the lamp went out; no response-pending seen, so the long-wait path is still unchecked |
+| 4 | **Non-CAN cars** (J1850 PWM / VPW, ISO 9141-2, KWP2000): the reply shapes in `obd/noncan.py` (header + check byte shown with headers on; 3 codes per message; VIN in 5 numbered messages; the sequence byte on Mode 09 PID 00) | A 1996-2007 non-CAN car: `CANOPENER_ELM_TRACE=~/elm-trace.txt canopener-cli obd --elm --all` keeps the adapter's raw text (see [below](#raw-adapter-trace)). Compare VIN, codes and live data with another scan tool, and the raw lines with `obd/noncan.py`'s docstring. | **partly, 2026-11-13** (vLinker MC+, ISO 9141-2 forklift, engine at 0x10): header + check byte as expected (`486B104100...`), Mode 03 as three codes per message, Mode 04 `486B104407`. VIN / Mode 09, live data and J1850 / KWP still unchecked (that machine answers none of them: see "Thin K-line computers") |
 | 5 | **Mode 06 on non-CAN cars** uses an older layout CANopener doesn't decode: left out (the On-Board Tests page stays empty there) | Needs a decoder for the J1979 non-CAN Mode 06 format, and a car to check it on. | not done |
 | 6 | **Freeze frame, Mode 08 (EVAP test) on non-CAN cars**: passed through unchanged, unverified | A non-CAN car with a stored code. | not checked |
 | 7 | **J1939 through the adapter** (protocol A): monitoring with `ATMA` keeps up or reports BUFFER FULL; `ATJHF0` / `ATCSM1` accepted; requests sent raw (`ATCAF0`) reach the modules and their answers arrive | A truck or machine with a 16-to-9-pin Deutsch cable: `canopener-cli bluetooth probe --listen 5 --j1939`, then `canopener-cli scan --elm --listen-only` and `canopener-cli scan --elm --full`. Watch `monitor_restarts` (frames lost to BUFFER FULL). | not checked |
@@ -30,6 +30,32 @@ vehicle. Fix the code (and the simulator, so the tests keep it fixed) when it's 
 | 12 | **Pairing through `bluetoothctl`** on a real Pi 5 and laptop (the PIN prompt, a dual-mode adapter listed twice) | Pair / Manage Adapters → Scan → Pair. | not checked |
 | 13 | **The vLinker MC+'s own commands** (Ford MS-CAN switching, the STN commands its manual mentions) | Private plugin: its `docs/ford-ms-can.md`, "Gaps to fill". | not started |
 | 14 | **Multi-PID requests** (up to 6 values per request on CAN) would roughly quadruple live data over an adapter, and help wired too | Needs `obd.decode` and the passive decoder to take multi-PID answers. Decide after gap 2's numbers. | not done |
+
+## Thin K-line computers: the deep probe
+
+Some engine computers on ISO 9141-2 / KWP2000 (off-road and industrial engines especially) answer
+generic OBD-II only as far as they had to. The first real one we met (2026-11-13, an LPG forklift)
+answers `0100` with all zeros (no live data), `03` with no codes **while its lamp was on with a
+code its own blink-out reported**, nothing to `07` / `0A` / `09`, and accepts `04` (which did put
+the lamp out). So "no stored codes" from such a machine doesn't mean there are none.
+
+The **deep probe** finds out what else the computer answers, without changing anything
+(`can/kline_probe.py`; handheld **Codes > More... > Deep probe**, or
+`canopener-cli bluetooth kline --out probe.txt`):
+
+1. the generic OBD-II reads, asked whether or not they're listed as supported;
+2. each K-line wake-up (ISO 9141-2, KWP2000 5-baud, KWP2000 fast) with the standard request;
+3. KWP2000 (ISO 14230-3) reads addressed to the module itself, from tester addresses 0xF1 and
+   0xFC: tester present (`3E`), identification (`1A 80 / 90 / 91 / 94`), codes by status
+   (`18 00 FF 00`, `18 02 FF 00`, `18 02 FF FF`), the older code read (`13`), data blocks
+   (`21 01`, `21 00`). If a read is refused, it starts the default diagnostic session (`10 81`)
+   and asks once more.
+
+It leaves 5.5 s of silence before each new wake-up (a module ignores one until its last session
+has timed out), so it takes about two minutes, then sets the adapter up again from scratch. The
+transcript (`kline_probe.txt`) has every command, how long it took, and each reply line as the
+adapter printed it, 'BUS INIT' lines included. What a maker's identification, codes or data blocks
+mean is not in this repository: that goes in a profile or the plugin, from our own captures.
 
 ## Adapters tried
 

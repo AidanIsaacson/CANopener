@@ -117,6 +117,14 @@ which commands it understands, the vehicle's protocol. `canopener-cli bluetooth 
 also tries every protocol. `canopener-cli bluetooth console` lets you type adapter commands (AT ...)
 from its manual; it won't send anything to the vehicle.
 
+**An older machine that says almost nothing?** Some engine computers on the old one-wire
+protocols (ISO 9141-2, KWP2000) answer the standard scan-tool questions with "no live data" and
+"no codes" even with the engine light on, and keep the real answers elsewhere on the same wire.
+The **deep probe** asks everything standard that only reads and keeps every reply: on the
+handheld, **Codes → More... → Deep probe**; on a computer, `canopener-cli bluetooth kline --out
+probe.txt`. It takes about two minutes and changes nothing on the machine. The handheld saves it
+as a log, ready to upload, so someone can work out from it how to read that machine properly.
+
 **Finding modules:** `canopener-cli uds --elm --find` asks every diagnostic ID whether a module is
 there (it changes nothing), a minute or two. Works with a wired adapter too (`--iface can0`).
 
@@ -257,6 +265,7 @@ a box). Remap them under **Log → Keyboard shortcuts…**.
 | `live_data.csv` | Every live value twice a second, with your timestamps in a column. Opens in a spreadsheet. |
 | `traffic.csv` | Every message seen (PGN and sender, or 11-bit ID): how many, how often, and whether CANopener decoded it. |
 | `adapter_trace.txt` | Recorded through a Bluetooth OBD adapter: everything sent to it and every line it answered, as it printed them. |
+| `kline_probe.txt` | Only after a deep probe: every question it tried on the machine and each answer. |
 | `capture.log` | Every raw frame. Reopen it with **Open…** in the Log panel, then **View data**. |
 | `markers.csv`, `capture.json` | The timestamps, and everything in machine-readable form. |
 

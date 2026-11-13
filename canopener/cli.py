@@ -12,6 +12,7 @@
     canopener-cli hardware --stage 2b --set can_b=auto  # installed options: what's fitted, what's found
     canopener-cli bluetooth scan                      # Bluetooth OBD adapters nearby (then: pair, rename, test)
     canopener-cli obd --elm                           # OBD-II through the picked Bluetooth OBD adapter
+    canopener-cli bluetooth kline --out probe.txt     # older K-line vehicle: what answers besides generic OBD-II
     canopener-cli obd --elm sim --bench 10            # how fast an adapter answers (here: the simulated one)
 """
 
@@ -838,7 +839,7 @@ def cmd_bluetooth(a) -> int:
     from .core.settings import Settings
     settings = Settings()
     act = a.action
-    if act in ("probe", "console"):
+    if act in ("probe", "console", "kline"):
         return _elm_tool(a, settings)
     if act in ("pair", "rename", "use", "test", "forget") and not a.address:
         print(f"bluetooth {act} needs an ADDRESS (AA:BB:CC:DD:EE:FF)", file=sys.stderr)
@@ -949,6 +950,23 @@ def _elm_tool(a, settings) -> int:
         print(f"Couldn't connect: {e}", file=sys.stderr)
         return 1
     try:
+        if a.action == "kline":
+            from .can import kline_probe
+            why = kline_probe.can_probe(b)
+            if why:
+                print(why, file=sys.stderr)
+                return 1
+            print(kline_probe.WARNING, file=sys.stderr)
+            report = kline_probe.run(b, progress=lambda t: print(f"  {t}...", file=sys.stderr, flush=True))
+            text = "\n".join(report.lines()) + "\n"
+            if a.out:
+                with open(os.path.expanduser(a.out), "w") as f:
+                    f.write(text)
+                print("\n".join(report.summary()))
+                print(f"\nThe full transcript is in {a.out}")
+            else:
+                print(text, end="")
+            return 0
         if a.action == "probe":
             items = elm_probe.probe(b, protocols=a.protocols, listen=a.listen or 0.0, j1939=a.j1939,
                                     progress=lambda t: print(f"  {t}...", file=sys.stderr, flush=True))
@@ -1062,9 +1080,10 @@ def main(argv=None) -> int:
     sub.add_parser("profiles", help="list machine profiles").set_defaults(fn=cmd_profiles)
 
     b = sub.add_parser("bluetooth", help="Bluetooth OBD adapters (ELM327-style): list, scan, pair, rename, use, "
-                       "test, forget, probe (what it can do), console (adapter commands)")
+                       "test, forget, probe (what it can do), console (adapter commands), kline (read-only deep "
+                       "probe of an older K-line vehicle: what answers besides generic OBD-II)")
     b.add_argument("action", nargs="?", default="list",
-                   choices=["list", "scan", "pair", "rename", "use", "test", "forget", "probe", "console"])
+                   choices=["list", "scan", "pair", "rename", "use", "test", "forget", "probe", "console", "kline"])
     b.add_argument("address", nargs="?", help="the adapter's Bluetooth address, AA:BB:CC:DD:EE:FF (probe / "
                    "console: also a name you gave it, or sim / sim:vpw / sim:j1939 ... for the simulated one)")
     b.add_argument("--name", help="pair / rename: a name for it (e.g. 'vLinker (truck)')")
@@ -1075,6 +1094,7 @@ def main(argv=None) -> int:
                    help="probe: also try each OBD-II protocol with a standard read (wakes K-line cars: slow)")
     b.add_argument("--listen", type=float, metavar="SECONDS", help="probe: also listen passively this long")
     b.add_argument("--j1939", action="store_true", help="probe --listen: listen on J1939 (250k) instead")
+    b.add_argument("--out", metavar="FILE", help="kline: write the full transcript here and print the summary")
     b.add_argument("--monitor-seconds", type=float, default=5.0, help="console: how long ATMA etc. run")
     b.set_defaults(fn=cmd_bluetooth)
 

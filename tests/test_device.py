@@ -1083,3 +1083,47 @@ def test_meter_double_tap_enlarges_a_channel_and_back_restores(app_for):
     assert meter.grid.zoom is None and app.top is meter
     press(app, pygame.K_ESCAPE)
     assert app.top is not meter
+
+
+def test_kline_deep_probe_runs_from_the_codes_page_and_lands_in_a_saved_log(app_for, monkeypatch):
+    """Codes > More... > Deep probe on a K-line car: says what it does first, records a log for
+    itself, writes the transcript into it and saves it (so it can be uploaded)."""
+    from canopener.can import kline_probe
+    from canopener.core import capture as cap
+    from canopener.core.connection import ELM_SIM
+    from canopener.device.screens.base import ChoiceDialog, ConfirmDialog, InfoDialog
+    monkeypatch.setattr(kline_probe, "SETTLE", 0.0)
+    app = app_for(show_simulators=True, can__source=ELM_SIM, elm__sim_vehicle="iso9141")
+    ctx = app.ctx
+    ctx.connect()
+    assert ctx.wait_idle(15) and ctx.session.backend.protocol == "3"
+    assert ctx.kline_probe_refusal() == ""
+    app.open_mode("can")
+    press(app, pygame.K_F2)                               # More...
+    assert isinstance(app.top, ChoiceDialog)
+    app.action(inp.SELECT)
+    assert isinstance(app.top, ConfirmDialog) and "doesn't clear codes" in app.top.text
+    app.action(inp.ROTATE, 1)
+    app.action(inp.SELECT)
+    assert ctx.recording or ctx.busy
+    assert ctx.wait_idle(60)
+    app.step([])
+    assert isinstance(app.top, InfoDialog), ctx.current_toast()
+    assert any("Lamp status" in line for line in app.top.lines)
+    assert ctx.wait_idle(30) and ctx.capture.state == cap.SAVED
+    folder = ctx.capture.folder
+    text = open(os.path.join(folder, kline_probe.REPORT_FILE)).read()
+    assert "486B1041018207E50477" in text and "== What it found ==" in text
+    assert "kline_probe.txt" in open(os.path.join(folder, "README.md")).read()
+    assert "> 0101" in open(os.path.join(folder, "adapter_trace.txt")).read()
+    assert ctx.session.backend.protocol == "3"            # the adapter was set up again
+    ctx.disconnect()
+
+
+def test_kline_deep_probe_is_refused_on_a_can_car(app_for):
+    app = app_for()
+    ctx = app.ctx
+    ctx.connect("obd-sim")
+    assert ctx.wait_idle()
+    assert "Bluetooth OBD adapter" in ctx.kline_probe_refusal()
+    assert not ctx.kline_probe() and not ctx.recording

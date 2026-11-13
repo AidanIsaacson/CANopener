@@ -193,6 +193,19 @@ class ElmSimulator:
         if a == "AR":
             self.cra = ""
             return ["OK"]
+        if a in ("FI", "SI"):                       # K-line wake-up now: only the vehicle's own protocol wakes
+            fast = self.protocol == "5"
+            if self.protocol not in "345" or self.protocol != self._vehicle_protocol() or (a == "FI") != fast:
+                return ["BUS INIT: ...ERROR"]
+            self.woke = True
+            return ["BUS INIT: OK"]
+        if a == "KW":
+            return ["1:8F 2:E9"] if self._vehicle_protocol() in "45" else ["1:08 2:08"]
+        if a == "PC":
+            self.woke = self.kwp_session = False
+            return ["OK"]
+        if a.startswith("IIA") and len(a) == 5:
+            return ["OK"]
         if a[:2] in ("AT", "ST") or a in ("CFC0", "CFC1", "M0", "M1", "CSM0", "CSM1", "JE", "JS",
                                          "JHF0", "JHF1") or (a.startswith("PB") and len(a) == 6):
             return ["OK"]
@@ -246,6 +259,8 @@ class ElmSimulator:
             self.woke = True
         if self.car is None:
             return out + ["NO DATA"]
+        if payload[0] >= 0x10 and proto in "45":
+            return out + [self._noncan_line(proto, 0x10, self._kwp_service(payload))]
         if payload[0] >= 0x10 or payload[0] == 0x06:
             return out + ["NO DATA"]
         lines = []
@@ -257,6 +272,23 @@ class ElmSimulator:
                 for msg in noncan.to_noncan(body):
                     lines.append(self._noncan_line(proto, src, msg))
         return out + (lines or ["NO DATA"])
+
+    def _kwp_service(self, payload: bytes) -> bytes:
+        """A few KWP2000 (ISO 14230-3) services from the simulated engine computer, enough to
+        exercise ``can.kline_probe``: identification only once the default session was started."""
+        sid = payload[0]
+        if sid == 0x3E:
+            return b"\x7e"
+        if payload == b"\x10\x81":
+            self.kwp_session = True
+            return b"\x50\x81"
+        if sid == 0x1A and len(payload) == 2:
+            if not getattr(self, "kwp_session", False):
+                return bytes([0x7F, sid, 0x80])
+            return bytes([0x5A, payload[1]]) + b"SIM-ECU"
+        if sid == 0x18:
+            return b"\x58\x00"
+        return bytes([0x7F, sid, 0x11])
 
     def _noncan_line(self, proto: str, src: int, data: bytes) -> str:
         if proto in "45":

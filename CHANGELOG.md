@@ -3,6 +3,22 @@
 What changed in each version, newest first. Versions are git tags (`v0.3.3`): to put a unit back
 on an older one, `git checkout v0.3.2` in its checkout.
 
+## 0.3.4 (2026-11-13)
+
+For older K-line machines whose generic OBD-II answers are thin (no live data listed, no codes
+shown while the lamp is on).
+
+- **Deep probe (read-only).** On the handheld: **Codes > More... > Deep probe**; on a computer:
+  `canopener-cli bluetooth kline --out probe.txt`. Through a Bluetooth OBD adapter it asks the
+  generic OBD-II reads whether or not the computer lists them, tries each K-line wake-up (ISO
+  9141-2, KWP2000 slow and fast), and tries the standard KWP2000 reads (identification, codes by
+  status, a data block) addressed to the module itself. It never clears, writes or runs a test.
+  Every reply is kept as the adapter printed it, in `kline_probe.txt` inside a log the handheld
+  records and saves for it, so it uploads like any capture. Takes about two minutes.
+- **Adapter trace:** each command is stamped when it was sent and its reply when it was complete
+  (they shared one time before), so the trace shows how long the vehicle took to answer.
+- First real non-CAN vehicle checked (docs/BLUETOOTH-OBD.md, gaps 3 and 4).
+
 ## 0.3.3 (2026-11-12)
 
 The protocol libraries, filled out. Layouts are the published standard ones, written in our own

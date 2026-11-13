@@ -555,6 +555,55 @@ class DeviceContext:
                 then(lines or ["No module answered the clear request."], any(ok for ok, _ in result.values()))
         return self.run_job("Clearing codes", work, done)
 
+    def kline_probe_refusal(self) -> str:
+        """'' if the K-line deep probe can run on this connection, else why not."""
+        from ..can import kline_probe
+        if not self.live or self.session is None:
+            return "Connect first"
+        if not self.can_transmit:
+            return "The deep probe has to ask questions: connect without listen-only"
+        return kline_probe.can_probe(self.session.backend)
+
+    def kline_probe(self, then=None) -> bool:
+        """The K-line deep probe (``can.kline_probe``: read-only), recorded into a log so it can be
+        uploaded: a log is started for it if none is running, then stopped and saved.
+        ``then(title, lines)`` gets the summary on the UI thread."""
+        from ..can import kline_probe
+        why = self.kline_probe_refusal()
+        if why:
+            self.toast(why)
+            return False
+        if self.busy:
+            self.toast(f"Busy: {self.busy}")
+            return False
+        own_log = not self.recording
+        if own_log and not (self.start_log(stream=False) and self.recording):
+            self.toast("The last log is being saved first: run the deep probe again in a moment")
+            return False
+        if self.obd_streamer is not None and self.obd_streamer.running:
+            self.obd_streamer.stop()            # the probe holds the adapter: live data would only queue up
+        backend, capture = self.session.backend, self.capture
+
+        def progress(text):
+            self.busy = f"Deep probe: {text}"
+
+        def work():
+            report = kline_probe.run(backend, progress)
+            if capture.folder:
+                with open(os.path.join(capture.folder, kline_probe.REPORT_FILE), "w") as f:
+                    f.write("\n".join(report.lines()) + "\n")
+            return report
+
+        def done(report):
+            lines = report.summary()
+            if own_log and self.capture is capture and self.recording:
+                self.capture.stop()
+                lines += ["", "Saved as a log: upload it from the Log page."]
+                self.save_log()
+            if then:
+                then("Deep probe", lines)
+        return self.run_job("Deep probe", work, done)
+
     def obd_label(self, ecu: int) -> str:
         if self.obd_client is not None:
             return self.obd_client.ecu_label(ecu)
@@ -606,7 +655,9 @@ class DeviceContext:
     def toggle_log(self):
         self.stop_log() if self.recording else self.start_log()
 
-    def start_log(self) -> bool:
+    def start_log(self, stream: bool = True) -> bool:
+        """Start recording. ``stream=False`` doesn't start OBD-II live data with it (the caller is
+        about to hold the adapter itself)."""
         if self.recording:
             return True
         has_meters = bool(self.hub.sources())
@@ -626,7 +677,8 @@ class DeviceContext:
             self.toast(f"Can't start the log: {e}")
             return False
         self.settings.set("log.plan", c.plan_labels())
-        if self.protocol == profiles.OBD2 and self.obd_streamer is not None and not self.obd_streamer.running:
+        if stream and self.protocol == profiles.OBD2 and self.obd_streamer is not None \
+                and not self.obd_streamer.running:
             self.toggle_obd_stream()        # a car only talks when asked: keep it talking while logging
         self.toast("Recording")
         self.cue("rec_start")

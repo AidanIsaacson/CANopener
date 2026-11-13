@@ -184,7 +184,8 @@ class CodesPage(Screen):
         can = ctx.live and not ctx.busy
         live = SoftKey("Live data", self.show_live, enabled=self._has_live(self.focused()))
         if self.obd:
-            return [SoftKey("Read codes", lambda: ctx.read_codes(), enabled=can), None,
+            return [SoftKey("Read codes", lambda: ctx.read_codes(), enabled=can),
+                    SoftKey("More...", self.more_obd, enabled=can),
                     SoftKey("Clear...", self.clear_obd, enabled=can and ctx.can_transmit), live]
         return [SoftKey("Active", lambda: ctx.read_codes("active"), enabled=can),
                 SoftKey("Stored", lambda: ctx.read_codes("stored"), enabled=can),
@@ -198,6 +199,24 @@ class CodesPage(Screen):
                 self.clear_j1939()
         choose(self.app, "Codes", [("Full scan: every code, emissions, readiness", "full"),
                                    ("Clear codes...", "clear")], None, pick)
+
+    def more_obd(self):
+        def pick(what):
+            if what == "kline":
+                self.kline_probe()
+        choose(self.app, "Codes", [("Deep probe (older K-line vehicles): what else answers?", "kline")], None, pick)
+
+    def kline_probe(self):
+        """The read-only K-line deep probe: says what it does first, since it takes a while."""
+        from ...can.kline_probe import WARNING
+        ctx = self.ctx
+        why = ctx.kline_probe_refusal()
+        if why:
+            self.app.push(InfoDialog(self.app, "Deep probe", [why]))
+            return
+        confirm(self.app, "Run the deep probe?", WARNING, "Run",
+                lambda: ctx.kline_probe(then=lambda title, lines: self.app.push(InfoDialog(self.app, title, lines))),
+                danger=False)
 
     def _show_cleared(self, lines, ok):
         self.app.push(InfoDialog(self.app, "Codes cleared" if ok else "Clear codes: check the answers", lines))

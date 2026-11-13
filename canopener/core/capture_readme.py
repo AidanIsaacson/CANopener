@@ -44,6 +44,7 @@ FILES = {
                    "vehicle (K-line, J1850) the frames in capture.log are rebuilt from this, so a reply "
                    "that didn't parse only shows here",
     META_JSON: "the capture's state: machine details, markers, connection, analysis summary",
+    "kline_probe.txt": "the K-line deep probe: every read-only request tried on this vehicle and each raw reply",
     "report.txt": "the scan report (fault codes, machine info) from when this was recorded",
     FULL_LOG: "the untrimmed log (this capture was trimmed to the stretch around its timestamps)",
     FULL_MEASUREMENTS: "the untrimmed meter readings",

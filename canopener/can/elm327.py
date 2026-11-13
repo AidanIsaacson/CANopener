@@ -348,9 +348,10 @@ def open_stream(spec: str) -> Stream:
 # ----------------------------------------------------------------------
 # reply parsing (pure)
 # ----------------------------------------------------------------------
-def split_reply(raw: bytes, command: str = "") -> list[str]:
+def split_reply(raw: bytes, command: str = "", keep_progress: bool = False) -> list[str]:
     """The text an adapter printed before its ``>`` prompt, as stripped non-empty lines, without
-    the echoed command and the 'SEARCHING...' / 'BUS INIT' progress lines."""
+    the echoed command and the 'SEARCHING...' / 'BUS INIT' progress lines (``keep_progress``
+    leaves those in: 'BUS INIT: ...ERROR' is how a failed K-line wake-up shows)."""
     text = raw.decode("ascii", "replace").replace("\x00", "")
     out = []
     echo = command.replace(" ", "").upper()
@@ -361,7 +362,7 @@ def split_reply(raw: bytes, command: str = "") -> list[str]:
         up = line.upper()
         if echo and up.replace(" ", "") == echo:
             continue
-        if up.startswith("SEARCHING") or up.startswith("BUS INIT"):
+        if not keep_progress and (up.startswith("SEARCHING") or up.startswith("BUS INIT")):
             continue
         out.append(line)
     return out
@@ -712,7 +713,7 @@ class ElmBackend(CanBackend):
         while self.stream.read_some(0.0):
             pass
 
-    def _read_until_prompt(self, timeout: float, command: str) -> list[str]:
+    def _read_until_prompt(self, timeout: float, command: str, keep_progress: bool = False) -> list[str]:
         buf = b""
         deadline = time.time() + timeout
         while PROMPT not in buf:
@@ -720,34 +721,39 @@ class ElmBackend(CanBackend):
             if left <= 0:
                 break
             buf += self.stream.read_some(min(left, 0.25))
-        return split_reply(buf.split(PROMPT)[0], command)
+        return split_reply(buf.split(PROMPT)[0], command, keep_progress)
 
-    def command(self, cmd: str, timeout: float = AT_TIMEOUT) -> list[str]:
+    def command(self, cmd: str, timeout: float = AT_TIMEOUT, keep_progress: bool = False) -> list[str]:
         """Send one command and return the reply lines (empty on timeout). Raises OSError (and
-        marks the link lost) if the connection is gone."""
+        marks the link lost) if the connection is gone. ``keep_progress`` keeps the adapter's
+        'BUS INIT' / 'SEARCHING' lines."""
         with self._paused():
             if not self.is_open or self.stream is None:
                 raise OSError(self.link_error or "the OBD adapter isn't connected")
             try:
                 self._drain()
+                sent = time.time()
                 self.stream.write(cmd.encode("ascii") + b"\r")
-                lines = self._read_until_prompt(timeout, cmd)
-                self._trace(cmd, lines)
+                lines = self._read_until_prompt(timeout, cmd, keep_progress)
+                self._trace(cmd, lines, sent)
                 return lines
             except OSError as e:
                 self.link_error = str(e) or "connection to the OBD adapter lost"
                 self.is_open = False
                 raise OSError(self.link_error) from e
 
-    def _trace(self, cmd: str, lines: list[str]):
+    def _trace(self, cmd: str, lines: list[str], sent: float | None = None):
         """With CANOPENER_ELM_TRACE=FILE set (and into ``trace_path`` while a capture records),
         append each command and its reply lines, timestamped: the adapter's own text, for checking
         against what the code expects (docs/BLUETOOTH-OBD.md)."""
         paths = [p for p in (os.environ.get(TRACE_ENV), self.trace_path) if p]
         if not paths:
             return
-        stamp = time.strftime("%H:%M:%S") + f".{int(time.time() * 1000) % 1000:03d}"
-        text = f"{stamp} > {cmd}\n" + "".join(f"{stamp} < {line}\n" for line in lines)
+        def clock(t):
+            return time.strftime("%H:%M:%S", time.localtime(t)) + f".{int(t * 1000) % 1000:03d}"
+        now = time.time()                           # '>' when it was sent, '<' when the reply was complete
+        stamp = clock(now)
+        text = f"{clock(sent or now)} > {cmd}\n" + "".join(f"{stamp} < {line}\n" for line in lines)
         for path in paths:
             try:
                 with open(path, "a") as f:

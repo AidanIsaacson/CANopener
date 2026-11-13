@@ -143,6 +143,12 @@ exercise the real backend.
 * **Probe and console** (`can/elm_probe.py`, `console_refusal`): what an adapter can do, and
   adapter-only commands typed by hand (nothing that reaches the vehicle, rewrites the adapter's
   stored settings or serial speed).
+* **K-line deep probe** (`can/kline_probe.py`): read-only discovery for a K-line computer whose
+  generic answers are thin: generic OBD-II asked anyway, each wake-up, then the standard KWP2000
+  reads addressed to the module. It talks to the adapter directly (`command(..., keep_progress=True)`
+  keeps the 'BUS INIT' lines) while holding the backend's lock, then runs `_init()` again. The
+  handheld (`DeviceContext.kline_probe`) records a log around it and writes `kline_probe.txt` into
+  that capture, so it uploads. docs/BLUETOOTH-OBD.md, "Thin K-line computers".
 * **Battery voltage**: `core.meters.ObdVoltageSource` (ATRV, ~1 Hz) joins the measurement hub on
   both front-ends while an adapter is connected (the desktop now has a hub for it), so captures
   record it in `measurements.csv`.
