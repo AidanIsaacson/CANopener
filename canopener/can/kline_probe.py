@@ -102,8 +102,9 @@ CID_PAGES = (0x11, 0x12, 0x13, 0x14, 0x15)
 # after the number (ISO 14230-3 allows a transmission mode and a count there). A few numbers are
 # tried with each ending, and the bare freeze-frame read in a few lengths: an answer that differs
 # from the plain refusal shows the shape. (service, numbers, endings)
-SHAPES = [(0x21, ("01", "80", "81"), ("01", "04", "0401", "0101")),
-          (0x22, ("0000", "1101", "1201", "1301"), ("01", "04", "0401", "0101"))]
+# 04 01 = "one answer, now". (A bare 04 is left out: the first real machine answered it 256 times over.)
+SHAPES = [(0x21, ("01", "80", "81"), ("0401", "01", "0101")),
+          (0x22, ("0000", "1101", "1201", "1301"), ("0401", "01", "0101"))]
 FREEZE_SHAPES = ("12", "1201", "120000", "120001", "12000000", "1200000401")
 SCAN_GIVE_UP = 3                # this many requests in a row with no reply: the session is gone
 DEFAULT_SESSION = ("1081", "start the default diagnostic session")

@@ -68,7 +68,7 @@ def test_probe_finds_kwp_services_and_retries_in_the_default_session():
     assert "every data block: 256 tried" in text and "x255" in text
     # service 22 exists: every page sampled, then the usual pages and the one the sample found (0x30) in full
     # ... asked in the shape that got an answer (number + 04 01), found by trying a few numbers first
-    assert "22110104" in sent and any("reacts to the shape '22 1101 0401'" in f for f in report.findings)
+    assert "22110104" not in sent and any("reacts to the shape '22 1101 0401'" in f for f in report.findings)
     assert "2230000401" in sent and "2230FF0401" in sent and "2211FF0401" in sent and "2240FF0401" not in sent
     where = "module 0x10, tester 0xF1, fast init"
     assert f"Common identifiers that answer (22 11 xx, {where}): 1 (1 data bytes): 01" in report.findings

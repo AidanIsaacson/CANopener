@@ -76,6 +76,11 @@ all 512 samples and all of pages 11-15 are refused `7F 22 12`. From 0.3.7 the pr
 a few numbers with extra bytes after them (`01`, `04`, `04 01`, `01 01`), and the full scans are
 optional (handheld: the second menu entry; `--scan`).
 
+**Fourth result (2026-11-13, 0.3.7): the shape is number + `04 01`.** `21 01 04 01` answers
+`61 01 00 18 00 00`, and `22 11 01 04 01`, `22 12 01 04 01`, `22 13 01 04 01` answer with one or two
+data bytes; an unknown identifier in that shape is refused `7F 22 10`. A bare `04` ending also
+works but makes service `21` send its answer 256 times, so the probe no longer tries it.
+
 It leaves 5.5 s of silence before each new wake-up (a module ignores one until its last session
 has timed out), so it takes two to four minutes, then sets the adapter up again from scratch. The
 transcript (`kline_probe.txt`) has every command, how long it took, and each reply line as the

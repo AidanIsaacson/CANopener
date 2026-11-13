@@ -11,6 +11,8 @@ on an older one, `git checkout v0.3.2` in its checkout.
   The scans of every number are now a separate menu entry (**Deep probe with the full scan**,
   `--scan` on the command line) and use the shape that answered; the plain deep probe is back to
   about two minutes.
+- The shape that works on the first real machine is number + `04 01`; the bare `04` ending is no
+  longer tried (it made the module repeat its answer 256 times).
 
 ## 0.3.6 (2026-11-13)
 
