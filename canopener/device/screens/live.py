@@ -1,7 +1,8 @@
 """Live Data: every decoded value on the bus *and* every meter probe, in one list.
 
 Tick (Select / tap) the values that matter, then Grid shows them big with a trace, a probe
-voltage next to engine speed (DESIGN.md's pedal-sensor use case, step 4). The models are
+voltage next to engine speed (DESIGN.md's pedal-sensor use case, step 4). Double-tapping a tile
+in the grid enlarges it, with the others stacked beside it. The models are
 ``core.live`` (J1939 / OBD-II) and ``core.measure.MeasurementLiveData`` (meters).
 """
 
@@ -54,13 +55,14 @@ def draw_value_tile(ui, r, model, row, system: str, focused: bool = False, sourc
     if source:
         ui.text(source, (r.right - pad, r.y + pad + t.font("body").get_linesize()), "small", "faint",
                 align="right", valign="top", max_w=r.w - 2 * pad)
-    px = min(t.font_px["huge"], round(r.h * .38))
-    vr = ui.text(value, (r.x + pad, r.y + r.h * .48), "huge", "bad" if bad else "text", px=px,
+    roomy = r.h > t.touch * 4.5                         # an enlarged tile: bigger digits, a taller trace
+    px = min(round(t.font_px["huge"] * 1.7), round(r.h * .3)) if roomy else min(t.font_px["huge"], round(r.h * .38))
+    vr = ui.text(value, (r.x + pad, r.y + r.h * (.33 if roomy else .48)), "huge", "bad" if bad else "text", px=px,
                  max_w=r.w - 2 * pad - t.touch)
     if unit:
         ui.text(unit, (vr.right + pad // 2, vr.bottom - t.pad), "body", "dim", valign="center")
     small = t.font("small").get_linesize()
-    top = r.y + r.h * .68                               # the trace ends above the min - max line
+    top = r.y + r.h * (.52 if roomy else .68)           # the trace ends above the min - max line
     spark = pygame.Rect(r.x + pad, top, r.w - 2 * pad, max(4, r.bottom - pad - small - top))
     ui.sparkline(spark, trace_points(row, system), "warn" if bad else "accent")
     if lohi:
@@ -157,9 +159,9 @@ class LivePage(Screen):
                 self.grid.move(n)
             elif action in (inp.UP, inp.DOWN):
                 self.grid.move2d(0, -1 if action == inp.UP else 1)
-            elif action == inp.SELECT:
-                self.big = False
-            elif action == inp.BACK:
+            elif action == inp.BACK and self.grid.unzoom():
+                pass                            # Back first puts an enlarged value back in the grid
+            elif action in (inp.SELECT, inp.BACK):
                 self.big = False
             else:
                 return False
@@ -185,7 +187,7 @@ class LivePage(Screen):
                 tiles = self.grid.layout(rect, len(items), round(ui.theme.touch * 4), round(ui.theme.touch * 2.2), 3)
                 for i, ((m, k), r) in enumerate(zip(items, tiles)):
                     draw_value_tile(ui, r, m, m.rows[k], system, i == self.grid.focus, m.source_label(m.rows[k].sa))
-                    ui.hit(r, lambda i=i: setattr(self.grid, "focus", i))
+                    ui.hit(r, lambda i=i: self.grid.tap(i))
                 return
         if not self.entries:
             msg = ("Nothing yet. Connect to a bus (Connect page), or switch on a meter."

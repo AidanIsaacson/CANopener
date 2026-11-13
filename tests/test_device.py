@@ -995,3 +995,91 @@ def test_calibration_runs_channel_to_channel_from_system_meters(app_for):
     press(app, pygame.K_RETURN)
     assert isinstance(app.top, CalibrationScreen)
     app.step([])
+
+
+# ------------------------------------------------- the meter's Hold, and enlarging a reading
+
+def test_grid_double_tap_enlarges_a_tile_and_stacks_the_rest():
+    from canopener.device.ui import GridView
+    now = [100.0]
+    g = GridView(clock=lambda: now[0])
+    area = pygame.Rect(0, 0, 1200, 600)
+    plain = g.layout(area, 4, 200, 120)
+    assert len({r.size for r in plain}) == 1
+    assert not g.tap(2) and g.zoom is None and g.focus == 2            # one tap only moves the focus
+    now[0] += 1.0
+    assert not g.tap(2) and g.zoom is None                             # too slow to be a double tap
+    now[0] += 0.2
+    assert g.tap(2) and g.zoom == 2
+    tiles = g.layout(area, 4, 200, 120)
+    big, others = tiles[2], [r for i, r in enumerate(tiles) if i != 2]
+    assert big.w * big.h > 0.6 * area.w * area.h                       # most of the screen
+    assert all(r.x >= big.right for r in others)                       # stacked beside it ...
+    assert [r.y for r in others] == sorted(r.y for r in others) and len({r.x for r in others}) == 1
+    assert all(area.contains(r) for r in tiles)
+    assert not any(a.colliderect(b) for i, a in enumerate(tiles) for b in tiles[i + 1:])
+    tall = g.layout(pygame.Rect(0, 0, 600, 1000), 4, 200, 120)         # ... or below it on a tall screen
+    assert all(r.y >= tall[2].bottom for i, r in enumerate(tall) if i != 2)
+    many = g.layout(area, 12, 200, 120)                                # a lot of readings: still all on screen
+    assert all(area.contains(r) and r.w > 0 and r.h > 0 for r in many) and many[2].w >= area.w // 2 - 20
+    assert not any(a.colliderect(b) for i, a in enumerate(many) for b in many[i + 1:])
+    now[0] += 5
+    g.tap(0)
+    now[0] += 0.2
+    assert g.tap(0) and g.zoom == 0                                    # another tile takes over
+    now[0] += 5
+    g.tap(0)
+    now[0] += 0.2
+    assert g.tap(0) and g.zoom is None                                 # the big one again: back to the grid
+    g.zoom = 3
+    assert g.layout(area, 2, 200, 120) and g.zoom is None              # that tile is gone
+    g.zoom = 0
+    assert g.unzoom() and not g.unzoom()
+
+
+def _meter_screen(app_for):
+    app = app_for(meters__sim=True)
+    app.open_mode("meter")
+    end = time.time() + 5
+    while time.time() < end and len(app.ctx.meter_live.order) < 4:
+        app.step([])
+        time.sleep(0.03)
+    assert len(app.ctx.meter_live.order) == 4
+    return app, app.top
+
+
+def test_meter_hold_freezes_the_trace_too(app_for):
+    app, meter = _meter_screen(app_for)
+    live = app.ctx.meter_live
+    key0 = live.order[0]
+    press(app, pygame.K_F1)                                # Hold
+    assert meter.hold is not None and set(meter.hold) == set(live.rows)
+    held = meter.hold[key0]
+    frozen = (held.value, held.lo, held.hi, list(held.points))
+    n = len(live.rows[key0].points)
+    end = time.time() + 5
+    while time.time() < end and len(live.rows[key0].points) < n + 5:
+        app.step([])
+        time.sleep(0.03)
+    assert len(live.rows[key0].points) >= n + 5            # the meter kept reading underneath
+    assert (held.value, held.lo, held.hi, list(held.points)) == frozen       # the screen didn't move
+    from canopener.device.screens.live import trace_points
+    assert trace_points(held, app.ctx.units)[-1][0] == frozen[3][-1][0]
+    press(app, pygame.K_F1)                                # release: live again
+    assert meter.hold is None
+
+
+def test_meter_double_tap_enlarges_a_channel_and_back_restores(app_for):
+    app, meter = _meter_screen(app_for)
+    w, h = app.size
+    pos = next((x, y) for y in range(h // 4, h, 20) for x in range(w // 8, w, 20)    # somewhere on a channel's tile
+               if (app.ui.hit_rect_at((x, y))[0] or pygame.Rect(0, 0, 0, 0)).h > h // 5)
+    tap(app, pos)
+    assert meter.grid.zoom is None
+    tap(app, pos)
+    assert meter.grid.zoom is not None
+    app.step([])
+    press(app, pygame.K_ESCAPE)                            # Back un-enlarges before it leaves the screen
+    assert meter.grid.zoom is None and app.top is meter
+    press(app, pygame.K_ESCAPE)
+    assert app.top is not meter

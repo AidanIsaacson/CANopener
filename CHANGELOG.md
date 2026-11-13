@@ -20,6 +20,11 @@ on an older one, `git checkout v0.3.1` in its checkout.
   - the log shows the caller's address from `X-Forwarded-For`;
   - the README covers running behind a proxy you already have (Nginx Proxy Manager and the
     like) and the data folder's owner.
+- **Handheld meter: Hold freezes the graphs too**, not just the numbers and min / max (the meter
+  and the data log keep running underneath).
+- **Handheld: double-tap a reading to enlarge it** (a meter channel, or a value in Live's grid).
+  It takes most of the screen and the others stack beside it; double-tap it again or press Back
+  to return to the grid.
 - **Plugins can provide the upload server.** `core.upload.set_default_server` lets a private
   plugin hand every unit the server's address and upload token; a unit's own still win.
 - `canopener-cli upload` shows small captures in kB and no longer leaves its progress line stuck

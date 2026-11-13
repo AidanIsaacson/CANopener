@@ -8,6 +8,7 @@ Sizes come from the panel's real pixel density: a touch target is 10 mm whatever
 """
 
 import math
+import time
 
 import pygame
 
@@ -389,12 +390,38 @@ class ListView:
 
 
 class GridView:
-    """Tiles in rows; the encoder moves through them in order, the d-pad moves in 2D."""
+    """Tiles in rows; the encoder moves through them in order, the d-pad moves in 2D.
 
-    def __init__(self):
+    Double-tapping a tile (``tap``) enlarges it: it takes most of the space and the others stack
+    beside it (below it on a tall screen). Double-tapping it again, or ``unzoom``, puts the grid
+    back; double-tapping another tile enlarges that one instead."""
+
+    DOUBLE_TAP = 0.45       # seconds between two taps on the same tile
+
+    def __init__(self, clock=time.monotonic):
         self.focus = 0
         self.cols = 1
         self.count = 0
+        self.zoom: int | None = None        # the enlarged tile's index
+        self.clock = clock
+        self._tapped: tuple[int, float] | None = None
+
+    def tap(self, i: int) -> bool:
+        """A tap on tile ``i``: focus it; the second of a double tap also (un)enlarges it. True
+        when the zoom changed."""
+        now = self.clock()
+        self.focus = i
+        if self._tapped is not None and self._tapped[0] == i and now - self._tapped[1] <= self.DOUBLE_TAP:
+            self._tapped = None
+            self.zoom = None if self.zoom == i else i
+            return True
+        self._tapped = (i, now)
+        return False
+
+    def unzoom(self) -> bool:
+        """Back to the plain grid. True if a tile was enlarged."""
+        was, self.zoom = self.zoom is not None, None
+        return was
 
     def move(self, delta: int):
         if self.count:
@@ -408,18 +435,53 @@ class GridView:
         self.count = count
         self.focus = max(0, min(self.focus, count - 1)) if count else 0
         if not count:
+            self.zoom = None
             return []
+        gap = max(4, min_w // 12)
+        if self.zoom is not None and (self.zoom >= count or count < 2):
+            self.zoom = None
+        if self.zoom is not None:
+            return self._zoomed(rect, count, min_w, min_h, gap)
         cols = max(1, min(max_cols, count, rect.w // max(1, min_w)))
         rows = math.ceil(count / cols)
         while rows > 1 and rect.h // rows < min_h and cols < count:
             cols += 1
             rows = math.ceil(count / cols)
         self.cols = cols
-        gap = max(4, min_w // 12)
         w = (rect.w - gap * (cols - 1)) // cols
         h = (rect.h - gap * (rows - 1)) // rows
         return [pygame.Rect(rect.x + (i % cols) * (w + gap), rect.y + (i // cols) * (h + gap), w, h)
                 for i in range(count)]
+
+    def _zoomed(self, rect, count: int, min_w: int, min_h: int, gap: int) -> list[pygame.Rect]:
+        """One big tile and the rest stacked: in a strip down the right side, or along the bottom
+        when the space is taller than it is wide. The strip grows a second line when one line
+        would squash its tiles, but never takes more than half the space."""
+        n = count - 1
+        self.cols = 1                       # the d-pad steps through them in order
+        small_w, small_h = max(1, round(min_w * .8)), max(1, round(min_h * .6))
+        if rect.w >= rect.h:
+            lines = max(1, math.ceil(n / max(1, (rect.h + gap) // (small_h + gap))))
+            col_w = max(small_w, round(rect.w * .27))
+            lines = max(1, min(lines, (rect.w // 2) // max(1, col_w)))
+            strip = lines * col_w + (lines - 1) * gap
+            per = math.ceil(n / lines)
+            h = (rect.h - gap * (per - 1)) // per
+            big = pygame.Rect(rect.x, rect.y, rect.w - strip - gap, rect.h)
+            small = [pygame.Rect(big.right + gap + (j // per) * (col_w + gap), rect.y + (j % per) * (h + gap),
+                                 col_w, h) for j in range(n)]
+        else:
+            lines = max(1, math.ceil(n / max(1, (rect.w + gap) // (small_w + gap))))
+            row_h = max(small_h, round(rect.h * .2))
+            lines = max(1, min(lines, (rect.h // 2) // max(1, row_h)))
+            strip = lines * row_h + (lines - 1) * gap
+            per = math.ceil(n / lines)
+            w = (rect.w - gap * (per - 1)) // per
+            big = pygame.Rect(rect.x, rect.y, rect.w, rect.h - strip - gap)
+            small = [pygame.Rect(rect.x + (j % per) * (w + gap), big.bottom + gap + (j // per) * (row_h + gap),
+                                 w, row_h) for j in range(n)]
+        out = small[:self.zoom] + [big] + small[self.zoom:]
+        return out
 
 
 # ----------------------------------------------------------------------------

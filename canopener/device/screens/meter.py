@@ -1,8 +1,14 @@
 """The meter: every measurement channel as a big readout with a trace, and each source's health.
 
+Hold freezes what's on the screen: the readings, their min / max and the traces (the meter and
+the data log keep running underneath). Double-tapping a channel enlarges it, with the others
+stacked beside it.
+
 The readings come from ``core.measure.MeasurementHub`` (sources in ``core.meters``); the same
 channels show in CAN > Live and are recorded by the data log, on the bus's timebase.
 """
+
+import copy
 
 import pygame
 
@@ -29,7 +35,7 @@ class MeterScreen(Screen):
     def __init__(self, app):
         super().__init__(app)
         self.grid = GridView()
-        self.hold: dict | None = None       # row key -> (value, lo, hi) frozen by Hold
+        self.hold: dict | None = None       # row key -> a copy of its row (value, min / max, trace) at Hold
 
     def softkeys(self):
         ctx = self.ctx
@@ -51,7 +57,14 @@ class MeterScreen(Screen):
 
     def toggle_hold(self):
         m = self.ctx.meter_live
-        self.hold = None if self.hold is not None else {k: (r.value, r.lo, r.hi) for k, r in m.rows.items()}
+        if self.hold is not None:
+            self.hold = None
+            return
+        self.hold = {}
+        for k, r in m.rows.items():
+            frozen = copy.copy(r)
+            frozen.points = list(r.points)      # the trace stops here too
+            self.hold[k] = frozen
 
     def on_action(self, action, n=1):
         if action == inp.ROTATE:
@@ -62,6 +75,8 @@ class MeterScreen(Screen):
             self.grid.move2d(0, -1 if action == inp.UP else 1)
         elif action == inp.SELECT:
             self.toggle_hold()
+        elif action == inp.BACK and self.grid.unzoom():
+            pass                                # Back first puts an enlarged channel back in the grid
         else:
             return False
         return True
@@ -91,12 +106,8 @@ class MeterScreen(Screen):
             return
         tiles = self.grid.layout(area, len(keys), round(t.touch * 4), round(t.touch * 2.2), 4)
         for i, (k, r) in enumerate(zip(keys, tiles)):
-            row = m.rows[k]
             if self.hold is not None and k in self.hold:
-                saved = (row.value, row.lo, row.hi)
-                row.value, row.lo, row.hi = self.hold[k]
-                draw_value_tile(ui, r, m, row, ctx.units, i == self.grid.focus, "HOLD")
-                row.value, row.lo, row.hi = saved
+                draw_value_tile(ui, r, m, self.hold[k], ctx.units, i == self.grid.focus, "HOLD")
             else:
-                draw_value_tile(ui, r, m, row, ctx.units, i == self.grid.focus)
-            ui.hit(r, lambda i=i: setattr(self.grid, "focus", i))
+                draw_value_tile(ui, r, m, m.rows[k], ctx.units, i == self.grid.focus)
+            ui.hit(r, lambda i=i: self.grid.tap(i))
