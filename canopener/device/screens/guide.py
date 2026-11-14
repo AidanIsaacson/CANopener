@@ -41,6 +41,61 @@ def start(app):
     ask()
 
 
+def status(ctx) -> str:
+    n = sum(1 for f in (os.listdir(profiles.user_dir()) if os.path.isdir(profiles.user_dir()) else [])
+            if f.startswith("observed-"))
+    return f"{n} built here" if n else "Map an unknown machine"
+
+
+class BuilderHome(Screen):
+    """The Profile builder tile: what it does, and Start."""
+
+    title = "Profile builder"
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.rows = RowList(self._rows)
+
+    def _rows(self):
+        ctx = self.ctx
+        rows = [Row("Build a profile for this machine", kind="header"),
+                Row("It asks what the machine is, then walks you through its controls and functions one at a "
+                    "time and names what each one does on the bus.", kind="info",
+                    hint="It only listens. Takes 5 to 15 minutes; skip anything the machine doesn't have.")]
+        if not ctx.live:
+            rows.append(Row("Connect to the machine's bus first", kind="info", level=lambda: "bad",
+                            hint="CAN > Connect"))
+        rows.append(Row("Start", kind="action", select=lambda: start(self.app)))
+        built = []
+        folder = profiles.user_dir()
+        for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+            doc = observed.load_doc(os.path.join(folder, name))
+            if doc:
+                built.append((os.path.splitext(name)[0], doc))
+        if built:
+            rows.append(Row("Built on this unit", kind="header"))
+            active = profiles.active()
+            for pid, doc in built:
+                rows.append(Row(doc["name"], f"{len(doc.get('signals', []))} values"
+                                + (", in use" if active and active.id == pid else ""),
+                                select=lambda pid=pid: self._use(pid)))
+        return rows
+
+    def _use(self, pid):
+        self.ctx.apply_profile(pid)
+        self.ctx.toast("Using " + self.ctx.profile_name())
+
+    def softkeys(self):
+        return [SoftKey("Start", lambda: start(self.app)), None, None,
+                SoftKey("Help", lambda: self.app.push(InfoDialog(self.app, self.title, HELP)))]
+
+    def on_action(self, action, n=1):
+        return self.rows.on_action(action, n)
+
+    def draw(self, ui, rect):
+        self.rows.draw(ui, rect)
+
+
 class GuideScreen(Screen):
     title = "Profile builder"
 

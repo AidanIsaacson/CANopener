@@ -762,6 +762,17 @@ def _games_line(ui, r, c):
     g.circle(12, 15, 1.6, fill=True)
 
 
+def _builder_line(ui, r, c):
+    """A checklist with a pencil: the guided profile builder."""
+    g = _Grid(ui, r, c)
+    g.rect(3.5, 3, 16.5, 21, 1.6)
+    for y in (8, 12.5, 17):
+        g.stroke([(6.5, y), (8, y + 1.3), (10.2, y - 1.6)])
+        g.stroke([(12, y), (14, y)])
+    g.stroke([(21, 6.5), (15.5, 16.5), (15, 19.5), (17.6, 17.8), (23, 7.8)], closed=True)
+
+
+icon_builder = _icon(_builder_line, _builder_line)
 icon_can = _icon(_can, _can_line)
 icon_meter = _icon(_meter, _meter_line)
 icon_settings = _icon(_settings, _settings_line)

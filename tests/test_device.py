@@ -203,7 +203,7 @@ def tap(app, pos):
 def test_home_tiles_keys_and_soft_keys(app_for):
     app = app_for()
     titles = [m.title for m in __import__("canopener.device.modes", fromlist=["modes"]).modes()]
-    assert titles[:4] == ["CAN", "Meter", "Data log", "System"]
+    assert titles[:5] == ["CAN", "Meter", "Data log", "System", "Profile builder"]
     assert [k.label for k in app.softkey_slots()[:4]] == ["Connect", "Codes", "Live data", "Start log"]
     press(app, pygame.K_F3)                               # soft key 3 = straight to CAN > Live
     assert app.top.title == "CAN · Live"
@@ -224,8 +224,16 @@ def test_soft_key_and_tile_taps(app_for):
     assert app.top.title == "CAN · Codes"
     app.home()
     app.step([])
-    tap(app, (content.x + 40, content.centery))                      # first tile
+    tiles = app.top.grid.layout(content, 5, 1, 1)                    # where the home screen drew its tiles
+    first = min(tiles, key=lambda r: (r.y, r.x))
+    tap(app, first.center)                                           # first tile
     assert app.top.title.startswith("CAN")
+    app.home()
+    app.step([])
+    app.open_mode("builder")
+    for _ in range(2):
+        app.step([])
+    assert app.top.title == "Profile builder" and "Start" in [r.label for r in app.top.rows.refresh()]
 
 
 def test_rotation_maps_touch_back_to_the_ui(app_for):
@@ -1263,7 +1271,9 @@ def test_guided_profile_builder_on_the_handheld(app_for, monkeypatch):
     guide_screen.start(app)
     assert isinstance(app.top, ChoiceDialog)
     assert "What kind of machine?" in app.top.title
-    app.action(inp.SELECT)                                  # IC forklift: it goes on to ask about the hydraulics
+    app.action(inp.SELECT)                                  # IC forklift: it goes on to ask about the engine
+    assert isinstance(app.top, ChoiceDialog) and "engine run on" in app.top.title
+    app.action(inp.SELECT)                                  # LP: no aftertreatment question
     assert isinstance(app.top, ChoiceDialog) and "hydraulics" in app.top.title
     app.action(inp.SELECT)
     assert "height" in app.top.title

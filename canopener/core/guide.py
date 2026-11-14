@@ -1,8 +1,9 @@
 """The guided Profile Builder: it tells the technician what to do, watches the bus while they do
 it, and names what followed.
 
-A few questions (``QUESTIONS``: the kind of machine, how its hydraulics are controlled, whether the
-mast reports its height) choose the script (``build_script``). Control inputs come first, with
+A few questions (``QUESTIONS``: the kind of machine, its fuel and aftertreatment, how its
+hydraulics are controlled, whether the mast reports its height) choose the script
+(``build_script``). Control inputs come first, with
 the key on and nothing running, so each is seen alone before the engine or pump adds its own traffic.
 
 A ``Guide`` walks a script of steps ("Start the engine", "Raise the forks", "Press the horn").
@@ -62,6 +63,13 @@ MACHINES = {IC: "IC forklift", ELECTRIC: "Electric forklift", TELEHANDLER: "Tele
 
 QUESTIONS = [
     Question("machine", "What kind of machine?", [(label, key) for key, label in MACHINES.items()]),
+    Question("fuel", "What does the engine run on?",
+             [("LP gas (propane)", "lp"), ("Petrol / gasoline", "gas"), ("Diesel", "diesel"),
+              ("Dual fuel (petrol and LP)", "dual")],
+             when=lambda a: a.get("machine") in (IC, TELEHANDLER)),
+    Question("aftertreatment", "Does it have exhaust aftertreatment (a DPF, DEF / AdBlue, a regen button)?",
+             [("No", False), ("Yes", True), ("Not sure (look for it)", True)],
+             when=lambda a: a.get("fuel") == "diesel"),
     Question("hydraulics", "How are the hydraulics controlled?",
              [("Electronic: levers or a joystick with sensors (the valve is driven electrically)", ELECTRONIC),
               ("Manual: the levers move the valve themselves", MANUAL),
@@ -114,6 +122,40 @@ def _lever_inputs(machine: str, side_shift: bool) -> list:
     return rows
 
 
+def _fuel_controls(fuel: str, aftertreatment: bool) -> list:
+    """Key-on steps that depend on the fuel: nothing running yet."""
+    rows = []
+    if fuel in ("lp", "dual"):
+        rows.append(("LP fuel pressure switch", "Close the LP tank valve, wait for the prompt, then open it and "
+                     "leave it open", "Engine", "", True, ""))
+    if fuel == "dual":
+        rows.append(("Fuel select switch", "Change the fuel selector to the other fuel and leave it", "Engine", "",
+                     True, ""))
+    if fuel == "diesel" and aftertreatment:
+        rows.append(("Regeneration inhibit switch", "Press and hold the regeneration INHIBIT switch", "Engine", "",
+                     True, ""))
+        rows.append(("Regeneration request switch", "Press the regeneration (parked regen) switch briefly and let "
+                     "go", "Engine", "", True, "With the key on and the engine off this only reads the switch. "
+                                               "Don't hold it with the engine running: that can start a "
+                                               "regeneration."))
+    return rows
+
+
+def _fuel_work(fuel: str, aftertreatment: bool) -> list:
+    """Engine-running steps that depend on the fuel."""
+    rows = []
+    if fuel in ("lp", "gas", "dual"):
+        rows.append(("Throttle position", "Blip the accelerator from idle to about half and back, a few times",
+                     "Engine", "%", False, ""))
+    if fuel == "diesel":
+        rows.append(("Engine load", "Hold tilt back against its stop with the revs up for a moment", "Engine", "%",
+                     False, MOVES))
+    if fuel == "diesel" and aftertreatment:
+        rows.append(("Exhaust temperature", "Hold the revs at about half throttle for the whole count", "Engine",
+                     "°C", False, ""))
+    return rows
+
+
 def _height(answer: str) -> list:
     rows = []
     if answer in ("switch", "both"):
@@ -133,6 +175,10 @@ def build_script(answers: dict) -> tuple[str, list[Step]]:
     side_shift = bool(answers.get("side_shift"))
     levers = _lever_inputs(machine, side_shift) if hyd in (ELECTRONIC, UNSURE) else []
     title = MACHINES.get(machine, MACHINES[OTHER])
+    fuel, after = answers.get("fuel", ""), bool(answers.get("aftertreatment"))
+    if machine in (IC, TELEHANDLER) and fuel:
+        title += {"lp": ", LP", "gas": ", petrol", "diesel": ", diesel", "dual": ", dual fuel"}[fuel]
+        title += " with aftertreatment" if fuel == "diesel" and after else ""
     if machine in (IC, ELECTRIC, TELEHANDLER):
         title += {ELECTRONIC: ", electronic hydraulics", MANUAL: ", manual hydraulics"}.get(hyd, "")
     seat = ("Seat switch", "Stand up off the seat", "Operator", "", True, "")
@@ -162,9 +208,14 @@ def build_script(answers: dict) -> tuple[str, list[Step]]:
                      ("Steering mode", "Change the steering mode (skip if there is one mode)", "Drive", "", True, "")]
         work += [("Hydraulic pressure", "Hold tilt back against its stop for a moment", "Hydraulics", "kPa", False,
                   MOVES)]
-        steps = (_steps(CONTROLS, seat, pedal, brake, park, fwd, rev, *levers, horn, lights)
-                 + _steps(POWER, ("Engine running", "Start the engine and let it idle", "Engine", "", True, ""))
-                 + _steps(WORK, *work))
+        work[1:1] = _fuel_work(fuel, after)             # straight after the engine speed step
+        power = [("Engine running", "Start the engine and let it idle", "Engine", "", True, "")]
+        if fuel == "diesel":
+            power.insert(0, ("Glow plugs", "Turn the key from OFF to ON and wait for the wait-to-start lamp to go "
+                             "out (engine cold if you can)", "Engine", "", True, ""))
+        steps = (_steps(CONTROLS, seat, pedal, brake, park, fwd, rev, *levers, *_fuel_controls(fuel, after), horn,
+                        lights)
+                 + _steps(POWER, *power) + _steps(WORK, *work))
     elif machine == ELECTRIC:
         work = [("Pump motor", "Raise the forks and hold the lever", "Hydraulics", "", True, MOVES),
                 ("Lower", "Lower the forks and hold the lever", "Hydraulics", "", True, MOVES),

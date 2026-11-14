@@ -41,12 +41,13 @@ def get(mode_id: str) -> Mode | None:
 
 def register_builtin():
     from . import ui
-    from .screens import can, games, log, meter, settings
+    from .screens import can, games, guide, log, meter, settings
     register_mode(Mode("can", "CAN", ui.icon_can, can.CanScreen, can.status, 10))
     register_mode(Mode("meter", "Meter", ui.icon_meter, meter.MeterScreen, meter.status, 20))
     register_mode(Mode("log", "Data log", ui.icon_log, log.LogScreen, log.status, 30))
     register_mode(Mode("settings", "System", ui.icon_settings, settings.SettingsScreen, settings.status, 90))
     # after System, so the four soft keys stay CAN / Meter / Data log / System
+    register_mode(Mode("builder", "Profile builder", ui.icon_builder, guide.BuilderHome, guide.status, 92))
     register_mode(Mode("games", "Games", ui.icon_games, games.GamesScreen, games.status, 95,
                        visible=lambda ctx: bool(ctx.settings.get("device.games"))))
 

@@ -3,9 +3,11 @@
 What changed in each version, newest first. Versions are git tags (`v0.3.3`): to put a unit back
 on an older one, `git checkout v0.3.2` in its checkout.
 
-## Unreleased
+## 0.4.0 (2026-11-13)
 
-Towards working out an unfamiliar machine from what its bus does (docs/ARCHITECTURE.md, "Open work").
+Working out an unfamiliar machine from what its bus does, and getting help while you do. Built
+around one idea: most CAN buses aren't a black box; the same messages repeat with each value in
+the same bytes, so changing one thing on the machine shows which bytes follow.
 
 - **What changed?** `canopener-cli changes CAPTURE` compares what the bus said between a
   capture's timestamps ("key on", "idling", "lifting" ...) with no decoder: it splits every
@@ -19,9 +21,11 @@ Towards working out an unfamiliar machine from what its bus does (docs/ARCHITECT
   suggested name (when it follows a value CANopener knows) or one from a short list by part of
   the machine, and **Save** makes a profile and switches it on, so Live shows the new values at
   once. Each value keeps how it was found and how sure it is (`core/observed.py`).
-- **Guided Profile Builder.** Handheld: **Data log > Plan > Guided profile builder**. It asks
+- **Guided Profile Builder.** Handheld: the **Profile builder** tile on the home screen (also
+  under Data log > Plan). It asks
   what the machine is (IC forklift, electric forklift, telehandler, golf cart, pallet jack,
-  something else), how the hydraulics are controlled (electronic levers or joystick, or manual),
+  something else), what an engine runs on (LP, petrol, diesel, dual fuel) and whether a diesel has
+  aftertreatment, how the hydraulics are controlled (electronic levers or joystick, or manual),
   whether the mast reports its height (switch, encoder, both) and whether side shift is fitted,
   and builds the list from the answers. Control inputs come first, with the key on and nothing
   running (each lever both ways when the hydraulics are electronic), then the engine, then the

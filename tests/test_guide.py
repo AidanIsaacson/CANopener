@@ -104,11 +104,23 @@ def test_questions_narrow_the_script_and_controls_come_before_the_engine():
     asked = []
     while (q := guide.next_question(a)) is not None:
         asked.append(q.id)
-        a[q.id] = {"hydraulics": "electronic", "height": "both", "side_shift": True}[q.id]
-    assert asked == ["hydraulics", "height", "side_shift"]
+        a[q.id] = {"fuel": "lp", "hydraulics": "electronic", "height": "both", "side_shift": True}[q.id]
+    assert asked == ["fuel", "hydraulics", "height", "side_shift"]      # aftertreatment is only asked of a diesel
     title, steps = guide.build_script(a)
     names = [s.name for s in steps]
-    assert title == "IC forklift, electronic hydraulics" and len(set(names)) == len(names)
+    assert title == "IC forklift, LP, electronic hydraulics" and len(set(names)) == len(names)
+    assert names.index("LP fuel pressure switch") < names.index("Engine running") < names.index("Throttle position")
+    assert guide.next_question({"machine": "ic", "fuel": "diesel"}).id == "aftertreatment"
+    title, diesel = guide.build_script({"machine": "ic", "fuel": "diesel", "aftertreatment": True,
+                                        "hydraulics": "manual", "height": "none", "side_shift": False})
+    d = [s.name for s in diesel]
+    assert title == "IC forklift, diesel with aftertreatment, manual hydraulics"
+    assert d.index("Regeneration inhibit switch") < d.index("Glow plugs") < d.index("Engine running")
+    assert "Exhaust temperature" in d and "LP fuel pressure switch" not in d and "Throttle position" not in d
+    regen = diesel[d.index("Regeneration request switch")]
+    assert regen.stage == guide.CONTROLS and "regeneration" in regen.caution
+    plain = [s.name for s in guide.build_script({"machine": "ic", "fuel": "diesel", "aftertreatment": False})[1]]
+    assert "Regeneration inhibit switch" not in plain and "Glow plugs" in plain
     # every control input is mapped with the key on, before the engine is started
     start = names.index("Engine running")
     for control in ("Seat switch", "Accelerator pedal", "Lift lever", "Lower lever", "Tilt back lever",
@@ -128,10 +140,11 @@ def test_questions_narrow_the_script_and_controls_come_before_the_engine():
 def test_every_kind_of_machine_has_a_sound_script():
     for machine in guide.MACHINES:
         for hyd in ("electronic", "manual", "unsure"):
+          for fuel in ("lp", "gas", "diesel", "dual"):
             title, steps = guide.build_script({"machine": machine, "hydraulics": hyd, "height": "both",
-                                               "side_shift": True})
+                                               "side_shift": True, "fuel": fuel, "aftertreatment": True})
             names = [s.name for s in steps]
-            assert title and steps and len(set(names)) == len(names), (machine, hyd)
+            assert title and steps and len(set(names)) == len(names), (machine, hyd, fuel)
             assert all(s.prompt and s.group for s in steps)
     electric = [s.name for s in guide.build_script({"machine": "electric", "hydraulics": "electronic"})[1]]
     assert "Engine running" not in electric and electric.index("Lift lever") < electric.index("Pump motor")

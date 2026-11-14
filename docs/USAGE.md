@@ -257,8 +257,9 @@ the machine tell you. It works on any J1939 or CANopen bus and needs no document
    switched on at once: Live Data shows them, and so does every log from then on. Do it again
    another day and add to the same profile.
 
-**Or let it lead:** **Data log > Plan > Guided profile builder** on the handheld first asks what
-the machine is (IC or electric forklift, telehandler, golf cart, pallet jack), whether its
+**Or let it lead:** the **Profile builder** tile on the handheld's home screen first asks what
+the machine is (IC or electric forklift, telehandler, golf cart, pallet jack), what an engine
+runs on (LP, petrol, diesel) and whether a diesel has aftertreatment, whether its
 hydraulic levers are electronic or move the valve themselves, and whether the mast has a height
 switch or sensor, so it only asks for what that machine has. Then it maps the controls with the
 key on and nothing running, before the engine or pump is started. It asks for one
