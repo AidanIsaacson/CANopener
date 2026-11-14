@@ -304,6 +304,18 @@ these by name.
 * **Missing-module alerts.** Profiles know which modules a machine has (`detect.addresses`) and the
   capture summary reports ECUs going silent; a live "expected module missing" alert in `core/`
   would serve both front-ends.
+* **Caveats on profile signals.** A scaling worked out on one machine can be wrong on the next
+  (another project lost a day to a fuel-trim formula from a different tool that showed +22 % for
+  what was really −4.7 %). Profile signals could carry a `"note"` shown beside the value and in
+  the capture report ("reads double, check against the dash"), and a `"verified"` field (machine
+  and date). A profile could also be limited to the software versions it was checked on, matching
+  identifiers we already read (J1939 DM19 calibration ID, UDS F188, CANopen 0x100A), so it isn't
+  silently applied to other firmware.
+* **Operating-state summaries in the capture report.** Split a capture into states (cars: idle,
+  cruise, decel; equipment: idle, working, travel, from engine speed, vehicle speed and throttle
+  or a profile's own signals) and report each signal's range and average per state, plus how long
+  was spent in each. For OBD-II, add the upstream O2 sensor's switching rate across 0.45 V at warm
+  idle as a closed-loop check.
 * **Handheld screens still to come:** CANopen (nodes, EMCY, error history), clear codes and
   transmit (confirm-first, default No, never in listen-only), the logic analyzer (`core/logic.py`
   has the command and channel names, no UI yet) and Component Test (ELECTRONICS.md 6.7).
@@ -318,7 +330,11 @@ these by name.
   * **One risk ladder for everything that transmits.** "It's a read" turned out not to mean safe.
     Three tiers, used by every front-end and scan: standard reads (free), reads of undescribed
     ranges (engine off, warned, default No), writes (confirmed). The UDS identifier scans and the
-    module finder on CAN vehicles should sit on it too.
+    module finder on CAN vehicles should sit on it too. Beyond the confirm box, an action should be
+    able to declare **preconditions** checked against live data (engine speed 0, key on, not in
+    listen-only) and refuse when they don't hold, and anything that has to be held (a routine or
+    output that needs re-sending, TesterPresent) should promise its **stop on exit**: the stop
+    command is sent on cancel, disconnect, window close or Ctrl+C, not only on the Stop button.
   * **The health watch beyond the K-line probe:** the UDS module finder, CANopen scans and any
     plugin reader, with engine speed as well as voltage where one is known. It needs a home in
     `core/` (the probe's lives in `can/kline_probe.py` because `can/` can't import `core/`).
