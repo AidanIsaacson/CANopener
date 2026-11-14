@@ -7,6 +7,7 @@ connecting, saving a capture) runs on a worker thread and its result comes back 
 desktop GUI (docs/ARCHITECTURE.md, "Threading model"). Tests drive this class directly.
 """
 
+import json
 import os
 import queue
 import threading
@@ -591,6 +592,10 @@ class DeviceContext:
             if folder:
                 with open(os.path.join(folder, kline_probe.REPORT_FILE), "a") as f:
                     f.write("\n".join(report.lines()) + "\n\n")      # a second run in one log is added below
+                data = report.to_dict()
+                if data["plan"] or not os.path.exists(os.path.join(folder, kline_probe.REPORT_JSON)):
+                    with open(os.path.join(folder, kline_probe.REPORT_JSON), "w") as f:
+                        json.dump(data, f, indent=1)
             return report.summary()
         return self._kline_job("Deep probe", work, then)
 
@@ -603,9 +608,16 @@ class DeviceContext:
         except OSError:
             return None
         for name in names:
+            plan = None
             try:
-                with open(os.path.join(root, name, kline_probe.REPORT_FILE)) as f:
-                    plan = kline_probe.plan_from_report(f.read())
+                with open(os.path.join(root, name, kline_probe.REPORT_JSON)) as f:
+                    plan = kline_probe.plan_from_dict(json.load(f))
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
+            try:
+                if plan is None:
+                    with open(os.path.join(root, name, kline_probe.REPORT_FILE)) as f:
+                        plan = kline_probe.plan_from_report(f.read())
             except OSError:
                 continue
             if plan is not None:

@@ -3,6 +3,20 @@
 What changed in each version, newest first. Versions are git tags (`v0.3.3`): to put a unit back
 on an older one, `git checkout v0.3.2` in its checkout.
 
+## Unreleased
+
+Towards working out an unfamiliar machine from what its bus does (docs/ARCHITECTURE.md, "Open work").
+
+- **What changed?** `canopener-cli changes CAPTURE` compares what the bus said between a
+  capture's timestamps ("key on", "idling", "lifting" ...) with no decoder: it splits every
+  message into values, switches, counters and noise, ranks the bytes and bits that differ from one
+  state to the next, lists messages that started or stopped, and names the scale of an unknown
+  value that moves with a known one ("follows Engine speed: rpm = 1 x this"). `--parts N` cuts a
+  capture without timestamps into slices; `--json` writes every field per phase
+  (`core/changes.py`).
+- **The deep probe's result as data:** `kline_probe.json` beside the text report, with the plan
+  the value recorder reads again (it parsed the text before).
+
 ## 0.3.8 (2026-11-13)
 
 What a day on a real K-line machine taught us, turned into the app.

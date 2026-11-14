@@ -208,6 +208,13 @@ def test_thin_computer_full_scan_lists_values_and_never_sweeps_the_trap_page():
         assert car.adapter.thin.stalls == 0 and "2220020401" not in car.adapter.commands
         plan = kline_probe.plan_from_report("\n".join(report.lines()))
         assert "2212200401" in plan.commands and not [c for c in plan.commands if c.startswith("2220")]
+        import json
+        data = json.loads(json.dumps(report.to_dict()))             # the same, as data
+        again = kline_probe.plan_from_dict(data)
+        assert (again.ecu, again.tester, again.fast) == (0x10, 0xFC, True) and again.commands == plan.commands
+        assert data["steps"][0]["command"] == "0100" and data["volts"]
+        data["plan"]["commands"].append("2220440401")               # a trap-page request is never taken on
+        assert "2220440401" not in kline_probe.plan_from_dict(data).commands
     finally:
         b.close()
         car.stop()

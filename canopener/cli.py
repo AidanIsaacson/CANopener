@@ -10,6 +10,7 @@
     canopener-cli setup --iface can0 --bitrate auto   # configure + bring up (listen-only probe)
     canopener-cli find --iface can0 --sound           # keep listening while probing; chime on lock
     canopener-cli hardware --stage 2b --set can_b=auto  # installed options: what's fitted, what's found
+    canopener-cli changes CAPTURE_FOLDER              # what changed between a capture's timestamps (no decoder)
     canopener-cli bluetooth scan                      # Bluetooth OBD adapters nearby (then: pair, rename, test)
     canopener-cli obd --elm                           # OBD-II through the picked Bluetooth OBD adapter
     canopener-cli bluetooth kline --out probe.txt     # older K-line vehicle: what answers besides generic OBD-II
@@ -1006,6 +1007,28 @@ def _elm_tool(a, settings) -> int:
             sim.stop()
 
 
+def cmd_changes(a) -> int:
+    """What changed between the phases of a capture (core.changes): no decoder needed."""
+    import json
+
+    from .core import changes
+    try:
+        report = changes.analyze_capture(a.capture, parts=a.parts)
+    except OSError as e:
+        print(f"Can't read {a.capture}: {e}", file=sys.stderr)
+        return 1
+    if not report.frames:
+        print("No frames in that capture.", file=sys.stderr)
+        return 1
+    if a.json:
+        with open(os.path.expanduser(a.json), "w") as f:
+            json.dump(report.to_dict(), f, indent=1)
+    print("\n".join(report.lines(a.top)))
+    if len(report.phases) < 2:
+        print("\nOne phase only: tag timestamps while recording (or pass --parts N) to compare states.")
+    return 0
+
+
 def cmd_profiles(a) -> int:
     found, errors = profiles.available_profiles()
     for p in found:
@@ -1085,6 +1108,14 @@ def main(argv=None) -> int:
     f.set_defaults(fn=cmd_find)
     sub.add_parser("profiles", help="list machine profiles").set_defaults(fn=cmd_profiles)
 
+    ch = sub.add_parser("changes", help="what changed between the timestamps of a capture: the bytes and bits "
+                        "that differ from one state of the machine to the next, with no decoder needed")
+    ch.add_argument("capture", help="a saved capture folder (its timestamps are the phases) or a log file")
+    ch.add_argument("--parts", type=int, default=0, metavar="N",
+                    help="a capture without timestamps: compare N equal slices of it")
+    ch.add_argument("--top", type=int, default=15, help="changes listed per step (default 15)")
+    ch.add_argument("--json", metavar="FILE", help="also write everything (every field, per phase) as JSON")
+    ch.set_defaults(fn=cmd_changes)
     b = sub.add_parser("bluetooth", help="Bluetooth OBD adapters (ELM327-style): list, scan, pair, rename, use, "
                        "test, forget, probe (what it can do), console (adapter commands), kline (read-only deep "
                        "probe of an older K-line vehicle: what answers besides generic OBD-II)")

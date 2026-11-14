@@ -45,6 +45,7 @@ FILES = {
                    "that didn't parse only shows here",
     META_JSON: "the capture's state: machine details, markers, connection, analysis summary",
     "kline_probe.txt": "the K-line deep probe: every read-only request tried on this vehicle and each raw reply",
+    "kline_probe.json": "the deep probe as data (the last run): every step, and the requests worth reading again",
     "kline_values.csv": "values read again from a K-line module (the requests a deep probe's full scan found): "
                         "time, pass, request, the answer's data bytes in hex",
     "report.txt": "the scan report (fault codes, machine info) from when this was recorded",

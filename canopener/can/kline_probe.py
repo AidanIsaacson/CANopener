@@ -44,6 +44,7 @@ from ..obd.dtc import decode_dtc
 from .elm327 import NONCAN_PROTOCOLS, PROTOCOLS, ElmBackend, classify
 
 REPORT_FILE = "kline_probe.txt"
+REPORT_JSON = "kline_probe.json"    # the same run as data (``Report.to_dict``): what other tools read
 WARNING = ("Asks the engine computer read-only questions over the K-line (about 80), including ones it says it "
            "doesn't support, and tries each wake-up (ISO 9141-2, KWP2000). It doesn't clear codes, change "
            "settings or run tests. Live data pauses while it runs (about 2 minutes). Key on, engine running or not.")
@@ -154,6 +155,19 @@ class Report:
     findings: list = field(default_factory=list)
     error: str = ""
     volts: list = field(default_factory=list)       # [(time, battery volts or None)] from the health watch
+    session: dict = field(default_factory=dict)     # the addressed session that answered: ecu, tester, fast
+    answered: list = field(default_factory=list)    # full-scan requests that answered (data blocks, CID_PAGES)
+
+    def to_dict(self) -> dict:
+        """Everything, as JSON-friendly data. ``plan`` is what the value recorder reads again."""
+        return {
+            "format": 1, "adapter": self.adapter, "started": self.started,
+            "connected_protocol": self.connected_protocol, "ecu": self.ecu, "error": self.error,
+            "findings": list(self.findings), "volts": [[t, v] for t, v in self.volts],
+            "plan": {**self.session, "commands": list(self.answered)} if self.session and self.answered else None,
+            "steps": [{"section": s.section, "command": s.command, "what": s.what, "seconds": round(s.seconds, 3),
+                       "result": s.result, "positive": s.positive, "lines": list(s.lines),
+                       "data": [d.hex().upper() for d in s.data]} for s in self.steps]}
 
     def lines(self) -> list[str]:
         """The whole transcript, for a file."""
@@ -394,6 +408,7 @@ class _Probe:
                 if woke.result != INIT_OK and classify(woke.lines) != "?":
                     continue                        # nothing there: its requests would each time out
                 self.at("ATKW", "the key bytes it sent")
+                self.current = {"ecu": ecu, "tester": tester, "fast": proto == "5"}
                 self._kwp_reads(f"module 0x{ecu:02X}, tester 0x{tester:02X}, {how}")
         self.at("ATPC", "close the protocol")
         self.at("ATIIA33", "wake-up address back to the OBD one")
@@ -446,6 +461,8 @@ class _Probe:
             answered = self._sweep([f"{sid:02X}{n:02X}{end}" for n in numbers], what, f"{sid:02X}xx{end}")
             if answered is None:
                 return
+            if sid == 0x21:
+                self._remember(answered)
             self.find(f"{what.capitalize()}s that answer ({sid:02X} xx, {where}): "
                       + (", ".join(f"{s.command[2:4]} ({len(s.data[0]) - 2} bytes)" for s in answered) or "none"))
         if "22" not in exists:
@@ -466,6 +483,7 @@ class _Probe:
                                    f"22{hi:02X}xx{end}")
             if answered is None:
                 return
+            self._remember(answered)
             sizes = sorted({len(s.data[0]) - 3 for s in answered})
             self.find(f"Common identifiers that answer (22 {hi:02X} xx, {where}): "
                       + (f"{len(answered)} ({', '.join(str(n) for n in sizes)} data bytes): "
@@ -495,6 +513,12 @@ class _Probe:
         if not ending:
             self.find(f"No request shape changed the refusals ({where}).")
         return ending
+
+    def _remember(self, answered: list):
+        """Requests worth reading again (``Report.to_dict()['plan']``)."""
+        if answered and not self.report.session:
+            self.report.session = dict(getattr(self, "current", {}))
+        self.report.answered += [s.command for s in answered]
 
     def _sweep(self, commands: list, what: str, label: str) -> list | None:
         """Ask each command; keep the steps that answered, count the refusals. None if the module
@@ -575,9 +599,19 @@ class Plan:
     commands: list
 
 
+def plan_from_dict(d: dict) -> Plan | None:
+    """The plan in a saved ``kline_probe.json`` (never a request outside the data blocks and ``CID_PAGES``)."""
+    p = (d or {}).get("plan")
+    if not p or not p.get("commands"):
+        return None
+    ok = [c for c in p["commands"] if c.startswith("21") or (c.startswith("22") and int(c[2:4], 16) in CID_PAGES)]
+    return Plan(int(p["ecu"]), int(p["tester"]), bool(p.get("fast", True)), ok) if ok else None
+
+
 def plan_from_report(text: str) -> Plan | None:
     """The requests a saved ``kline_probe.txt`` lists as answered (data blocks, and identifiers on
-    ``CID_PAGES`` only), with the session and request shape it found. None if it lists none."""
+    ``CID_PAGES`` only), with the session and request shape it found. None if it lists none.
+    (Reports from before ``kline_probe.json`` existed; newer ones are read with ``plan_from_dict``.)"""
     import re
     where = re.compile(r"module 0x([0-9A-F]{2}), tester 0x([0-9A-F]{2}), (fast|5-baud) init")
     session, ending, commands = None, {}, []
