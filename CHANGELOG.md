@@ -3,6 +3,33 @@
 What changed in each version, newest first. Versions are git tags (`v0.3.3`): to put a unit back
 on an older one, `git checkout v0.3.2` in its checkout.
 
+## 0.3.8 (2026-11-13)
+
+What a day on a real K-line machine taught us, turned into the app.
+
+- **Health watch.** While the deep probe or the value recorder runs, the battery voltage is read
+  every 20 requests and whenever a request goes unanswered. If the engine was running and the
+  voltage shows it has stopped, everything stops at once and the report names the last request.
+  The report also gives the voltage at the start, the lowest and the end.
+- **A frame the adapter couldn't send is not logged as traffic.** Through a Bluetooth OBD adapter,
+  `CAN ERROR` / `BUS ERROR` / `BUS BUSY` / `FB ERROR` with no answer now fails the send with the
+  reason in plain words ("nothing on the bus acknowledged it: wrong bus speed, or no CAN on this
+  connector?"), and a scan stops after its first request fails instead of sending the rest.
+- **Captures say when nothing answered.** The summary and the README open with "Nothing
+  answered: all N frames in this log are this tool's own requests" when that's the case, a module
+  that answered with no codes is listed as such, and the ECU list says "none heard" instead of
+  staying blank.
+- **"No codes" from a module that lists no live data comes with a warning** (handheld toast and
+  Codes > More..., `canopener-cli obd`, the capture summary): some engine computers answer
+  OBD-II only as a formality and keep their codes elsewhere.
+- **A simulated thin K-line computer** (`sim:thin-kline`, "K-line computer that says almost
+  nothing" in the simulator list), modelled on the real one: an empty OBD-II shell, a KWP2000
+  session that only wakes for one tester address and one request shape, an answer that comes 256
+  times, and an identifier page that stops the engine if swept.
+- **`can/kwp.py`**: a KWP2000 session addressed to one module (see 0.3.7's notes below).
+- Tests leave installed plugins out (`CANOPENER_NO_INSTALLED_PLUGINS`), so they pass on a machine
+  with a private plugin installed.
+
 ## 0.3.7 (2026-11-13)
 
 - **Deep probe: tries other request shapes, and is quick again.** A module that refuses every

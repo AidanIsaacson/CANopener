@@ -102,6 +102,16 @@ runs with the engine off, idling and revving is how the values get identified.
 session addressed to one module and sends requests one at a time. The requests themselves and
 what the answers mean are maker-specific and live in a plugin or a profile, not here.
 
+**The health watch (0.3.8).** The probe and the value recorder read the battery voltage every 20
+requests and whenever a request gets no reply. If the engine was running at the start (13.2 V or
+more) and the voltage has since fallen by a volt to below that, they stop at once and name the
+last request. The report gives the voltage at the start, the lowest and at the end.
+
+**Practising without a machine:** the simulator's `thin-kline` vehicle (`canopener-cli bluetooth
+kline sim:thin-kline --scan`, or "K-line computer that says almost nothing" in the simulator
+list) behaves like the forklift did, down to the page that stops the engine
+(`sim/thin_kline.py`; its identifier numbers and values are made up).
+
 It leaves 5.5 s of silence before each new wake-up (a module ignores one until its last session
 has timed out), so it takes two to four minutes, then sets the adapter up again from scratch. The
 transcript (`kline_probe.txt`) has every command, how long it took, and each reply line as the

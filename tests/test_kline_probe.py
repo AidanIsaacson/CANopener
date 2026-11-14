@@ -168,3 +168,73 @@ def test_record_values_reads_the_plan_twice_and_sets_the_adapter_up_again():
     finally:
         b.close()
         car.stop()
+
+
+# --- the simulated thin K-line computer (sim.thin_kline): what the first real machine did ---
+def _thin(running=True):
+    car = SimulatedCar(vehicle="thin-kline")
+    car.start()
+    car.adapter.thin.engine_running = running
+    car.adapter.thin.silent_seconds = 0.4
+    b = elm327.ElmBackend("t", stream=elm327.SocketStream(car.adapter.host_socket))
+    b.open()
+    return car, b
+
+
+def test_thin_computer_quick_probe_finds_the_session_and_the_request_shape():
+    car, b = _thin()
+    try:
+        assert b.protocol == "3"
+        report = kline_probe.run(b, settle=0)
+        f = "\n".join(report.findings)
+        assert "Generic stored codes: none" in f                    # the shell hides the stored code
+        assert "KWP2000 (module 0x10, tester 0xFC, fast init) answered: 3E, 1A80" in f
+        assert "tester 0xF1, fast init) answered" not in f          # only the maker's tester address wakes it
+        assert "reacts to the shape '22 1101 0401'" in f and "Quick run" in f
+        assert not report.error and car.adapter.thin.stalls == 0 and b.protocol == "3"
+        assert "Battery at the OBD port while it ran" in "\n".join(report.lines())
+    finally:
+        b.close()
+        car.stop()
+
+
+def test_thin_computer_full_scan_lists_values_and_never_sweeps_the_trap_page():
+    car, b = _thin(running=False)
+    try:
+        report = kline_probe.run(b, settle=0, full=True)
+        f = "\n".join(report.findings)
+        assert "Common identifiers that answer (22 12 xx, module 0x10, tester 0xFC, fast init): 4" in f
+        assert "not swept (module 0x10, tester 0xFC, fast init): 20" in f
+        assert car.adapter.thin.stalls == 0 and "2220020401" not in car.adapter.commands
+        plan = kline_probe.plan_from_report("\n".join(report.lines()))
+        assert "2212200401" in plan.commands and not [c for c in plan.commands if c.startswith("2220")]
+    finally:
+        b.close()
+        car.stop()
+
+
+def test_health_watch_stops_the_recorder_when_the_engine_stops():
+    """Reading the trap identifier stops the simulated engine: the recorder must notice the
+    voltage drop at the first unanswered request and stop there, not carry on."""
+    car, b = _thin()
+    try:
+        plan = kline_probe.Plan(0x10, 0xFC, True, ["2212100401", "2220440401", "2211100401", "2212200401"])
+        rows, summary = kline_probe.record_values(b, plan, settle=0)
+        assert car.adapter.thin.stalls == 1
+        assert any(line.startswith("STOPPED: the battery voltage fell from 14.3 V to 12.4 V") for line in summary)
+        assert "The last request was 2220440401" in summary[-1]
+        assert car.adapter.commands.count("2211100401") == 0        # nothing more was asked after the stall
+    finally:
+        b.close()
+        car.stop()
+
+
+def test_health_watch_stays_quiet_with_the_engine_off():
+    car, b = _thin(running=False)
+    try:
+        plan = kline_probe.Plan(0x10, 0xFC, True, ["2212100401", "2211100401"])
+        rows, summary = kline_probe.record_values(b, plan, settle=0)
+        assert summary == ["4 values read in 2 pass(es) of 2 requests."]
+    finally:
+        b.close()
+        car.stop()

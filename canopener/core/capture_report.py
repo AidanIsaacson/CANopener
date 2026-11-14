@@ -45,6 +45,28 @@ def _when(t: float) -> str:
     return datetime.datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def own_request(can_id: int, extended: bool) -> bool:
+    """Is this frame one of a scan tool's own requests (ours), not something the vehicle said?
+    J1939 from a tool address (0xF8 and up), OBD-II / UDS requests (0x7DF, 0x7E0-0x7E7, 29-bit from 0xF1)."""
+    if not extended:
+        return can_id == 0x7DF or 0x7E0 <= can_id <= 0x7E7
+    return (can_id & 0xFF) >= 0xF8 or ((can_id & 0x1FFF0000) in (0x18DA0000, 0x18DB0000) and (can_id & 0xFF) == 0xF1)
+
+
+def nothing_heard_lines(frames: int, heard: int, errors: list) -> list[str]:
+    """Plain words for a capture in which the vehicle said nothing (empty when it said something)."""
+    if heard:
+        return []
+    if not frames:
+        out = ["Nothing was recorded from the bus: no frames at all."]
+    else:
+        out = [f"Nothing answered: all {frames} frames in this log are this tool's own requests. "
+               "No module was heard."]
+    if errors:
+        out.append(f"The adapter reported trouble {len(errors)} time(s); first: {errors[0][1]}.")
+    return out
+
+
 class _Analysis:
     def __init__(self, capture: Capture, system: str):
         self.c = capture
@@ -61,6 +83,9 @@ class _Analysis:
         self.col_titles: list[str] = []
         self.next_sample = None
         self.frames = 0
+        self.heard = 0                      # frames that aren't this tool's own requests
+        self.errors: list[tuple[float, str]] = []    # error frames (the adapter or the bus reporting trouble)
+        self.thin: set[int] = set()         # OBD-II modules that listed no live values at all
         self.obd = obd.ObdSniffer()
         self.series: dict[str, ChannelSeries] = {}
         # Text signals (display messages): the timeline notes each different message once, the
@@ -83,6 +108,13 @@ class _Analysis:
             self._sample(self.next_sample)
             self.next_sample += SAMPLE_PERIOD
         self.session.feed(fr)
+        if fr.error:
+            self.errors.append((t, str(fr.error)))
+        elif not own_request(fr.can_id, fr.extended):
+            self.heard += 1
+            data = bytes(fr.data)
+            if not fr.extended and 0x7E8 <= fr.can_id <= 0x7EF and data[:3] == b"\x06\x41\x00":
+                (self.thin.discard if any(data[3:7]) else self.thin.add)(fr.can_id)
         if not fr.error:
             self.obd.feed(fr.can_id, fr.extended, bytes(fr.data), t)
             if self.text_by_id or self.text_by_pgn:
@@ -330,6 +362,12 @@ def summary_text(a: _Analysis) -> str:
                  f"{fmt_elapsed(tr['original_stop'] - tr['original_start'])[1:]} recording "
                  f"({_when(tr['original_start'])} -> {_when(tr['original_stop'])}, "
                  f"{tr.get('dropped_frames', 0)} frames cut{full})")
+    quiet = nothing_heard_lines(a.frames - len(a.errors), a.heard, a.errors)
+    if quiet:
+        L += [""] + [f"!! {line}" for line in quiet]
+    for ecu in sorted(a.thin):
+        L += ["", f"!! {a.obd.label(ecu)} lists no live data at all: 'no codes' from it may not be the whole "
+                  "story (docs/BLUETOOTH-OBD.md, \"Thin K-line computers\")."]
     if c.notes.strip():
         L += ["", "Notes / customer concern:"] + [f"  {line}" for line in c.notes.strip().splitlines()]
 
@@ -367,13 +405,17 @@ def summary_text(a: _Analysis) -> str:
         for ecu, kinds in sorted(a.obd.dtcs.items()):
             for kind, codes in kinds.items():
                 L += [f"  {kind:<10} {a.obd.label(ecu):<18} {code}  {obd.describe_dtc(code)}" for code in codes]
+            if not any(kinds.values()):
+                L.append(f"  {a.obd.label(ecu)} answered: no codes ({', '.join(kinds) or 'stored'})")
 
     L += measurement_summary(a)
 
     L += ["", "-- ECUs --"]
-    for e in a.session.ecu_list():
-        if e.sa >= 0xF8:
-            continue
+    ecus = [e for e in a.session.ecu_list() if e.sa < 0xF8]
+    if not ecus:
+        modules = ", ".join(a.obd.label(ecu) for ecu in sorted(a.obd.dtcs)) if a.obd.dtcs else ""
+        L.append(f"  no J1939 ECUs (OBD-II modules that answered: {modules})" if modules else "  none heard")
+    for e in ecus:
         L.append(f"  {sa_name(e.sa):<28} {e.frames:>8} frames   first {fmt_elapsed(e.first_seen - a.t0)}"
                  f"   last {fmt_elapsed(e.last_seen - a.t0)}")
     return "\n".join(L) + "\n"
@@ -402,6 +444,9 @@ def bus_summary(a: _Analysis, rows: list) -> dict:
         "identity": list(dict.fromkeys(identity.seen_lines(a.session, a.obd.info)
                                        + list(a.c.meta.get("identity_before") or []))),
         "ecus": [{"name": sa_name(e.sa), "frames": e.frames} for e in a.session.ecu_list() if e.sa < 0xF8],
+        "heard_frames": a.heard,
+        "quiet": nothing_heard_lines(a.frames - len(a.errors), a.heard, a.errors),
+        "thin": [a.obd.label(ecu) for ecu in sorted(a.thin)],
         "traffic_count": len(rows),
         "undecoded_count": len(und),
         "undecoded_frames": sum(r.frames for r in und),

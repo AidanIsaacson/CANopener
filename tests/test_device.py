@@ -1154,3 +1154,22 @@ def test_kline_values_reads_what_the_last_full_scan_found(app_for, monkeypatch, 
     assert text[0] == kline_probe.VALUES_HEADER and sum(",2211010401,50,ok" in line for line in text) == 2
     assert seen and seen[0][0].startswith("2 values read")
     ctx.disconnect()
+
+
+def test_thin_module_warning_on_the_handheld(app_for):
+    """A module that lists no live data: 'no codes' comes with a warning, and More... explains it."""
+    from canopener.core.connection import ELM_SIM
+    from canopener.device.screens.base import ChoiceDialog, InfoDialog
+    app = app_for(show_simulators=True, can__source=ELM_SIM, elm__sim_vehicle="thin-kline")
+    ctx = app.ctx
+    ctx.connect()
+    assert ctx.wait_idle(15)
+    app.open_mode("can")
+    assert ctx.read_codes() and ctx.wait_idle(15)
+    assert ctx.obd_thin == [0x7E8] and "may not be the whole story" in ctx.current_toast()
+    app.step([])
+    press(app, pygame.K_F2)                               # More...
+    assert isinstance(app.top, ChoiceDialog)
+    app.action(inp.SELECT)                                # the first entry: why 'no codes' may be wrong
+    assert isinstance(app.top, InfoDialog) and "formality" in app.top.lines[0]
+    ctx.disconnect()

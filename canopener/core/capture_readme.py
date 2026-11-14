@@ -106,6 +106,12 @@ def render(c: Capture) -> str:
     bus = meta.get("bus") or {}
     if bus:
         ids = bus.get("identity") or []
+        quiet = bus.get("quiet") or []
+        if quiet:
+            L += ["## Nothing answered", ""] + [_md(x) for x in quiet] + [""]
+        for label in bus.get("thin") or []:
+            L += [f"**{_md(label)} lists no live data at all**, so 'no codes' from it may not be the whole story "
+                  "(some engine computers answer OBD-II only as a formality).", ""]
         L += ["## What the bus said about itself", ""]
         L += [f"- {_md(x)}" for x in ids] if ids else [
             "Nothing: no Component ID, VIN or software ID was heard (Read Machine Info asks for them)."]
@@ -127,6 +133,8 @@ def render(c: Capture) -> str:
                          f"| {rate} | {r.get('dlc', '')} | `{r.get('example', '')}` |")
             if len(und) > UNDECODED_SHOWN:
                 L.append(f"| ... | {len(und) - UNDECODED_SHOWN} more in traffic.csv | | | | | |")
+        elif quiet:
+            L.append("Nothing to decode: only this tool's own requests are in the log.")
         else:
             L.append("None: every PGN / ID had a decoder.")
         L.append("")

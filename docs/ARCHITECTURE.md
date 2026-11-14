@@ -143,6 +143,13 @@ exercise the real backend.
 * **Probe and console** (`can/elm_probe.py`, `console_refusal`): what an adapter can do, and
   adapter-only commands typed by hand (nothing that reaches the vehicle, rewrites the adapter's
   stored settings or serial speed).
+* **Honest sends** (`ElmBackend._raise_if_not_sent`): when the adapter says a frame never reached
+  the bus (`TX_FAILED`) and nothing answered, `send` raises, so `Session.send_frame` reports it
+  (`health.tx_error`) and doesn't log the frame; `scan.run_scan` gives up after a first request
+  that couldn't be sent. `capture_report.own_request` tells a tool's own requests from what the
+  vehicle said, for the "nothing answered" lines in the summary and README.
+* **Thin modules** (`ObdClient.thin_ecus`, `core.obd.THIN_NOTE`): a module that lists no live
+  values at all gets a warning beside its empty code list. `sim/thin_kline.py` plays one.
 * **K-line deep probe** (`can/kline_probe.py`): read-only discovery for a K-line computer whose
   generic answers are thin: generic OBD-II asked anyway, each wake-up, then the standard KWP2000
   reads addressed to the module. It talks to the adapter directly (`command(..., keep_progress=True)`
@@ -280,6 +287,33 @@ these by name.
   commands stay in private plugins.
 * **Bluetooth OBD adapters:** check everything against a real adapter and vehicles, then
   multi-PID requests and the non-CAN Mode 06 decoder: [BLUETOOTH-OBD.md](BLUETOOTH-OBD.md#gaps-to-fill).
+* **Ideas from the first thin K-line machine (2026-11-13), not done yet.** That day's work is in
+  [BLUETOOTH-OBD.md](BLUETOOTH-OBD.md#thin-k-line-computers-the-deep-probe); the health watch,
+  honest captures, the thin-answer warning and the simulated thin computer came out of it. Still open:
+  * **One risk ladder for everything that transmits.** "It's a read" turned out not to mean safe.
+    Three tiers, used by every front-end and scan: standard reads (free), reads of undescribed
+    ranges (engine off, warned, default No), writes (confirmed). The UDS identifier scans and the
+    module finder on CAN vehicles should sit on it too.
+  * **The health watch beyond the K-line probe:** the UDS module finder, CANopen scans and any
+    plugin reader, with engine speed as well as voltage where one is known. It needs a home in
+    `core/` (the probe's lives in `can/kline_probe.py` because `can/` can't import `core/`).
+  * **Generalise the probe ladder** (ask anyway, try request shapes, sample, sweep only described
+    ranges) to UDS over CAN and to CANopen object dictionaries.
+  * **"What changed between these markers" report** for any capture: the values (decoded or raw)
+    that differ between tagged phases. Engine off / idle / revving named six values in minutes by
+    hand; it would do the same for unknown J1939 and CANopen traffic.
+  * **Structured probe results:** a JSON file beside `kline_probe.txt`. The value recorder parses
+    the text report today (`plan_from_report`), which breaks if the wording changes.
+  * **Remote adapter console:** read-only requests sent through a unit in the field from
+    somewhere else, to cut the push / update / run / upload loop when working out a new machine.
+  * **Upload one result without a whole log**, and ask for the machine on the handheld before an
+    upload (every capture that day went up with no machine and no concern).
+  * **Finish the "not checked" rows** of BLUETOOTH-OBD.md's gaps on real vehicles (CAN OBD timing,
+    J1939 through the adapter, response pending, the vLinker's own commands).
+  * **Smaller defects seen that day:** `capture.log`'s first answer can be written before its
+    request and a request can be missing (non-CAN vehicles); the adapter trace header says
+    "protocol not found yet" and gives the ELM version rather than the STN chip; the probe's
+    "(n bytes)" counts are off by one for answers that don't echo their option byte.
 * **Handheld text entry.** The handheld picks machine details from the bus or the recent list but
   can't type them (or the concern / question): an on-screen keyboard would cover those, the upload
   server's address and token, and naming timestamps.

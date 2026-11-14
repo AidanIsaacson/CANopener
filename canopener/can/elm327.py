@@ -88,6 +88,13 @@ NO_ANSWER = ("NO DATA", "UNABLE TO CONNECT", "STOPPED")
 # Reply lines that mean the adapter saw trouble on the vehicle's bus: reported as error frames.
 BUS_TROUBLE = ("CAN ERROR", "BUS ERROR", "BUS BUSY", "BUFFER FULL", "DATA ERROR", "<DATA ERROR",
                "<RX ERROR", "RX ERROR", "FB ERROR", "LP ALERT", "LV RESET")
+# Of those, the ones that mean a frame we sent never made it onto the bus (nothing acknowledged it,
+# or the bus was held): the send fails, so the frame isn't logged as traffic.
+TX_FAILED = ("CAN ERROR", "BUS ERROR", "BUS BUSY", "FB ERROR")
+TX_FAILED_HINT = {"CAN ERROR": "nothing on the bus acknowledged it: wrong bus speed, or no CAN on this connector?",
+                  "BUS ERROR": "the bus isn't behaving like one: wiring, or the wrong protocol?",
+                  "BUS BUSY": "the bus never went quiet enough to send.",
+                  "FB ERROR": "the adapter's output didn't reach the wire: a short, or a wiring fault?"}
 # Commands that keep printing until any character is sent (monitoring the bus).
 MONITOR_COMMANDS = ("ATMA", "ATMR", "ATMT", "ATMP", "ATDM1", "STMA", "STM ", "STMR", "STMT")
 # Adapter commands the console refuses: they rewrite the adapter's stored settings or its serial
@@ -659,10 +666,13 @@ class ElmBackend(CanBackend):
             self.last_round_trip = time.time() - t0
             self.requests += 1
             now = time.time()
+            got = False
             for line in lines:
                 parsed = parse_frame_line(line, True)
                 if parsed is not None:
+                    got = True
                     self._queue.put(CanFrame(parsed[0], parsed[1], True, now))
+            self._raise_if_not_sent(lines, got)
 
     def _search(self):
         """Let the adapter find the vehicle's protocol with the standard 'supported PIDs'
@@ -864,6 +874,15 @@ class ElmBackend(CanBackend):
             self.last_round_trip = time.time() - t0
             self.requests += 1
             self._deliver(lines)
+            self._raise_if_not_sent(lines, any(parse_frame_line(line, self.extended) for line in lines))
+
+    def _raise_if_not_sent(self, lines: list[str], answered: bool):
+        """The adapter said the frame never got onto the bus: fail the send (``Session`` then
+        doesn't log it as sent, and shows why)."""
+        msg = classify(lines)
+        self.last_message = msg or ""
+        if msg in TX_FAILED and not answered:
+            raise ElmError(f"The adapter couldn't send it ({msg}): {TX_FAILED_HINT[msg]}")
 
     def _send_noncan(self, frame: CanFrame, payload: bytes):
         """A request on J1850 / ISO 9141 / KWP: the adapter's standard header, and the answers

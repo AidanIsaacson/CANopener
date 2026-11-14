@@ -206,7 +206,11 @@ class CodesPage(Screen):
                 self.kline_probe(full=what == "kline-full")
             elif what == "kline-values":
                 self.kline_values()
-        choose(self.app, "Codes", [("Deep probe (older K-line vehicles): what else answers? 2 min", "kline"),
+            elif what == "thin":
+                from ...core.obd import THIN_NOTE
+                self.app.push(InfoDialog(self.app, "No codes, but is that right?", [THIN_NOTE]))
+        thin = [("Why 'no codes' may be wrong on this machine", "thin")] if self.ctx.obd_thin else []
+        choose(self.app, "Codes", thin + [("Deep probe (older K-line vehicles): what else answers? 2 min", "kline"),
                                    ("Deep probe + full scan (ENGINE OFF only): up to 8 min", "kline-full"),
                                    ("Read the values the last full scan found: 1 min", "kline-values")],
                None, pick)

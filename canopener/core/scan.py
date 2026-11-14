@@ -233,7 +233,10 @@ def run_scan(session: Session, pgns: list[int], listen: float = 2.5, *, title: s
     j1939 = profiles.speaks_j1939(proto) and (proto == profiles.J1939 or session.has_j1939
                                                or not session.has_canopen)
     for p in pgns if j1939 else ():
-        sent |= session.request(p, GLOBAL_SA)
+        ok = session.request(p, GLOBAL_SA)
+        sent |= ok
+        if not ok and not sent and session.health.tx_error:
+            break                       # the very first request couldn't be sent: the rest won't either
         sleep(0.05)
     problems = read_canopen(session, pgns) if profiles.speaks_canopen(proto) else []
     sleep(listen if j1939 else min(listen, 1.0))

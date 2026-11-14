@@ -24,6 +24,9 @@ everything standard that only reads, and writes down every reply exactly as the 
    (``22 xx 00`` / ``22 xx 01``), then a full scan of ``CID_PAGES`` only, and only with the engine off
    (see ``CID_PAGES`` for why: a sweep of another page stopped an engine).
 
+A health watch runs throughout (``WATCH_EVERY``): if the engine was running and the battery voltage
+shows it has stopped, the probe ends there and says which request came last.
+
 Nothing here clears, writes, resets or runs a test, but see ``CID_PAGES``: the full scan (``full=True``)
 of a maker's identifiers is not risk-free and is kept to engine-off. No maker-specific identifiers are requested:
 what a maker's blocks mean belongs in a profile or the plugin, worked out from our own captures.
@@ -106,6 +109,11 @@ EXISTS = [("1200", "read freeze frame data"), ("17FF00", "read status of codes")
 # identifier is not guaranteed to be free of side effects.
 CID_PAGES = (0x11, 0x12, 0x13)
 RUNNING_VOLTS = 13.2            # at or above this at the OBD port the engine is taken to be running (charging)
+# The health watch: while the probe or the value recorder runs, the battery voltage is read every
+# WATCH_EVERY requests and whenever a request gets no reply. If the engine was running at the start
+# and the voltage has since fallen by ENGINE_DROP to below RUNNING_VOLTS, everything stops there.
+WATCH_EVERY = 20
+ENGINE_DROP = 1.0
 # Request shapes: a module that refuses every number of a read the same way may want more bytes
 # after the number (ISO 14230-3 allows a transmission mode and a count there). A few numbers are
 # tried with each ending, and the bare freeze-frame read in a few lengths: an answer that differs
@@ -145,6 +153,7 @@ class Report:
     steps: list = field(default_factory=list)
     findings: list = field(default_factory=list)
     error: str = ""
+    volts: list = field(default_factory=list)       # [(time, battery volts or None)] from the health watch
 
     def lines(self) -> list[str]:
         """The whole transcript, for a file."""
@@ -156,6 +165,11 @@ class Report:
         out += [f"- {f}" for f in self.findings] or ["- (nothing)"]
         if self.error:
             out += ["", f"!! The probe stopped early: {self.error}"]
+        seen = [(t, v) for t, v in self.volts if v is not None]
+        if seen:
+            out += ["", "Battery at the OBD port while it ran (the health watch): "
+                    + f"{seen[0][1]:.1f} V at the start, lowest {min(v for _, v in seen):.1f} V, "
+                    + f"{seen[-1][1]:.1f} V at the end ({len(seen)} readings)."]
         section = None
         for s in self.steps:
             if s.section != section:
@@ -185,6 +199,18 @@ def can_probe(b) -> str:
     if b.protocol and b.protocol not in NONCAN_PROTOCOLS:
         return f"This vehicle answered on {b.protocol_name}: the deep probe is for K-line ones (ISO 9141-2, KWP2000)."
     return ""
+
+
+class EngineStopped(Exception):
+    """The health watch saw the engine stop (see WATCH_EVERY): the probe ends at once."""
+
+
+def port_volts(b) -> float | None:
+    """The battery voltage at the OBD port as a number, None if the adapter can't say."""
+    try:
+        return float((b.read_voltage() or "").upper().rstrip("V"))
+    except (ValueError, OSError):
+        return None
 
 
 def engine_running(b) -> bool:
@@ -243,6 +269,24 @@ class _Probe:
                              connected_protocol=b.protocol)
         self.section = ""
         self.kwp = False
+        self.asked = 0
+        self.start_volts = None             # set by ``watch_start``: the health watch's reference
+
+    # --- the health watch ---
+    def watch_start(self):
+        self.start_volts = port_volts(self.b)
+        self.report.volts.append((time.time(), self.start_volts))
+
+    def watch(self, last: str):
+        """Read the battery voltage; raise EngineStopped if a running engine has stopped."""
+        v = port_volts(self.b)
+        self.report.volts.append((time.time(), v))
+        start = self.start_volts
+        if v is None or start is None or start < RUNNING_VOLTS:
+            return
+        if v < RUNNING_VOLTS and start - v >= ENGINE_DROP:
+            raise EngineStopped(f"the battery voltage fell from {start:.1f} V to {v:.1f} V: the engine looks to "
+                                f"have stopped. The last request was {last}.")
 
     # --- one exchange ---
     def at(self, cmd: str, what: str = "", timeout: float = 3.0) -> Step:
@@ -262,6 +306,9 @@ class _Probe:
         step = Step(self.section, cmd, what, lines, time.time() - t0, result, bodies, positive)
         if keep:
             self.report.steps.append(step)
+        self.asked += 1
+        if not bodies or self.asked % WATCH_EVERY == 0:
+            self.watch(cmd)
         return step
 
     def close_protocol(self):
@@ -486,6 +533,7 @@ def run(b: ElmBackend, progress=None, settle: float | None = None, full: bool = 
                 p.full = False
                 p.find(f"The full scan was left out: the engine looks to be running ({b.voltage} at the OBD "
                        "port). It only runs with the engine off and the key on.")
+            p.watch_start()
             if b.protocol:
                 p.generic()
                 p.find_ecu()
@@ -493,6 +541,9 @@ def run(b: ElmBackend, progress=None, settle: float | None = None, full: bool = 
                 p.find("No vehicle had answered when the probe started: only the wake-ups were tried.")
             p.wakeups()
             p.addressed()
+        except EngineStopped as e:
+            p.report.error = str(e)
+            p.find("STOPPED: " + str(e))
         except OSError as e:
             p.report.error = str(e) or "connection to the adapter lost"
         finally:
@@ -561,6 +612,7 @@ def record_values(b: ElmBackend, plan: Plan, passes: int = 2, progress=None, set
     rows, note = [], ""
     with b._lock:
         try:
+            p.watch_start()
             p.close_protocol()
             p.at("ATSP5" if plan.fast else "ATSP4")
             p.at(f"ATSH81{plan.ecu:02X}{plan.tester:02X}")
@@ -585,6 +637,8 @@ def record_values(b: ElmBackend, plan: Plan, passes: int = 2, progress=None, set
                             break
                     if note:
                         break
+        except EngineStopped as e:
+            note = "STOPPED: " + str(e)
         except OSError as e:
             note = str(e) or "connection to the adapter lost"
         finally:

@@ -36,6 +36,15 @@ DTC_MODES = (("stored", obd.MODE_STORED_DTCS), ("pending", obd.MODE_PENDING_DTCS
 NOT_LIVE = set(obd.SUPPORT_PIDS) | {0x01, 0x02, 0x41}
 
 # What front-ends show before clear_dtcs(), so every one warns the same way.
+# For a module that lists no live values at all (``ObdClient.thin_ecus``). Seen on a real machine:
+# no codes over OBD-II with the lamp on and a code stored (docs/BLUETOOTH-OBD.md, "Thin K-line computers").
+THIN_SHORT = "It lists no live data at all: 'no codes' may not be the whole story"
+THIN_NOTE = ("This module answers the scan-tool questions but lists no live data at all. Some engine computers "
+             "(off-road and industrial ones especially) answer OBD-II only as a formality and keep their real "
+             "fault codes elsewhere, so 'no codes' here may not mean there are none. If the engine light is on: "
+             "read the light's own blink code if the machine has one, and on an older K-line machine run the "
+             "deep probe (handheld: Codes > More...; computer: canopener-cli bluetooth kline) to see what else "
+             "the computer answers.")
 CLEAR_WARNING = (
     "Clear trouble codes on every module (OBD-II Mode 04)?\n\n"
     "This also:\n"
@@ -203,6 +212,12 @@ class ObdClient:
                 break
             base += 0x20
         return {ecu: sorted(p) for ecu, p in sorted(found.items())}
+
+    def thin_ecus(self) -> list[int]:
+        """Modules that answer 'which live values do you support' with none at all. Such a module
+        answers OBD-II as a formality: its empty code list can't be trusted (THIN_NOTE)."""
+        answers = self.query_all(obd.MODE_CURRENT_DATA, 0x00)
+        return sorted(ecu for ecu, r in answers.items() if r.ok and not [p for p in r.supported if p % 0x20])
 
     def supported_pids(self) -> list[int]:
         """Every Mode 01 PID any ECU reports."""

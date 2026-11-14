@@ -7,7 +7,9 @@ A plugin is a Python module named by an entry point in the ``canopener.plugins``
     [project.entry-points."canopener.plugins"]
     mytool = "mytool.canopener_plugin"
 
-(For development, ``CANOPENER_PLUGINS=mod1,mod2`` loads modules by name without installing.)
+(For development, ``CANOPENER_PLUGINS=mod1,mod2`` loads modules by name without installing.
+``CANOPENER_NO_INSTALLED_PLUGINS=1`` leaves the installed ones out: CANopener's own tests set it,
+so they give the same result on a machine that has a plugin installed.)
 
 The module may define any of these; all are optional:
 
@@ -38,6 +40,7 @@ from dataclasses import dataclass, field
 from importlib import metadata
 
 GROUP = "canopener.plugins"
+NO_INSTALLED_ENV = "CANOPENER_NO_INSTALLED_PLUGINS"
 
 
 @dataclass
@@ -58,10 +61,13 @@ _cache: list[Plugin] | None = None
 
 def _targets() -> list[tuple[str, str]]:
     out = []
-    try:
-        eps = metadata.entry_points(group=GROUP)
-    except TypeError:                       # Python < 3.10 style API
-        eps = metadata.entry_points().get(GROUP, [])
+    if os.environ.get(NO_INSTALLED_ENV):
+        eps = []
+    else:
+        try:
+            eps = metadata.entry_points(group=GROUP)
+        except TypeError:                   # Python < 3.10 style API
+            eps = metadata.entry_points().get(GROUP, [])
     for ep in eps:
         out.append((ep.name, ep.value))
     for name in filter(None, (os.environ.get("CANOPENER_PLUGINS") or "").split(",")):

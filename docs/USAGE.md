@@ -127,6 +127,9 @@ scan** asks thousands more questions and is for engine off, key on, machine park
 it made the engine computer restart and the engine stop.) The handheld saves it
 as a log, ready to upload, so someone can work out from it how to read that machine properly.
 
+If a code read comes back empty from a computer that also lists no live data, CANopener says so
+("'no codes' may not be the whole story"): that's the sign of one of these machines.
+
 **Finding modules:** `canopener-cli uds --elm --find` asks every diagnostic ID whether a module is
 there (it changes nothing), a minute or two. Works with a wired adapter too (`--iface can0`).
 

@@ -33,7 +33,8 @@ from .obd import ObdSimulator
 
 # vehicle -> the protocol number (ATDPN) it answers on
 VEHICLES = {"11": "6", "29": "7", "pwm": "1", "vpw": "2", "iso9141": "3", "kwp-slow": "4", "kwp": "5",
-            "j1939": "A"}
+            "j1939": "A", "thin-kline": "3"}
+THIN = "thin-kline"                 # sim.thin_kline: generic OBD-II is a shell, the rest hides behind KWP2000
 NONCAN_HEADERS = {"1": (0x41, 0x6B), "2": (0x48, 0x6B), "3": (0x48, 0x6B)}     # KWP: format byte, F1
 NONCAN_ADDRESSES = {"ECM": 0x10, "TCM": 0x18}
 DP_TEXT = {"1": "SAE J1850 PWM", "2": "SAE J1850 VPW", "3": "ISO 9141-2", "4": "ISO 14230-4 (KWP 5BAUD)",
@@ -59,6 +60,10 @@ class ElmSimulator:
             raise ValueError(f"unknown simulated vehicle {self.vehicle!r}: {', '.join(VEHICLES)}")
         self.vehicle_extended = self.vehicle == "29"
         self.car = car                      # answers non-CAN requests directly
+        self.thin = None
+        if self.vehicle == THIN:
+            from .thin_kline import ThinKline
+            self.thin = ThinKline()
         self.host_socket, self._sock = socket.socketpair()
         self._running = False
         self._thread: threading.Thread | None = None
@@ -75,6 +80,10 @@ class ElmSimulator:
         self.cra = ""
         self.caf = True                     # CAN automatic formatting (ATCAF)
         self.woke = False                   # a K-line car's computer has been woken (BUS INIT)
+        self.kwp_session = False
+        self.kline_header = ""              # ATSH with three bytes, as typed (K-line addressing)
+        if getattr(self, "thin", None) is not None:
+            self.thin.close()
 
     # --- lifecycle ---
     def start(self):
@@ -160,7 +169,7 @@ class ElmSimulator:
         if a == "@1":
             return [DEVICE]
         if a == "RV":
-            return [VOLTAGE]
+            return [self.thin.voltage() if self.thin else VOLTAGE]
         if a == "DPN":
             if self.protocol == "0":
                 return ["A" + (self.found or "0")]
@@ -177,6 +186,7 @@ class ElmSimulator:
             return ["OK"]
         if a.startswith("SH") and len(a) in (5, 8):
             h = int(a[2:], 16)
+            self.kline_header = a[2:] if len(a) == 8 else ""
             self.header = (h, False) if len(a) == 5 else ((self.priority << 24) | h, True)
             return ["OK"]
         if a.startswith("CP") and len(a) == 4:
@@ -192,6 +202,14 @@ class ElmSimulator:
             return ["OK"]
         if a == "AR":
             self.cra = ""
+            return ["OK"]
+        if self.thin is not None and a in ("FI", "SI"):
+            return self.thin.wake(self.protocol, self.kline_header, a == "FI")
+        if self.thin is not None and a == "KW":
+            return [thin_key_bytes(self.thin)]
+        if self.thin is not None and a == "PC":
+            self.thin.close()
+            self.woke = False
             return ["OK"]
         if a in ("FI", "SI"):                       # K-line wake-up now: only the vehicle's own protocol wakes
             fast = self.protocol == "5"
@@ -224,6 +242,8 @@ class ElmSimulator:
             return ["?"]
         out = []
         vp = self._vehicle_protocol()
+        if self.thin is not None and self.protocol in "345" and self.protocol != "0":
+            return self.thin.request(self.protocol, self.kline_header, payload)
         if self.protocol == "0" and not self.found:
             out.append("SEARCHING...")
             if vp == "A":                           # the automatic search never tries J1939
@@ -232,6 +252,8 @@ class ElmSimulator:
         proto = self.found if self.protocol == "0" else self.protocol
         if proto != vp:
             return out + (["UNABLE TO CONNECT"] if self.protocol == "0" else ["NO DATA"])
+        if self.thin is not None and proto == "3":
+            return out + self.thin.request(proto, self.kline_header, payload)
         if proto in "12345":
             return out + self._noncan_request(proto, payload)
         if proto == "A":
@@ -423,6 +445,11 @@ class ElmSimulator:
         else:
             head = f"{can_id:03X}"
         return head + sep + sep.join(f"{b:02X}" for b in data)
+
+
+def thin_key_bytes(thin) -> str:
+    from .thin_kline import KEY_BYTES
+    return KEY_BYTES if thin.session == "kwp" else "1:08 2:08"
 
 
 class SimulatedCar:

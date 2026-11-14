@@ -22,7 +22,8 @@ ELM_SIM = "elm-sim"         # the simulated adapter plugged into the OBD-II simu
 # The cars the Bluetooth OBD simulator can play (settings: elm.sim_vehicle; sim.elm.VEHICLES)
 SIM_CARS = [("CAN, 11-bit (most cars)", "11"), ("CAN, 29-bit", "29"), ("J1850 VPW (older GM)", "vpw"),
             ("J1850 PWM (older Ford)", "pwm"), ("ISO 9141-2 (older Chrysler, Asian, European)", "iso9141"),
-            ("KWP2000, slow start", "kwp-slow"), ("KWP2000, fast start", "kwp")]
+            ("KWP2000, slow start", "kwp-slow"), ("KWP2000, fast start", "kwp"),
+            ("K-line computer that says almost nothing (deep probe practice)", "thin-kline")]
 
 
 @dataclass

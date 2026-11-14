@@ -3,6 +3,9 @@ import os
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# An installed plugin (a private one adds a handheld tile, an upload server ...) must not change what
+# these tests see. Tests that want a plugin name it in CANOPENER_PLUGINS.
+os.environ.setdefault("CANOPENER_NO_INSTALLED_PLUGINS", "1")
 
 
 @pytest.fixture(autouse=True)

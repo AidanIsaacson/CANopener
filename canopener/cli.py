@@ -210,6 +210,9 @@ def cmd_obd(a) -> int:
                     print(f"  {c.ecu_label(ecu):18} {label:9} {code}  {obdlib.describe_dtc(code)}")
         if not any_code:
             print("  none")
+            if c.thin_ecus():
+                from .core.obd import THIN_NOTE
+                print(f"\n  Note: {THIN_NOTE}")
         print("\nReadiness:")
         for ecu, st in c.read_readiness().items():
             print(f"  {c.ecu_label(ecu)}: MIL {'ON' if st.mil else 'off'}, {st.dtc_count} confirmed code(s)")

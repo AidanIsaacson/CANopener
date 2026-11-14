@@ -74,6 +74,7 @@ class DeviceContext:
         self.pulse_clock = PulseClock()
         self.pps: PpsReader | None = None
         self.result = None                  # last J1939 ScanResult
+        self.obd_thin: list = []            # modules that list no live data at all (core.obd.THIN_NOTE)
         self.obd_codes: dict | None = None  # last OBD-II read: module -> {stored/pending/permanent: [codes]}
         self.obd_client = None
         self.obd_streamer = None
@@ -493,21 +494,36 @@ class DeviceContext:
                 self.toast("Reading codes needs a connection that can transmit (not listen-only)")
                 return False
             client = self.obd_client
-            return self.run_job("Reading codes", client.read_dtcs_by_ecu, self._obd_codes_read)
+
+            def read():
+                by_ecu = client.read_dtcs_by_ecu()
+                return by_ecu, (client.thin_ecus() if by_ecu else [])
+            return self.run_job("Reading codes", read, self._obd_codes_read)
         session = self.session
         return self.run_job(scan.PRESETS[preset][0], lambda: scan.run_preset(session, preset), self._scanned)
 
     def _scanned(self, result):
         self.result = result
+        if result.tx_error and not result.code_count:
+            self.toast(f"Couldn't send the requests: {result.tx_error}")
+            return
         extra = " (listen-only: broadcast codes only)" if result.listen_only else ""
         self.toast(f"{result.title}: {result.code_count} code(s){extra}")
         if result.code_count:
             self.cue("codes")
 
-    def _obd_codes_read(self, by_ecu):
+    def _obd_codes_read(self, value):
+        from ..core.obd import THIN_SHORT
+        by_ecu, self.obd_thin = value
         self.obd_codes = by_ecu
         n = sum(len(c) for kinds in by_ecu.values() for c in kinds.values())
-        self.toast(f"{len(by_ecu)} module(s) answered, {n} code(s)")
+        if not by_ecu:
+            self.toast("No module answered the code read" + (f": {self.session.health.tx_error}"
+                                                             if self.session.health.tx_error else ""))
+        elif self.obd_thin and not n:
+            self.toast(f"{len(by_ecu)} module(s) answered, no codes. {THIN_SHORT} (More...)")
+        else:
+            self.toast(f"{len(by_ecu)} module(s) answered, {n} code(s)")
         if n:
             self.cue("codes")
 
