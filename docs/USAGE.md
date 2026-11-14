@@ -237,6 +237,30 @@ truck"), built on the profile you had picked, so nothing built in is changed.
 time it offers this profile when it sees these modules), **Export…** (to a USB stick, say) and
 **Delete profile…**.
 
+## Working out a machine from what its bus does
+
+When nothing names what you're looking at (a proprietary message, a machine with no profile), let
+the machine tell you. It works on any J1939 or CANopen bus and needs no documentation:
+
+1. **Record a log and tag a timestamp each time you change one thing**: key on, engine start,
+   lift, tilt, forward, seat switch. One change per timestamp; hold each state for a few seconds.
+2. **Save the log**, then on the handheld **Data log > More > What changed between the
+   timestamps?** (on a computer: `canopener-cli changes CAPTURE_FOLDER`).
+3. It lists what followed each timestamp, most marked first: `PGN FF50 from 00 w2le   3 -> 817`
+   means the 16-bit value starting at byte 2 of that message went from about 3 to about 817.
+   `b1.2  off -> on` is bit 2 of byte 1. Messages that started or stopped are listed too.
+   Rolling counters, checksums and the scan tool's own questions are left out.
+4. **Pick a line and name it.** If the value moves in step with one CANopener already knows, it
+   says so and offers that name with the right scale ("it follows Engine speed": rpm = 1 x this).
+   Otherwise pick the part of the machine and a name from the list.
+5. **Save.** The named values become a profile (`observed-...` in your profiles folder) and it's
+   switched on at once: Live Data shows them, and so does every log from then on. Do it again
+   another day and add to the same profile.
+
+Each value in an observed profile keeps a note of how it was found and how sure it is, so someone
+else can check it. A log without timestamps is cut into four equal parts, which is better than
+nothing but much less telling than tagging.
+
 ## Recording a job (the Log tool)
 
 Open it with **📝 Log** (top right, or **F2**).

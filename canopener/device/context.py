@@ -868,6 +868,17 @@ class DeviceContext:
         self.uploads.retry_now()
         self.toast("Queued for upload: it goes when there's a connection")
 
+    def find_changes(self, then) -> bool:
+        """Compare what the bus said between the saved log's timestamps (``core.changes``).
+        ``then(report)`` on the UI thread. A log without timestamps is cut into four equal parts."""
+        from ..core import changes
+        c = self.capture
+        if c.state != cap.SAVED or not c.folder:
+            self.toast("Save the log first")
+            return False
+        folder, parts = c.folder, 0 if c.tagged() else 4
+        return self.run_job("Comparing the timestamps", lambda: changes.analyze_capture(folder, parts=parts), then)
+
     def discard_log(self):
         c = self.capture
         if c.state in (cap.STOPPED, cap.RECORDING):

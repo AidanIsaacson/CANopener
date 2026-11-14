@@ -1173,3 +1173,72 @@ def test_thin_module_warning_on_the_handheld(app_for):
     app.action(inp.SELECT)                                # the first entry: why 'no codes' may be wrong
     assert isinstance(app.top, InfoDialog) and "formality" in app.top.lines[0]
     ctx.disconnect()
+
+
+def test_what_changed_screen_names_values_and_saves_an_observed_profile(app_for):
+    """Log > More > What changed: pick a line, take the suggested name or one from the list, save
+    as a profile; it becomes the active profile so Live shows the values."""
+    from test_changes import _report
+
+    from canopener.core import observed, profiles
+    from canopener.device.screens.base import ChoiceDialog
+    from canopener.device.screens.discover import DiscoverScreen
+    app = app_for()
+    ctx = app.ctx
+    screen = DiscoverScreen(app, _report(), "capture X", {"make": "Acme", "model": "T7"})
+    app.push(screen)
+    for _ in range(2):
+        app.step([])
+    rows = screen.rows.refresh()
+    labels = [r.label for r in rows]
+    assert "PGN FF50 from 00 w2le" in labels and "PGN F004 from 00 w3le" not in labels
+    assert next(r for r in rows if r.label == "PGN FF50 from 00 w2le").value_text() == "Engine speed?"
+    by_key = {c.key: c for c in screen.cands}
+    screen.name_it(by_key["PGN FF50 from 00 w2le"])
+    assert isinstance(app.top, ChoiceDialog)
+    app.action(inp.SELECT)                                  # the suggestion: it follows Engine speed
+    assert screen.picked["PGN FF50 from 00 w2le"]["name"] == "Engine speed"
+    screen.pick_name(by_key["ID 288 b1.2"], "Hydraulics")
+    assert isinstance(app.top, ChoiceDialog)
+    app.action(inp.SELECT)                                  # the first name in Hydraulics: Lift
+    assert screen.picked["ID 288 b1.2"]["name"] == "Lift" and screen.picked["ID 288 b1.2"]["bits"] == 1
+    screen.keep(by_key["ID 288 b4"], "Lift")                # a second one of the same name is numbered
+    assert screen.picked["ID 288 b4"]["name"] == "Lift 2"
+    app.step([])
+    screen.save()
+    assert isinstance(app.top, ChoiceDialog)
+    app.action(inp.SELECT)                                  # "New profile: Acme T7"
+    path = observed.profile_path("Acme T7")
+    doc = observed.load_doc(path)
+    assert [s["name"] for s in doc["signals"]] == ["Engine speed", "Lift", "Lift 2"]
+    assert doc["observed"]["machine"]["make"] == "Acme" and doc["observed"]["sessions"][0]["source"] == "capture X"
+    assert profiles.active().id == "observed-acme-t7" and ctx.settings.get("profile") == "observed-acme-t7"
+    assert not screen.picked and "Live shows them now" in ctx.current_toast()
+    screen.show_known = True
+    assert "PGN F004 from 00 w3le" in [r.label for r in screen.rows.refresh()]
+    app.step([])
+
+
+def test_what_changed_runs_on_a_saved_log_from_the_log_page(app_for):
+    from canopener.core import capture as cap
+    from canopener.device.screens.discover import DiscoverScreen
+    app = app_for()
+    ctx = app.ctx
+    ctx.connect("sim")
+    assert ctx.wait_idle()
+    assert not ctx.find_changes(lambda r: None) and "Save the log first" in ctx.current_toast()
+    assert ctx.start_log()
+    time.sleep(0.6)
+    ctx.tag()
+    time.sleep(0.6)
+    ctx.stop_log()
+    ctx.save_log()
+    assert ctx.wait_idle(20) and ctx.capture.state == cap.SAVED
+    app.open_mode("log")
+    app.top.what_changed()
+    assert ctx.wait_idle(20)
+    app.step([])
+    assert isinstance(app.top, DiscoverScreen) and len(app.top.report.phases) == 2 and app.top.report.frames > 10
+    for _ in range(2):
+        app.step([])
+    ctx.disconnect()

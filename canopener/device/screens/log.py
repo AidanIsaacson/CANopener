@@ -97,8 +97,20 @@ class LogScreen(Screen):
     def more(self):
         where = upload.target(self.ctx.settings)
         opts = [("Trim to the stretch around the timestamps", self.trim), ("Copy to USB", self.export),
-                (f"Upload to... (now: {where.describe(self.ctx.settings) if where else 'nowhere'})", self._destination)]
+                (f"Upload to... (now: {where.describe(self.ctx.settings) if where else 'nowhere'})", self._destination),
+                ("What changed between the timestamps? (name values, build a profile)", self.what_changed)]
         choose(self.app, "Saved log", opts, None, lambda fn: fn())
+
+    def what_changed(self):
+        from .discover import DiscoverScreen
+        c = self.c
+
+        def show(report):
+            if not report.frames:
+                self.ctx.toast("No CAN frames in this log to compare")
+                return
+            self.app.push(DiscoverScreen(self.app, report, os.path.basename(c.folder or ""), dict(c.machine)))
+        self.ctx.find_changes(show)
 
     def _destination(self):
         if not self.pick_destination():

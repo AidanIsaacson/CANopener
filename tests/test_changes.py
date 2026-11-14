@@ -115,3 +115,46 @@ def test_phases_from_markers():
     ph = changes.phases_from_markers([(15.0, "B"), (5.0, "A")], 0.0, 30.0)
     assert [(p.label, p.start, p.end) for p in ph] == [(changes.BEFORE, 0.0, 5.0), ("A", 5.0, 15.0), ("B", 15.0, 30.0)]
     assert changes.phases_from_markers([], 0.0, 30.0)[0].label == "The whole capture"
+
+
+# --- core.observed: from what changed to a profile ---
+def test_candidates_suggest_a_name_and_scale_for_a_value_that_follows_a_known_one():
+    from canopener.core import observed
+    cands = observed.candidates(_report())
+    keys = [c.key for c in cands]
+    assert keys[0] == "PGN FF50 from 00 w2le"                   # we can say what it is: first
+    assert "PGN F004 from 00 w3le" not in keys                  # already named by the standard tables
+    assert {"ID 288 b1.2", "ID 288 b4"} <= set(keys)
+    top = cands[0]
+    assert top.suggestion() == {"name": "Engine speed", "unit": "rpm", "scale": 1.0, "offset": 0.0}
+    assert top.evidence[0].startswith("Key on -> Idling: 0 -> ")
+    assert "follows Engine speed" in top.summary()
+    assert observed._round(0.1247) == 0.125 and observed._round(7.96) == 8.0 and observed._round(0.337) == 0.337
+
+
+def test_observed_profile_is_saved_loaded_and_decodes(tmp_path):
+    from canopener.core import observed, profiles
+    report = _report()
+    cands = {c.key: c for c in observed.candidates(report)}
+    speed = cands["PGN FF50 from 00 w2le"]
+    entries = [observed.signal_entry(speed, **speed.suggestion()),
+               observed.signal_entry(cands["ID 288 b1.2"], "Lift")]
+    assert entries[0]["pgn"] == "0xFF50" and entries[0]["sa"] == "0x00" and entries[0]["length"] == 2
+    assert entries[1] == {"name": "Lift", "id": "0x288", "start": 1, "bit": 2, "bits": 1,
+                          "enum": {"0": "Off", "1": "On"}, "group": "Observed",
+                          "observed": {"sure": "seen once", "evidence": cands["ID 288 b1.2"].evidence[:4]}}
+    assert observed.protocol_of(report) == profiles.J1939_CANOPEN
+    doc = observed.build_profile("Yard truck 7", entries, observed.protocol_of(report), source="capture X")
+    path = observed.save_profile(doc)
+    assert path == observed.profile_path("Yard truck 7") and path.endswith("observed-yard-truck-7.json")
+    p = profiles.load_profile(path)
+    assert p.protocol == profiles.J1939_CANOPEN and p.extends == "generic-j1939-canopen"
+    by_name = {s.name: s for s in p.signals}
+    assert by_name["Engine speed"].decode(bytes([0, 0, 0x20, 0x03, 0, 0, 0, 0])) == 800
+    assert by_name["Lift"].can_id == 0x288 and by_name["Lift"].decode(bytes([0, 4, 0, 0, 0, 0, 0, 0])) == 1
+    # adding to it later: the same place is replaced, the history grows
+    again = observed.build_profile("Yard truck 7", [observed.signal_entry(cands["ID 288 b1.2"], "Lower")],
+                                   base=observed.load_doc(path), source="capture Y")
+    assert [s["name"] for s in again["signals"]] == ["Engine speed", "Lower"]
+    assert len(again["observed"]["sessions"]) == 2
+    assert observed.load_doc(str(tmp_path / "missing.json")) is None

@@ -143,6 +143,15 @@ exercise the real backend.
 * **Probe and console** (`can/elm_probe.py`, `console_refusal`): what an adapter can do, and
   adapter-only commands typed by hand (nothing that reaches the vehicle, rewrites the adapter's
   stored settings or serial speed).
+* **What changed, and observed profiles** (`core/changes.py`, `core/observed.py`): `changes.analyze`
+  cuts a capture into phases (its timestamps) and each stream into fields (a 16-bit value where two
+  bytes carry into each other, bytes, and single bits of bytes that hold few values), classes each
+  (constant / counter / noise / switch / value), ranks what differs between two phases
+  (`Report.changes`) and finds unnamed values that move with a named one (`Report.relations`, a
+  straight-line fit over half-second slots, which also gives the scale). `observed` turns picked
+  fields into profile `signals` entries with an `"observed"` note each (evidence, how sure) and
+  saves an ordinary profile; the loader ignores the extra keys. Screens: `device/screens/discover.py`;
+  CLI `changes`. Housekeeping traffic (`changes.is_housekeeping`) is never listed.
 * **Honest sends** (`ElmBackend._raise_if_not_sent`): when the adapter says a frame never reached
   the bus (`TX_FAILED`) and nothing answered, `send` raises, so `Session.send_frame` reports it
   (`health.tx_error`) and doesn't log the frame; `scan.run_scan` gives up after a first request
@@ -299,11 +308,10 @@ these by name.
     `core/` (the probe's lives in `can/kline_probe.py` because `can/` can't import `core/`).
   * **Generalise the probe ladder** (ask anyway, try request shapes, sample, sweep only described
     ranges) to UDS over CAN and to CANopen object dictionaries.
-  * **"What changed between these markers" report** for any capture: the values (decoded or raw)
-    that differ between tagged phases. Engine off / idle / revving named six values in minutes by
-    hand; it would do the same for unknown J1939 and CANopen traffic.
-  * **Structured probe results:** a JSON file beside `kline_probe.txt`. The value recorder parses
-    the text report today (`plan_from_report`), which breaks if the wording changes.
+  * *Done:* the "what changed between these markers" report (`core/changes.py`) and structured
+    probe results (`kline_probe.json`). Next for them: the same screen on the desktop app, a live
+    version that compares as you tag (no saved log needed), the K-line value recorder's CSV as an
+    input, and scale suggestions from a meter channel (battery voltage, a pressure gauge).
   * **Remote adapter console:** read-only requests sent through a unit in the field from
     somewhere else, to cut the push / update / run / upload loop when working out a new machine.
   * **Upload one result without a whole log**, and ask for the machine on the handheld before an

@@ -14,6 +14,11 @@ Towards working out an unfamiliar machine from what its bus does (docs/ARCHITECT
   value that moves with a known one ("follows Engine speed: rpm = 1 x this"). `--parts N` cuts a
   capture without timestamps into slices; `--json` writes every field per phase
   (`core/changes.py`).
+- **Name what changed and keep it: observed profiles.** Handheld: **Data log > More > What
+  changed between the timestamps?** lists what followed each timestamp; pick a line, take the
+  suggested name (when it follows a value CANopener knows) or one from a short list by part of
+  the machine, and **Save** makes a profile and switches it on, so Live shows the new values at
+  once. Each value keeps how it was found and how sure it is (`core/observed.py`).
 - **The deep probe's result as data:** `kline_probe.json` beside the text report, with the plan
   the value recorder reads again (it parsed the text before).
 

@@ -6,6 +6,13 @@ record what happens while you work the machine.
 
 No $1000 dongles, no subscriptions, no gatekeeping.
 
+**The idea behind it:** most CAN buses aren't a black box or magic. They're programmatic and
+fundamentally alike: the same messages repeat, and each value sits in the same bytes every time.
+So starting from the published standards and what the bus itself does, it shouldn't be hard to
+work out what's on any bus you put your probes in. CANopener is built for that: a tool for a
+technician facing an unfamiliar machine, not a library of machines someone else has already
+described. Change one thing on the machine, and it shows you which bytes followed.
+
 ![Fault Codes after a full scan: warning lamps per module, active and stored codes, and the details of the selected code](docs/images/j1939-fault-codes.png)
 
 ## What it talks to
@@ -25,8 +32,11 @@ No $1000 dongles, no subscriptions, no gatekeeping.
 * **Logs built for the intermittent fault.** Records everything on the bus; tap the spacebar to
   tag "it just shut down", and your tags are drawn on the chart. Trim to the interesting part,
   export to a USB stick.
-* **Name what it doesn't know.** Find the bytes that move when you work a control, label them,
-  and keep them in your own machine profile.
+* **Work out a machine it has never seen.** Tag a timestamp each time you change one thing
+  (key on, start, lift, tilt), and it lists the bytes and bits that followed, leaves out the
+  counters and checksums, and tells you when an unknown value is really engine speed in other
+  units. Name them from a short list and they become a machine profile, built from what the bus
+  did and from nobody's documentation.
 * **Opens in about a second.**
 
 More, with screenshots: **[Features](docs/FEATURES.md)**.
