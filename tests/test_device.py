@@ -1242,3 +1242,60 @@ def test_what_changed_runs_on_a_saved_log_from_the_log_page(app_for):
     for _ in range(2):
         app.step([])
     ctx.disconnect()
+
+
+def test_guided_profile_builder_on_the_handheld(app_for, monkeypatch):
+    """Data log > Plan > Guided profile builder: pick the machine, it records a log, walks the
+    steps and saves what was named as a profile, with the steps as the log's timestamps."""
+    from canopener.can.frame import CanFrame
+    from canopener.core import capture as cap
+    from canopener.core import guide, observed, profiles
+    from canopener.device.screens import guide as guide_screen
+    from canopener.device.screens.base import ChoiceDialog
+    monkeypatch.setitem(guide.SCRIPTS, "Something else", [guide.Step("Lift", "Raise the forks", "Hydraulics")])
+    app = app_for()
+    ctx = app.ctx
+    guide_screen.start(app)
+    assert "Connect" in ctx.current_toast()
+    ctx.connect("sim")
+    assert ctx.wait_idle()
+    guide_screen.start(app)
+    assert isinstance(app.top, ChoiceDialog)
+    app.action(inp.ROTATE, 2)
+    app.action(inp.SELECT)                                  # "Something else"
+    screen = app.top
+    assert isinstance(screen, guide_screen.GuideScreen) and ctx.recording
+    g = screen.g
+    assert g.feed in ctx.session._listeners
+    ctx.session.remove_listener(g.feed)                     # only the frames fed below: the simulator's own
+    g.quiet, g.rest, g.do = 0.4, 0.3, 0.5                   # traffic moves by itself in windows this short
+    for _ in range(2):
+        app.step([])
+    screen.begin()
+    assert g.state == guide.QUIET
+
+    def run(seconds, lift=False):
+        end = time.time() + seconds
+        while time.time() < end:
+            g.feed(CanFrame(0x288, bytes([0, 4 if lift else 0, 0, 0, 0, 0, 0, 0]), False, time.time()))
+            app.step([])
+            time.sleep(0.01)
+    run(0.45)
+    run(0.32)
+    assert g.state == guide.DO
+    run(0.6, lift=True)
+    assert g.state == guide.RESULT and [o.cand.key for o in g.offers] == ["ID 288 b1.2"] and g.offers[0].keep
+    assert "Keep, next" in [k.label for k in screen.softkeys() if k]
+    g.accept()
+    assert g.state == guide.DONE
+    app.step([])
+    screen.save()
+    assert isinstance(app.top, ChoiceDialog)
+    app.action(inp.SELECT)
+    assert ctx.wait_idle(20) and ctx.capture.state == cap.SAVED
+    assert [m.label for m in ctx.capture.markers] == ["Lift"]
+    p = profiles.active()
+    assert p.id.startswith("observed-something-else") and [s.name for s in p.signals if s.can_id == 0x288] == ["Lift"]
+    assert observed.load_doc(p.path)["observed"]["sessions"][0]["source"].startswith("guided profile builder")
+    assert not isinstance(app.top, guide_screen.GuideScreen)
+    ctx.disconnect()

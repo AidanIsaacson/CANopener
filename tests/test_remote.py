@@ -199,3 +199,59 @@ def test_handheld_remote_help_end_to_end(server, settings, tmp_path):
     finally:
         ctx.shutdown()
         pygame.quit()
+
+
+def test_tunnel_enrols_its_key_and_builds_a_locked_down_ssh_command(tmp_path):
+    """The unit's key is enrolled through the upload token; on the server it may only listen on
+    its own port. (ssh itself isn't run here.)"""
+    from canopener.core import tunnel
+    mod = _server_module()
+    cfg = mod.Config({"DATA_DIR": str(tmp_path / "srv"), "HOST": "127.0.0.1", "PORT": "0", "UPLOAD_TOKENS": "up-token",
+                      "READ_TOKENS": "read-token", "TUNNEL_HOST": "logs.example.com", "TUNNEL_MAX_UNITS": "1"})
+    srv = mod.make_server(cfg)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        s = Settings()
+        s.set("upload.url", f"http://127.0.0.1:{srv.server_address[1]}")
+        upload.save_token("up-token")
+        pub = tunnel.ensure_key()
+        assert pub.startswith("ssh-ed25519 ") and tunnel.ensure_key() == pub
+
+        class FakeProc:
+            stderr = None
+
+            def __init__(self, argv, **kw):
+                FakeProc.argv = argv
+                self.done = threading.Event()
+
+            def poll(self):
+                return 0 if self.done.is_set() else None
+
+            def wait(self, timeout=None):
+                self.done.wait(timeout)
+                return 0
+
+            def terminate(self):
+                self.done.set()
+        t = tunnel.Tunnel(s, popen=FakeProc)
+        t.start()
+        assert _wait(lambda: t.state == "open", 8) and t.running
+        argv = FakeProc.argv
+        assert argv[:3] == ["ssh", "-N", "-T"] and argv[-1] == "tunnel@logs.example.com"
+        assert "127.0.0.1:22201:127.0.0.1:22" in argv and "BatchMode=yes" in argv and "47822" in argv
+        assert t.grant["listen_port"] == 22201 and "22201" in t.where()
+        keys = (tmp_path / "srv" / "tunnel" / "authorized_keys").read_text()
+        assert keys.startswith('restrict,port-forwarding,permitlisten="127.0.0.1:22201" ' + pub)
+        t.stop()
+        assert _wait(lambda: not t.running) and t.state == "ended: stopped here"
+
+        def post(body, token="up-token"):
+            return upload.http("POST", s.get("upload.url") + "/api/remote/tunnel", json.dumps(body).encode(),
+                               {"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+        bad = {"device": upload.device_id(), "public_key": 'ssh-ed25519 AAAA" command="sh'}
+        assert post(bad)[0] == 400                                          # nothing but a plain key gets in
+        assert post({"device": upload.device_id(), "public_key": pub}, "read-token")[0] == 403
+        assert post({"device": "ab" * 8, "public_key": pub})[0] == 429       # TUNNEL_MAX_UNITS
+    finally:
+        srv.shutdown()
+        srv.server_close()

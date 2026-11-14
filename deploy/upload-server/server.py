@@ -62,6 +62,12 @@ class Config:
         self.admin_tokens = [t.strip() for t in (env.get("ADMIN_TOKENS") or "").split(",") if t.strip()]
         self.remote_tokens = [t.strip() for t in (env.get("REMOTE_TOKENS") or "").split(",") if t.strip()]
         self.remote_minutes = float(env.get("REMOTE_MAX_MINUTES") or 240)
+        # The SSH tunnel beside remote help (the 'tunnel' container): empty host = not offered.
+        self.tunnel_host = (env.get("TUNNEL_HOST") or "").strip()
+        self.tunnel_port = int(env.get("TUNNEL_PORT") or 47822)
+        self.tunnel_user = env.get("TUNNEL_USER") or "tunnel"
+        self.tunnel_first = int(env.get("TUNNEL_FIRST_LISTEN_PORT") or 22201)
+        self.tunnel_units = int(env.get("TUNNEL_MAX_UNITS") or 16)
         self.max_upload = int(float(env.get("MAX_UPLOAD_MB") or 4096) * 1024 * 1024)
         self.max_part = int(float(env.get("MAX_PART_MB") or 64) * 1024 * 1024)
         self.keep = int(env.get("KEEP_REVISIONS") or 3)
@@ -369,6 +375,53 @@ class Profiles:
         return path
 
 
+PUBKEY_RE = re.compile(r"^ssh-ed25519 [A-Za-z0-9+/]{60,100}={0,2}$")
+
+
+class Tunnels:
+    """Which units may open an SSH tunnel, and on which port each one's far end listens.
+    ``data/tunnel/authorized_keys`` is read by the tunnel container's sshd: one line per unit, its
+    key allowed to do exactly one thing, listen on its own loopback port there (no shell, no
+    other forwarding)."""
+
+    def __init__(self, cfg: Config):
+        self.cfg = cfg
+        self.root = os.path.join(cfg.data, "tunnel")
+        self.lock = threading.Lock()
+        os.makedirs(self.root, exist_ok=True)
+
+    def enroll(self, body: dict, who: str) -> dict:
+        cfg = self.cfg
+        if not cfg.tunnel_host:
+            raise ApiError(404, "this server has no SSH tunnel set up")
+        device = str(body.get("device") or "")
+        key = " ".join(str(body.get("public_key") or "").split()[:2])
+        if not re.match(r"^[0-9a-f]{8,64}$", device) or not PUBKEY_RE.match(key):
+            raise ApiError(400, "needs the unit's id and an ssh-ed25519 public key")
+        with self.lock:
+            path = os.path.join(self.root, "units.json")
+            units = _read_json(path, {})
+            unit = units.get(device)
+            if unit is None:
+                used = {u["listen_port"] for u in units.values()}
+                port = next((p for p in range(cfg.tunnel_first, cfg.tunnel_first + cfg.tunnel_units)
+                             if p not in used), None)
+                if port is None:
+                    raise ApiError(429, "no tunnel ports left (TUNNEL_MAX_UNITS)")
+                unit = units[device] = {"listen_port": port}
+            unit.update(public_key=key, by=who, enrolled=time.time())
+            _write_json(path, units)
+            lines = [f'restrict,port-forwarding,permitlisten="127.0.0.1:{u["listen_port"]}" {u["public_key"]} '
+                     f'unit-{d[:6]}' for d, u in sorted(units.items())]
+            tmp = os.path.join(self.root, "authorized_keys.tmp")
+            with open(tmp, "w") as f:
+                f.write("\n".join(lines) + "\n")
+            os.chmod(tmp, 0o644)
+            os.replace(tmp, os.path.join(self.root, "authorized_keys"))
+            return {"host": cfg.tunnel_host, "port": cfg.tunnel_port, "user": cfg.tunnel_user,
+                    "listen_port": unit["listen_port"]}
+
+
 class Relay:
     """Remote help: a unit in the field opens a session and asks for work; someone with a remote
     token queues commands for it and collects the results. Nothing is stored on disk, a session
@@ -496,6 +549,7 @@ class Handler(BaseHTTPRequestHandler):
     store: Store = None         # set by make_server
     profiles: "Profiles" = None
     relay: "Relay" = None
+    tunnels: "Tunnels" = None
     cfg: Config = None
     timeout = 120               # a connection that goes quiet is dropped (make_server sets REQUEST_TIMEOUT)
 
@@ -676,6 +730,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_file(self.profiles.get(p[1], rev), None)
         # --- remote help ---
         r = self.relay
+        if p == ["remote", "tunnel"] and m == "POST":
+            who = self._need(upload=True)
+            return self._send(200, self.tunnels.enroll(self._json(), who))
         if p == ["remote", "sessions"] and m == "POST":
             who = self._need(upload=True)
             return self._send(201, r.open(self._json(), who))
@@ -725,7 +782,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def make_server(cfg: Config) -> ThreadingHTTPServer:
     handler = type("BoundHandler", (Handler,), {"store": Store(cfg), "cfg": cfg, "timeout": cfg.timeout,
-                                                "profiles": Profiles(cfg), "relay": Relay(cfg)})
+                                                "profiles": Profiles(cfg), "relay": Relay(cfg),
+                                                "tunnels": Tunnels(cfg)})
     return ThreadingHTTPServer((cfg.host, cfg.port), handler)
 
 

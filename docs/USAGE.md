@@ -257,6 +257,11 @@ the machine tell you. It works on any J1939 or CANopen bus and needs no document
    switched on at once: Live Data shows them, and so does every log from then on. Do it again
    another day and add to the same profile.
 
+**Or let it lead:** **Data log > Plan > Guided profile builder** on the handheld asks for one
+thing at a time ("Raise the forks and hold"), counts you in and out, tags the log itself and names
+what followed after the step. It starts with a few seconds of hands off, to learn what changes on
+its own. Steps that move the machine say so first; it only listens to the bus.
+
 Each value in an observed profile keeps a note of how it was found and how sure it is, so someone
 else can check it. A log without timestamps is cut into four equal parts, which is better than
 nothing but much less telling than tagging.
@@ -371,6 +376,10 @@ are: its screen, the connection, saved logs and profiles, fault codes, and read-
 the vehicle. The page lists everything they do. If they ask for something that could change the
 vehicle, the unit asks you first, and No is the default. **Stop remote help** ends it at once;
 otherwise it ends when the time is up. Nothing can reach the unit unless you start it.
+
+For hands-on work there is also **Open an SSH tunnel** on the same page: a full login to the
+unit for a helper it already accepts, through your server (if the server has the tunnel set up).
+It warns you first and stays open until you close it.
 
 The helper uses `canopener-cli remote list`, `remote send state`, `remote shot screen.png` and so
 on (`canopener-cli remote -h`).

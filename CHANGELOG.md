@@ -19,6 +19,17 @@ Towards working out an unfamiliar machine from what its bus does (docs/ARCHITECT
   suggested name (when it follows a value CANopener knows) or one from a short list by part of
   the machine, and **Save** makes a profile and switches it on, so Live shows the new values at
   once. Each value keeps how it was found and how sure it is (`core/observed.py`).
+- **Guided Profile Builder.** Handheld: **Data log > Plan > Guided profile builder**. Pick the
+  kind of machine (engine truck, electric truck, something else) and it walks you through a list
+  of things to do, one at a time: "Get ready", then "do it and hold", then "let go". It tags the
+  log by itself, learns first what changes when nobody touches anything, and after each step shows
+  what followed and names it after the step ("Lift", "Seat switch"). Nothing followed? Try again
+  or skip; the same answer twice is marked "seen again". Save makes the profile, switches it on
+  and shares it. It only listens (`core/guide.py`).
+- **SSH tunnel for hands-on help.** **System > Remote help > Open an SSH tunnel** (it warns
+  first) makes a reverse tunnel to the upload server's optional `canopener-tunnel` container, so a
+  helper who can already log in to the server, and to the unit, gets a full login to it from
+  anywhere. On the server the unit's key can do nothing but hold that tunnel (`core/tunnel.py`).
 - **Remote help.** Handheld: **System > Remote help > Start** calls out to the upload server (so it
   works from a phone hotspot) and lets someone holding one of the server's remote tokens look at
   the unit: its state, a screenshot, logs and profiles, fault codes, adapter commands, and requests

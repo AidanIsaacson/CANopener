@@ -35,7 +35,9 @@ def _state(args, link):
     ctx = _ctx(link)
     c = ctx.capture
     battery = ctx.hub.latest("obd.battery")
-    return {"connection": ctx.describe_connection(), "live": ctx.live, "protocol": ctx.protocol,
+    tunnel = ctx.tunnel
+    return {"tunnel": {"state": tunnel.state, **tunnel.grant} if tunnel else {"state": "off"},
+            "connection": ctx.describe_connection(), "live": ctx.live, "protocol": ctx.protocol,
             "profile": ctx.profile_name(), "can_transmit": ctx.can_transmit, "busy": ctx.busy or "",
             "bus": getattr(ctx.bus, "text", ""), "adapter": getattr(ctx.adapter, "text", ""),
             "battery": battery.value if battery else None,
@@ -154,7 +156,26 @@ def _changes(args, link):
     return r.to_dict() if args.get("full") else {"lines": r.lines(int(args.get("top") or 20))}
 
 
+def _tunnel(args, link):
+    ctx = _ctx(link)
+    if str(args.get("do") or "open") == "close":
+        ctx.tunnel_stop()
+        return {"state": ctx.tunnel.state if ctx.tunnel else "off"}
+    why = ctx.tunnel_start()
+    if why:
+        raise remote.Refused(why)
+    import time
+    end = time.time() + 15
+    while time.time() < end and ctx.tunnel.state == "connecting":
+        time.sleep(0.2)
+    return {"state": ctx.tunnel.state, **ctx.tunnel.grant}
+
+
 def register_all():
+    remote.register("tunnel", _tunnel, reads_only=lambda args: str(args.get("do") or "open") == "close",
+                    describe=lambda args: "open an SSH tunnel: a full login to this unit for anyone it accepts",
+                    help="open / close the SSH tunnel for hands-on work (args: do = open / close); opening asks "
+                         "at the unit")
     remote.register("state", _state, help="connection, protocol, profile, battery, the log's state")
     remote.register("screenshot", _screenshot, help="the screen as a PNG (base64)")
     remote.register("codes", _codes, help="read fault codes (J1939 args: preset active / stored / full)")

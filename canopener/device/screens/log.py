@@ -34,6 +34,9 @@ STATE_TEXT = {cap.IDLE: ("READY", "dim"), cap.RECORDING: ("RECORDING", "rec"),
               cap.STOPPED: ("STOPPED, NOT SAVED", "warn"), cap.SAVED: ("SAVED", "ok")}
 
 
+GUIDED = "\0guided"          # the plan menu's entry that opens the guided profile builder
+
+
 class LogScreen(Screen):
     title = "Data log"
 
@@ -121,8 +124,15 @@ class LogScreen(Screen):
         opts = [("Empty: just press Timestamp as things happen", None)]
         opts += [(f"{name}: {', '.join(labels[:4])}{'...' if len(labels) > 4 else ''}", name)
                  for name, labels in templates.items()]
-        choose(self.app, "Timestamps to expect", opts, None,
-               lambda name: self.ctx.set_plan(list(templates.get(name, [])) if name else []))
+        opts.append(("Guided profile builder: it tells you what to do and names what follows", GUIDED))
+
+        def picked(name):
+            if name == GUIDED:
+                from . import guide as guide_screen
+                guide_screen.start(self.app)
+            else:
+                self.ctx.set_plan(list(templates.get(name, [])) if name else [])
+        choose(self.app, "Timestamps to expect", opts, None, picked)
 
     def trim(self):
         tw = self.c.trim_window()

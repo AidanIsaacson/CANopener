@@ -129,6 +129,33 @@ are shown on its screen, and anything that could change the vehicle waits for a 
 person holding it. A remote token is still as good as standing next to the unit: give it only to
 someone you'd hand the unit to. A unit's upload token can open sessions but can't operate one.
 
+## SSH tunnel (optional, for hands-on help)
+
+Remote help covers looking and asking. For a real login to a unit in the field, the handheld can
+also open a reverse SSH tunnel (**System > Remote help > Open an SSH tunnel**; it warns first).
+That needs the `canopener-tunnel` container and one TCP port reachable from the internet:
+
+1. Forward a high TCP port of your choice (the default here is **47822**) from the router to
+   this server. Not port 22, and never to the server's own SSH.
+2. In `.env`: `TUNNEL_HOST=` the public name or address units should dial, and `TUNNEL_PORT=` if
+   it isn't 47822.
+3. `mkdir -p tunnel-hostkeys data/tunnel`, then `docker compose --profile tunnel up -d --build`.
+
+What a unit can do there is one thing. Its key (made on the unit, enrolled through its upload
+token) is written to `data/tunnel/authorized_keys` as
+`restrict,port-forwarding,permitlisten="127.0.0.1:<its port>"`: no shell, no passwords, no other
+forwarding, and the tunnel's far end listens on this server's own loopback only (the container
+uses the host's network for that). So to reach a unit you must already be able to log in to this
+server, and then to the unit itself:
+
+```bash
+ssh -J you@this-server -p 22201 user@127.0.0.1     # 22201: the unit's port (remote help's "state" shows it)
+```
+
+Ports are handed out from `TUNNEL_FIRST_LISTEN_PORT` (22201), one per unit, up to
+`TUNNEL_MAX_UNITS` (16). To cut a unit off, delete its entry from `data/tunnel/units.json` and
+its line from `data/tunnel/authorized_keys`.
+
 ## Reading captures
 
 Every reader call needs `Authorization: Bearer <a READ token>`.
@@ -172,6 +199,7 @@ remote token can only operate remote-help sessions (put one token in more than o
 | `PUT /api/profiles/<key>` | upload | the profile (a JSON object with a `name`); header `X-Device` | `{key, revision, ...}`, or the same with `unchanged` |
 | `GET /api/profiles` | read | `q` | `{count, profiles: [...]}` newest first |
 | `GET /api/profiles/<key>` | read | `rev` | the profile as uploaded |
+| `POST /api/remote/tunnel` | upload | `{device, public_key}` (ssh-ed25519) | `{host, port, user, listen_port}`; 404 when no tunnel is set up |
 | `POST /api/remote/sessions` | upload | `{device, label, minutes, info}` | `201` the session (`id`, `expires`) |
 | `GET /api/remote/sessions/<id>/next` | upload | `wait` (seconds, up to 25) | `{command}`: the next one, or null |
 | `POST /api/remote/sessions/<id>/results/<cmd>` | upload | the result (JSON, up to 12 MB) | `{ok}` |

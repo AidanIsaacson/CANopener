@@ -114,12 +114,34 @@ class SettingsScreen(Screen):
                 rows.append(Row(r.state.capitalize(), kind="info", level=lambda: "idle"))
             for minutes, label in ((30, "30 minutes"), (120, "2 hours"), (240, "4 hours")):
                 rows.append(Row(f"Start for {label}", kind="action", select=lambda m=minutes: self._remote_start(m)))
+        rows.append(Row("Full access (SSH tunnel)", kind="header"))
+        t = ctx.tunnel
+        if t is not None and (t.running or t.state == "connecting"):
+            rows.append(Row("Tunnel " + t.state, kind="info", level=lambda: "ok" if t.state == "open" else "wait",
+                            hint=t.where()))
+            rows.append(Row("Close the tunnel", kind="action", select=ctx.tunnel_stop))
+        else:
+            if t is not None and t.state.startswith("ended"):
+                rows.append(Row("Tunnel " + t.state, kind="info", level=lambda: "idle"))
+            rows.append(Row("Open an SSH tunnel", kind="action", select=self._tunnel_start,
+                            hint="for hands-on work: a helper who can log in to this unit gets a full login"))
         if r is not None and r.log:
             rows.append(Row("What it has done", kind="header"))
             for e in reversed(r.log[-12:]):
                 rows.append(Row(e.action, time.strftime("%H:%M:%S", time.localtime(e.t)), kind="info", hint=e.text,
                                 level=lambda e=e: "ok" if e.ok else "bad"))
         return rows
+
+    def _tunnel_start(self):
+        def go():
+            why = self.ctx.tunnel_start()
+            if why:
+                self.ctx.toast(why)
+        confirm(self.app, "Open an SSH tunnel?",
+                "This lets a helper log in to this unit over the internet, through your upload server, with "
+                "everything that login can do: far more than remote help. Only someone whose key or password "
+                "this unit already accepts gets in. It stays open until you close it here, stop remote help, "
+                "or the unit is switched off.", "Open", go)
 
     def _remote_start(self, minutes):
         why = self.ctx.remote_start(minutes)

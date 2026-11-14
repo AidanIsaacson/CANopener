@@ -1,0 +1,22 @@
+# Units may log in with their enrolled key and open the one reverse tunnel their key line allows.
+Port 47822
+HostKey /hostkeys/ssh_host_ed25519_key
+AllowUsers tunnel
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+PermitRootLogin no
+# written by the upload server (data/tunnel/authorized_keys); it isn't the user's own file
+AuthorizedKeysFile /keys/authorized_keys
+StrictModes no
+AllowTcpForwarding remote
+GatewayPorts no
+PermitTTY no
+X11Forwarding no
+AllowAgentForwarding no
+PermitTunnel no
+ForceCommand /sbin/nologin
+ClientAliveInterval 30
+ClientAliveCountMax 4
+MaxAuthTries 3
+LoginGraceTime 20

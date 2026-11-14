@@ -152,6 +152,15 @@ exercise the real backend.
   fields into profile `signals` entries with an `"observed"` note each (evidence, how sure) and
   saves an ordinary profile; the loader ignores the extra keys. Screens: `device/screens/discover.py`;
   CLI `changes`. Housekeeping traffic (`changes.is_housekeeping`) is never listed.
+* **Guided Profile Builder** (`core/guide.py`, `device/screens/guide.py`): a state machine over a
+  script of `Step`s (waiting / quiet / rest / do / look / result), fed frames by a session
+  listener and time by the screen. Each step's rest and do windows go through `changes.analyze`;
+  fields that changed in the opening hands-off stretch are `restless` and never offered; a field
+  seen for the same step twice is saved as "seen again". The screen records an ordinary log and
+  turns the steps into its timestamps.
+* **SSH tunnel** (`core/tunnel.py`, `deploy/upload-server/tunnel/`): `ssh -N -R` from the unit to a
+  locked-down sshd container beside the upload server; the unit's key is enrolled over the
+  upload API and can only listen on its own loopback port there.
 * **Remote help** (`core/remote.py`, `device/remote_actions.py`, `deploy/upload-server` `/api/remote`):
   the unit opens a session on the upload server and long-polls it for commands (`RemoteLink`, a
   thread); the helper's end is `Operator` / `canopener-cli remote`. An action is a registered
@@ -319,9 +328,11 @@ these by name.
     probe results (`kline_probe.json`). Next for them: the same screen on the desktop app, a live
     version that compares as you tag (no saved log needed), the K-line value recorder's CSV as an
     input, and scale suggestions from a meter channel (battery voltage, a pressure gauge).
-  * *Done:* remote help through the upload server. Still open: a reverse SSH tunnel from the same
-    page for hands-on work (it needs a TCP port forwarded to the server, or a relay for it), the
+  * *Done:* remote help through the upload server, and the SSH tunnel beside it. Still open: the
     deep probe and the value recorder as remote actions, and the same page on the desktop app.
+  * *Done:* the guided Profile Builder (handheld). Next: scripts for more kinds of machine
+    (telehandler, generator, reach truck), a desktop version, steps that expect two states
+    (forward / neutral / reverse as one value), and using a second pass to confirm automatically.
   * **Upload one result without a whole log**, and ask for the machine on the handheld before an
     upload (every capture that day went up with no machine and no concern).
   * **Finish the "not checked" rows** of BLUETOOTH-OBD.md's gaps on real vehicles (CAN OBD timing,

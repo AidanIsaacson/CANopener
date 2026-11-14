@@ -75,6 +75,7 @@ class DeviceContext:
         self.pulse_clock = PulseClock()
         self.pps: PpsReader | None = None
         self.result = None                  # last J1939 ScanResult
+        self.tunnel = None                  # core.tunnel.Tunnel while the SSH tunnel is (or was) open
         self.remote = None                  # core.remote.RemoteLink while remote help is (or was) on
         self.remote_app = None              # the app (for a screenshot) and how to ask a question on it:
         self.remote_show_ask = None         # show(text, on_yes); both set by the front-end
@@ -224,6 +225,21 @@ class DeviceContext:
     def remote_stop(self):
         if self.remote is not None:
             self.remote.stop()
+        self.tunnel_stop()
+
+    def tunnel_start(self) -> str:
+        """Open the SSH tunnel for hands-on help (``core.tunnel``). '' or why it can't."""
+        from ..core import tunnel
+        if not upload.HttpUploader().configured(self.settings):
+            return "No upload server is set up on this unit (the tunnel goes to it)."
+        if self.tunnel is None or not (self.tunnel.running or self.tunnel.state == "connecting"):
+            self.tunnel = tunnel.Tunnel(self.settings)
+            self.tunnel.start()
+        return ""
+
+    def tunnel_stop(self):
+        if self.tunnel is not None:
+            self.tunnel.stop()
 
     def _drain_jobs(self):
         while True:
