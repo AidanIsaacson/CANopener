@@ -49,7 +49,7 @@ UNLOCK_OPENS, UNLOCK_GAP_S = 7, 10.0
 # System's groups: page title -> the method building its rows (SettingsScreen._page_<name>)
 SECTIONS = {"Display": "display", "Controls": "controls", "Sound": "sound", "Meters": "meters",
             "Simulators": "simulators", "Installed options": "installed", "Storage": "storage",
-            "Software": "software"}
+            "Software": "software", "Remote help": "remote"}
 
 
 class SettingsScreen(Screen):
@@ -89,6 +89,43 @@ class SettingsScreen(Screen):
             return getattr(self, "_page_" + SECTIONS[self.section])()
         return self._menu()
 
+    # --- remote help (core.remote) ---
+    def _remote_summary(self) -> str:
+        r = self.ctx.remote
+        if r is None or not r.running:
+            return "off"
+        return f"on, {int(r.ends_in // 60) + 1} min left" if r.state == "open" else r.state
+
+    def _page_remote(self):
+        ctx, r = self.ctx, self.ctx.remote
+        on = r is not None and r.running
+        rows = [Row("Remote help", kind="header"),
+                Row("Calls out to the upload server so a helper with its remote key can look at this unit: "
+                    "its screen, logs and profiles, the connection, and read-only questions to the vehicle.",
+                    kind="info", hint="Anything that could change the vehicle asks you here first. It works "
+                                      "from a phone hotspot. Nothing can connect unless you start it.")]
+        if on:
+            rows.append(Row({"open": "On", "connecting": "Connecting..."}.get(r.state, r.state), kind="info",
+                            level=lambda: "ok" if r.state == "open" else "wait",
+                            hint=f"{int(r.ends_in // 60) + 1} min left" if r.state == "open" else ""))
+            rows.append(Row("Stop remote help", kind="action", select=ctx.remote_stop))
+        else:
+            if r is not None and r.state.startswith("ended"):
+                rows.append(Row(r.state.capitalize(), kind="info", level=lambda: "idle"))
+            for minutes, label in ((30, "30 minutes"), (120, "2 hours"), (240, "4 hours")):
+                rows.append(Row(f"Start for {label}", kind="action", select=lambda m=minutes: self._remote_start(m)))
+        if r is not None and r.log:
+            rows.append(Row("What it has done", kind="header"))
+            for e in reversed(r.log[-12:]):
+                rows.append(Row(e.action, time.strftime("%H:%M:%S", time.localtime(e.t)), kind="info", hint=e.text,
+                                level=lambda e=e: "ok" if e.ok else "bad"))
+        return rows
+
+    def _remote_start(self, minutes):
+        why = self.ctx.remote_start(minutes)
+        if why:
+            self.ctx.toast(why)
+
     # --- the top level ---
     def _menu(self):
         ctx, s = self.ctx, self.ctx.settings
@@ -113,6 +150,7 @@ class SettingsScreen(Screen):
             group("Installed options", "", "what this unit has fitted"),
             group("Storage", self._free_text, "logs folder, copy logs to USB"),
             group("Software", __version__, "updates, plugins, desktop app"),
+            group("Remote help", self._remote_summary, "let someone you trust look at this unit from elsewhere"),
             Row("About this device", select=self._about, hint="temperature, network, screen"),
             Row("Power", kind="header"),
             # Exits cleanly, so the Pi's service (Restart=on-failure) leaves the desktop showing.

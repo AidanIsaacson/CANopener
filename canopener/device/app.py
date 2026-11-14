@@ -106,6 +106,14 @@ class DeviceApp:
         from .screens.home import HomeScreen
         self.stack: list[Screen] = [HomeScreen(self)]
         s.on_change(self._setting_changed)
+        ctx.remote_app = self               # remote help: a screenshot, and questions asked on this screen
+        ctx.remote_show_ask = self._remote_ask
+
+    def _remote_ask(self, text: str, on_yes, on_no):
+        from .screens.base import ConfirmDialog
+        self.ctx.cue("codes")
+        self.push(ConfirmDialog(self, "Remote helper asks", f"Allow this? The remote helper wants to {text}.",
+                                "Allow", on_yes, on_no=on_no))
 
     def _setting_changed(self, key, value):
         if key in ("device.keys", "device.button5"):

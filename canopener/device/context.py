@@ -75,6 +75,10 @@ class DeviceContext:
         self.pulse_clock = PulseClock()
         self.pps: PpsReader | None = None
         self.result = None                  # last J1939 ScanResult
+        self.remote = None                  # core.remote.RemoteLink while remote help is (or was) on
+        self.remote_app = None              # the app (for a screenshot) and how to ask a question on it:
+        self.remote_show_ask = None         # show(text, on_yes); both set by the front-end
+        self._ui_calls: queue.Queue = queue.Queue()
         self.obd_thin: list = []            # modules that list no live data at all (core.obd.THIN_NOTE)
         self.obd_codes: dict | None = None  # last OBD-II read: module -> {stored/pending/permanent: [codes]}
         self.obd_client = None
@@ -191,7 +195,46 @@ class DeviceContext:
         threading.Thread(target=work, name="device-job", daemon=True).start()
         return True
 
+    # ------------------------------------------------------------------
+    # remote help (core.remote, device.remote_actions)
+    # ------------------------------------------------------------------
+    def post(self, fn):
+        """Run ``fn()`` on the UI thread at the next tick (for worker threads)."""
+        self._ui_calls.put(fn)
+
+    def remote_start(self, minutes: float = 30.0) -> str:
+        """Open a remote-help session. Returns '' or why it can't."""
+        from ..core import remote, upload
+        from . import remote_actions
+        if self.remote is not None and self.remote.running:
+            return ""
+        if not upload.HttpUploader().configured(self.settings):
+            return "No upload server is set up on this unit (it carries remote help too)."
+        remote_actions.register_all()
+        show = self.remote_show_ask
+        ask = remote_actions.Asker(self.post, show) if show else None
+        machine = self.capture.machine_summary() if self.capture.machine else ""
+        self.remote = remote.RemoteLink(self.settings, label=machine or self.describe_connection(), minutes=minutes,
+                                        confirm=ask, info=lambda: {"front_end": "device",
+                                                                   "connection": self.describe_connection()},
+                                        context={"ctx": self, "app": self.remote_app})
+        self.remote.start()
+        return ""
+
+    def remote_stop(self):
+        if self.remote is not None:
+            self.remote.stop()
+
     def _drain_jobs(self):
+        while True:
+            try:
+                fn = self._ui_calls.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                fn()
+            except Exception:           # a remote question must not take the instrument down
+                traceback.print_exc()
         while True:
             try:
                 kind, done, payload = self._jobs.get_nowait()
@@ -868,6 +911,18 @@ class DeviceContext:
         self.uploads.retry_now()
         self.toast("Queued for upload: it goes when there's a connection")
 
+    def share_profile(self, path: str) -> bool:
+        """Send a profile made on this unit to the upload server, when one is set up and profile
+        sharing is on (``upload.profiles``, on by default). Quiet if there's nowhere to send it."""
+        if not self.settings.get("upload.profiles") or not upload.HttpUploader().configured(self.settings):
+            return False
+        settings = self.settings
+
+        def done(got):
+            self.toast("Profile shared with the upload server"
+                       + ("" if got.get("unchanged") else f" (revision {got.get('revision')})"))
+        return self.run_job("Sharing the profile", lambda: upload.upload_profile(settings, path), done)
+
     def find_changes(self, then) -> bool:
         """Compare what the bus said between the saved log's timestamps (``core.changes``).
         ``then(report)`` on the UI thread. A log without timestamps is cut into four equal parts."""
@@ -964,6 +1019,7 @@ class DeviceContext:
         powering off never leaves an unsaved log behind), close the bus. If saving fails the log
         stays a pending capture, which either UI offers to recover on its next start."""
         self.stop_finder()
+        self.remote_stop()
         if self.recording:
             self.capture.stop()
         if save and self.capture.state == cap.STOPPED:

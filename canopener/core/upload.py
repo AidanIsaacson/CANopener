@@ -32,6 +32,7 @@ and checksum) returns the parts the server already has. Standard library only (u
 import hashlib
 import json
 import os
+import re
 import threading
 import time
 import urllib.error
@@ -392,7 +393,7 @@ class HttpUploader(Uploader):
         return f"{url} (from a plugin)" if default else url
 
     def _call(self, settings, method: str, path: str, body: bytes | None = None, ctype: str = "application/json",
-              extra: dict | None = None) -> dict:
+              extra: dict | None = None, timeout: float | None = None) -> dict:
         base, token, _ = self.server(settings)
         if not base:
             raise UploadError("No upload server is set (Upload settings).", retry=False)
@@ -405,7 +406,8 @@ class HttpUploader(Uploader):
         headers = {"Authorization": f"Bearer {token}", **(extra or {})}
         if body is not None:
             headers["Content-Type"] = ctype
-        status, raw = http(method, base + path, body, headers)
+        status, raw = http(method, base + path, body, headers, timeout) if timeout else \
+            http(method, base + path, body, headers)
         try:
             js = json.loads(raw.decode() or "null") if raw else None
         except (ValueError, UnicodeDecodeError):
@@ -466,6 +468,28 @@ register_uploader(HttpUploader())
 
 
 # ---------------------------------------------------------------------------------- queue
+
+
+def profile_key(doc: dict, path: str = "") -> str:
+    """The name a profile is stored under on the server: its file name plus this unit's id, so two
+    units' "observed-forklift" don't overwrite each other."""
+    base = os.path.splitext(os.path.basename(path))[0] if path else ""
+    base = re.sub(r"[^A-Za-z0-9._-]+", "-", base or str(doc.get("name") or "profile")).strip("-.") or "profile"
+    return f"{base[:120]}_{device_id()[:6]}"
+
+
+def upload_profile(settings, path: str, uploader: "HttpUploader | None" = None) -> dict:
+    """Send one profile file to the upload server (``PUT /api/profiles/<key>``). The server keeps
+    every different version. Raises UploadError."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+    except (OSError, ValueError) as e:
+        raise UploadError(f"Can't read that profile: {e}", retry=False) from e
+    up = uploader or HttpUploader()
+    return up._call(settings, "PUT", f"/api/profiles/{profile_key(doc, path)}",
+                    json.dumps(doc, ensure_ascii=False).encode(), extra={"X-Device": device_id()})
+
 
 @dataclass
 class UploadQueue:

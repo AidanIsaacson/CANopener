@@ -105,6 +105,30 @@ Nothing is deleted unless you ask for it:
 - Unfinished uploads are deleted after `INCOMING_DAYS`. This and `KEEP_DAYS` are checked when the
   server starts and every hour after.
 
+## Machine profiles
+
+Units also send in the profiles made on them (the handheld does it when one is saved, if
+**upload.profiles** is on; `canopener-cli profiles --upload ID` or `--upload all` from a computer).
+They are kept as `data/profiles/<name>_<unit>/rev-NNNN.json`, a new revision for every change, so
+profiles for the same kind of machine from different units can be compared and merged by hand.
+Read them back with a read token: `GET /api/profiles` (`?q=` searches name, machine, unit) and
+`GET /api/profiles/<key>` (`?rev=N` for an older one).
+
+## Remote help
+
+A unit on a phone hotspot can't be reached from outside, but it can call out. **System > Remote
+help > Start** on the handheld opens a session here and keeps asking for work; someone holding a
+token from `REMOTE_TOKENS` lists the sessions and sends commands (`canopener-cli remote list`,
+`remote send state`, `remote shot screen.png`, `remote send request --args '{"requests": ["0100"]}'`).
+
+The server only passes the messages along and keeps them in memory: nothing about a session is
+written to disk, and it ends when the unit stops it or its time is up (`REMOTE_MAX_MINUTES`). The
+unit decides what it will do: it has a fixed list of actions (its state, a screenshot, its logs
+and profiles, fault codes, adapter commands, requests to the vehicle), reads run straight away and
+are shown on its screen, and anything that could change the vehicle waits for a Yes from the
+person holding it. A remote token is still as good as standing next to the unit: give it only to
+someone you'd hand the unit to. A unit's upload token can open sessions but can't operate one.
+
 ## Reading captures
 
 Every reader call needs `Authorization: Bearer <a READ token>`.
@@ -128,8 +152,9 @@ add or change anything.
 ## API
 
 All JSON. Errors are `{"error": "..."}` with a 4xx / 5xx status. Tokens go in
-`Authorization: Bearer <token>`. An upload token can only upload, a read token can only read, an
-admin token can only delete (put one token in more than one list for more).
+`Authorization: Bearer <token>`. An upload token can only upload (captures, profiles, and opening a
+remote-help session for itself), a read token can only read, an admin token can only delete, a
+remote token can only operate remote-help sessions (put one token in more than one list for more).
 
 | Call | Token | Body / query | Answer |
 |---|---|---|---|
@@ -144,6 +169,16 @@ admin token can only delete (put one token in more than one list for more).
 | `GET /api/captures/<key>/files/<name>` | read | `max_bytes`: only the first N bytes | the file (`X-File-Size` has its full size) |
 | `GET /api/captures/<key>/bundle.zip` | read | | the zip as uploaded |
 | `DELETE /api/captures/<key>` | admin | | `{deleted}`: the capture and all its revisions are gone |
+| `PUT /api/profiles/<key>` | upload | the profile (a JSON object with a `name`); header `X-Device` | `{key, revision, ...}`, or the same with `unchanged` |
+| `GET /api/profiles` | read | `q` | `{count, profiles: [...]}` newest first |
+| `GET /api/profiles/<key>` | read | `rev` | the profile as uploaded |
+| `POST /api/remote/sessions` | upload | `{device, label, minutes, info}` | `201` the session (`id`, `expires`) |
+| `GET /api/remote/sessions/<id>/next` | upload | `wait` (seconds, up to 25) | `{command}`: the next one, or null |
+| `POST /api/remote/sessions/<id>/results/<cmd>` | upload | the result (JSON, up to 12 MB) | `{ok}` |
+| `GET /api/remote/sessions` | remote | | `{sessions: [...]}` |
+| `POST /api/remote/sessions/<id>/commands` | remote | `{action, args}` | `201 {id}` |
+| `GET /api/remote/sessions/<id>/results/<cmd>` | remote | `wait` | `{result}`: the unit's answer, or null |
+| `DELETE /api/remote/sessions/<id>` | upload or remote | | `{closed}` |
 
 **Uploading** is in parts, so no request is bigger than `part_size` (the server clamps it to 64 kB
 to `MAX_PART_MB`, 64 MB by default; Cloudflare refuses requests over 100 MB):
@@ -171,6 +206,8 @@ disk. Unfinished uploads are deleted after `INCOMING_DAYS`.
 data/index.json                         every capture's summary, newest upload first
 data/captures/<key>/rev-0001/           bundle.zip, manifest.json, files/ (the unpacked capture)
 data/incoming/<upload id>/              parts of an upload still in progress
+data/profiles/index.json                every profile's summary
+data/profiles/<key>/rev-0001.json       each version of a profile, as uploaded
 ```
 
 To delete a capture by hand instead of with `DELETE`, remove its `data/captures/<key>` folder and

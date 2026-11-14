@@ -152,6 +152,13 @@ exercise the real backend.
   fields into profile `signals` entries with an `"observed"` note each (evidence, how sure) and
   saves an ordinary profile; the loader ignores the extra keys. Screens: `device/screens/discover.py`;
   CLI `changes`. Housekeeping traffic (`changes.is_housekeeping`) is never listed.
+* **Remote help** (`core/remote.py`, `device/remote_actions.py`, `deploy/upload-server` `/api/remote`):
+  the unit opens a session on the upload server and long-polls it for commands (`RemoteLink`, a
+  thread); the helper's end is `Operator` / `canopener-cli remote`. An action is a registered
+  function with a flag (or a function of its arguments) saying whether it only reads; one that
+  doesn't calls `confirm`, which on the handheld posts a default-No dialog to the UI thread
+  (`remote_actions.Asker`, `DeviceContext.post`) and waits up to a minute. The server relays and
+  stores nothing. Profile uploads (`upload.upload_profile`) use the same server.
 * **Honest sends** (`ElmBackend._raise_if_not_sent`): when the adapter says a frame never reached
   the bus (`TX_FAILED`) and nothing answered, `send` raises, so `Session.send_frame` reports it
   (`health.tx_error`) and doesn't log the frame; `scan.run_scan` gives up after a first request
@@ -312,8 +319,9 @@ these by name.
     probe results (`kline_probe.json`). Next for them: the same screen on the desktop app, a live
     version that compares as you tag (no saved log needed), the K-line value recorder's CSV as an
     input, and scale suggestions from a meter channel (battery voltage, a pressure gauge).
-  * **Remote adapter console:** read-only requests sent through a unit in the field from
-    somewhere else, to cut the push / update / run / upload loop when working out a new machine.
+  * *Done:* remote help through the upload server. Still open: a reverse SSH tunnel from the same
+    page for hands-on work (it needs a TCP port forwarded to the server, or a relay for it), the
+    deep probe and the value recorder as remote actions, and the same page on the desktop app.
   * **Upload one result without a whole log**, and ask for the machine on the handheld before an
     upload (every capture that day went up with no machine and no concern).
   * **Finish the "not checked" rows** of BLUETOOTH-OBD.md's gaps on real vehicles (CAN OBD timing,

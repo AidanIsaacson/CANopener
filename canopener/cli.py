@@ -23,7 +23,7 @@ import sys
 import time
 
 from . import __version__
-from .core import connection, interfaces, profiles, report, scan, units
+from .core import config, connection, interfaces, profiles, report, scan, units
 
 
 def _apply_profile(pid: str | None):
@@ -1029,7 +1029,80 @@ def cmd_changes(a) -> int:
     return 0
 
 
+def cmd_remote(a) -> int:
+    """The helper's end of remote help (core.remote.Operator): list the units that are calling in,
+    send one a command, save its screen."""
+    import base64
+    import json
+
+    from .core import remote, upload
+    from .core.settings import Settings
+    url = a.url or os.environ.get("CANOPENER_REMOTE_URL") or Settings().get("upload.url") or upload.default_server()[0]
+    token = os.environ.get("CANOPENER_REMOTE_TOKEN") or ""
+    path = os.path.join(config.config_dir(), "remote-token")
+    if not token and os.path.exists(path):
+        with open(path) as f:
+            token = f.read().strip()
+    if not url or not token:
+        print("Needs the server's address (--url, or this unit's upload server) and a remote token "
+              f"(CANOPENER_REMOTE_TOKEN, or the file {path}).", file=sys.stderr)
+        return 2
+    op = remote.Operator(url, token)
+    try:
+        sessions = op.sessions()
+        if a.action == "list":
+            for s in sessions:
+                left = max(0, int((s["expires"] - time.time()) / 60))
+                print(f"{s['id']}  {s['label'] or '(no label)'}  unit {s['device'][:6]}  {left} min left  "
+                      f"{s['done']} done  {s.get('info') or ''}")
+            if not sessions:
+                print("No unit is calling in. On the handheld: System > Remote help > Start.")
+            return 0
+        sid = a.session or (sessions[0]["id"] if len(sessions) == 1 else "")
+        if not sid:
+            print("Which session? (remote list shows them; --session ID)", file=sys.stderr)
+            return 2
+        sid = next((s["id"] for s in sessions if s["id"].startswith(sid)), sid)
+        if a.action == "close":
+            op.close(sid)
+            return 0
+        if a.action == "shot":
+            got = op.send(sid, "screenshot")
+            if not got.get("ok"):
+                print(got.get("error"), file=sys.stderr)
+                return 1
+            with open(a.name or "screen.png", "wb") as f:
+                f.write(base64.b64decode(got["value"]["png_base64"]))
+            print(a.name or "screen.png")
+            return 0
+        args = json.loads(a.args) if a.args else {}
+        got = op.send(sid, a.name or "status", args, wait=a.wait)
+        print(json.dumps(got, indent=1, ensure_ascii=False))
+        return 0 if got.get("ok") else 1
+    except (upload.UploadError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 1
+
+
 def cmd_profiles(a) -> int:
+    if getattr(a, "upload", None):
+        from .core import upload
+        from .core.settings import Settings
+        found, _errors = profiles.available_profiles()
+        todo = [p for p in found if not p.builtin and p.path and (a.upload == "all" or p.id == a.upload)]
+        if not todo:
+            print(f"No profile of your own called {a.upload!r} (canopener-cli profiles lists them).", file=sys.stderr)
+            return 1
+        failed = 0
+        for p in todo:
+            try:
+                got = upload.upload_profile(Settings(), p.path)
+                how = "already there" if got.get("unchanged") else f"uploaded, revision {got['revision']}"
+                print(f"{p.id}: {how}")
+            except upload.UploadError as e:
+                failed += 1
+                print(f"{p.id}: {e}", file=sys.stderr)
+        return 1 if failed else 0
     found, errors = profiles.available_profiles()
     for p in found:
         print(f"{p.id:<20} {p.name}{'' if p.builtin else '  (user)'}")
@@ -1106,8 +1179,20 @@ def main(argv=None) -> int:
     f.add_argument("--sound", action="store_true", help="chime on the speaker when found")
     f.add_argument("--buzzer", metavar="SPEC", help="also on a buzzer: auto, /dev/input/eventN or pwm:CHIP:CH")
     f.set_defaults(fn=cmd_find)
-    sub.add_parser("profiles", help="list machine profiles").set_defaults(fn=cmd_profiles)
+    pr = sub.add_parser("profiles", help="list machine profiles (--upload sends your own to the upload server)")
+    pr.add_argument("--upload", metavar="ID", help="send one of your own profiles (or 'all') to the upload server")
+    pr.set_defaults(fn=cmd_profiles)
 
+    rm = sub.add_parser("remote", help="the helper's end of remote help: list the units calling in "
+                        "(System > Remote help on the handheld), send one a command, save its screen")
+    rm.add_argument("action", choices=["list", "send", "shot", "close"], nargs="?", default="list")
+    rm.add_argument("name", nargs="?", help="send: the action (status, state, codes, logs, file, request ...); "
+                    "shot: the file to save (screen.png)")
+    rm.add_argument("--args", help='send: the action\'s arguments as JSON, e.g. \'{"requests": ["0100"]}\'')
+    rm.add_argument("--session", help="the session id (or its first characters); not needed when only one is open")
+    rm.add_argument("--url", help="the server's address (default: this unit's upload server)")
+    rm.add_argument("--wait", type=float, default=120.0, help="send: seconds to wait for the answer")
+    rm.set_defaults(fn=cmd_remote)
     ch = sub.add_parser("changes", help="what changed between the timestamps of a capture: the bytes and bits "
                         "that differ from one state of the machine to the next, with no decoder needed")
     ch.add_argument("capture", help="a saved capture folder (its timestamps are the phases) or a log file")

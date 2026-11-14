@@ -132,6 +132,7 @@ class DiscoverScreen(Screen):
             self.ctx.apply_profile(pid)
             self.ctx.toast(f"Saved {len(entries)} value(s) as '{self.ctx.profile_name()}': Live shows them now")
             self.picked.clear()
+            self.ctx.share_profile(path)
         choose(self.app, "Save as a profile", opts, None, go)
 
     def softkeys(self):

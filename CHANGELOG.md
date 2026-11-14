@@ -19,6 +19,15 @@ Towards working out an unfamiliar machine from what its bus does (docs/ARCHITECT
   suggested name (when it follows a value CANopener knows) or one from a short list by part of
   the machine, and **Save** makes a profile and switches it on, so Live shows the new values at
   once. Each value keeps how it was found and how sure it is (`core/observed.py`).
+- **Remote help.** Handheld: **System > Remote help > Start** calls out to the upload server (so it
+  works from a phone hotspot) and lets someone holding one of the server's remote tokens look at
+  the unit: its state, a screenshot, logs and profiles, fault codes, adapter commands, and requests
+  to the vehicle. Reads run straight away and are listed on the page; anything that could change
+  the vehicle waits for a Yes on the unit (default No). `canopener-cli remote` is the helper's
+  end. The server only relays (`deploy/upload-server`, `REMOTE_TOKENS`); `core/remote.py`.
+- **Profiles go to the upload server too.** A profile saved on the handheld is sent along
+  (`upload.profiles`, on by default; `canopener-cli profiles --upload ID`), every change kept as a
+  new revision, readable with a read token (`/api/profiles`).
 - **The deep probe's result as data:** `kline_probe.json` beside the text report, with the plan
   the value recorder reads again (it parsed the text before).
 

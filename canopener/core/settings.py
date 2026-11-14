@@ -35,6 +35,7 @@ DEFAULTS: dict = {
     "can.bitrate": 250000,              # 0 = auto (the signal finder picks it)
     "can.listen_only": False,
     "can.connect_on_start": False,
+    "upload.profiles": True,            # send profiles made on this unit to the upload server too (core.upload)
     "elm.adapter": "",                  # Bluetooth OBD: the adapter's address (core.bluetooth, can.elm327)
     "elm.protocol": "0",                # its ATSP protocol: "0" searches, "6" = CAN 11-bit 500k, "A" = J1939 ...
     "elm.bus": "",                      # a plugin's bus setup id (core.adapter_buses), "" = none

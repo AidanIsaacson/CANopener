@@ -362,6 +362,19 @@ server. With no connection it waits and tries again; uploads still waiting when 
 go on the next time it opens. A capture you change after uploading (relabelled, trimmed, new
 machine details) shows that, and **Upload again** replaces the copy on the server.
 
+## Remote help
+
+Stuck at a machine with nobody to ask? On the handheld, **System > Remote help > Start** (30
+minutes, 2 hours or 4). The unit calls out to your upload server, so it works from a phone
+hotspot, and someone you've given the server's remote key to can look at it from wherever they
+are: its screen, the connection, saved logs and profiles, fault codes, and read-only questions to
+the vehicle. The page lists everything they do. If they ask for something that could change the
+vehicle, the unit asks you first, and No is the default. **Stop remote help** ends it at once;
+otherwise it ends when the time is up. Nothing can reach the unit unless you start it.
+
+The helper uses `canopener-cli remote list`, `remote send state`, `remote shot screen.png` and so
+on (`canopener-cli remote -h`).
+
 ## What it sends
 
 * **Reading** sends only standard requests (J1939, OBD-II, UDS and CANopen SDO reads). Tick

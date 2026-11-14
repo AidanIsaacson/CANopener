@@ -290,7 +290,8 @@ def test_deleting_a_capture_needs_an_admin_token(tmp_path, settings, server):
     assert _call("DELETE", f"{base}/api/captures/{key}", "both")[0] == 403
     cfg.admin_tokens.append("admin-token")
     assert _call("GET", f"{base}/api/whoami", "admin-token") == (200, {
-        "can_upload": False, "can_read": False, "can_delete": True, "server": cfg.name, "version": "2"})
+        "can_upload": False, "can_read": False, "can_delete": True, "server": cfg.name, "can_remote": False,
+        "version": "3"})
     assert _call("GET", f"{base}/api/captures", "admin-token")[0] == 403               # it can't read either
     assert _call("DELETE", f"{base}/api/captures/{key}", "admin-token") == (200, {"deleted": key})
     assert _call("GET", f"{base}/api/captures/{key}", "read-token")[0] == 404

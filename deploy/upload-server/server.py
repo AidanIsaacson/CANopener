@@ -37,7 +37,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
-VERSION = "2"
+VERSION = "3"
 CLEANUP_EVERY = 3600             # seconds between cleanups (unfinished uploads, expired captures)
 KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$")
 FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,159}$")
@@ -60,6 +60,8 @@ class Config:
         self.upload_tokens = [t.strip() for t in (env.get("UPLOAD_TOKENS") or "").split(",") if t.strip()]
         self.read_tokens = [t.strip() for t in (env.get("READ_TOKENS") or "").split(",") if t.strip()]
         self.admin_tokens = [t.strip() for t in (env.get("ADMIN_TOKENS") or "").split(",") if t.strip()]
+        self.remote_tokens = [t.strip() for t in (env.get("REMOTE_TOKENS") or "").split(",") if t.strip()]
+        self.remote_minutes = float(env.get("REMOTE_MAX_MINUTES") or 240)
         self.max_upload = int(float(env.get("MAX_UPLOAD_MB") or 4096) * 1024 * 1024)
         self.max_part = int(float(env.get("MAX_PART_MB") or 64) * 1024 * 1024)
         self.keep = int(env.get("KEEP_REVISIONS") or 3)
@@ -314,6 +316,168 @@ class Store:
         return p
 
 
+class Profiles:
+    """Machine profiles sent in by units: ``data/profiles/<name>/rev-NNNN.json`` and an index.
+    A profile is whatever JSON object the app sends (it must have a "name"); every different
+    upload of one name is kept as a new revision."""
+
+    def __init__(self, cfg: Config):
+        self.root = os.path.join(cfg.data, "profiles")
+        self.lock = threading.Lock()
+        os.makedirs(self.root, exist_ok=True)
+
+    def _index_path(self) -> str:
+        return os.path.join(self.root, "index.json")
+
+    def index(self) -> list[dict]:
+        return _read_json(self._index_path(), [])
+
+    def put(self, name: str, doc: dict, who: str, device: str) -> dict:
+        if not KEY_RE.match(name):
+            raise ApiError(400, "bad profile name")
+        if not isinstance(doc, dict) or not str(doc.get("name") or "").strip():
+            raise ApiError(400, "a profile is a JSON object with a 'name'")
+        raw = json.dumps(doc, indent=1, ensure_ascii=False, sort_keys=True).encode()
+        sha = hashlib.sha256(raw).hexdigest()
+        with self.lock:
+            entries = self.index()
+            old = next((e for e in entries if e["key"] == name), None)
+            if old and old.get("sha256") == sha:
+                return {**old, "unchanged": True}
+            rev = (old["revision"] if old else 0) + 1
+            folder = os.path.join(self.root, name)
+            os.makedirs(folder, exist_ok=True)
+            with open(os.path.join(folder, f"rev-{rev:04d}.json"), "wb") as f:
+                f.write(raw)
+            observed = doc.get("observed") if isinstance(doc.get("observed"), dict) else {}
+            entry = {"key": name, "name": str(doc["name"]), "revision": rev, "uploaded": time.time(), "sha256": sha,
+                     "size": len(raw), "by": who, "device": device[:64], "protocol": str(doc.get("protocol") or ""),
+                     "extends": str(doc.get("extends") or ""), "signals": len(doc.get("signals") or []),
+                     "observed": bool(observed), "machine": observed.get("machine") or {}}
+            _write_json(self._index_path(), [entry] + [e for e in entries if e["key"] != name])
+            return entry
+
+    def get(self, name: str, rev: int | None = None) -> str:
+        if not KEY_RE.match(name):
+            raise ApiError(400, "bad profile name")
+        entry = next((e for e in self.index() if e["key"] == name), None)
+        if entry is None:
+            raise ApiError(404, "no such profile")
+        path = os.path.join(self.root, name, f"rev-{rev or entry['revision']:04d}.json")
+        if not os.path.isfile(path):
+            raise ApiError(404, "no such revision")
+        return path
+
+
+class Relay:
+    """Remote help: a unit in the field opens a session and asks for work; someone with a remote
+    token queues commands for it and collects the results. Nothing is stored on disk, a session
+    ends when its time is up or either side closes it, and the unit decides what it will do with
+    each command (the server only carries them)."""
+
+    MAX_SESSIONS = 8
+    MAX_QUEUE = 64
+    MAX_RESULT = 12 * 1024 * 1024       # a screenshot or a small file, base64 in JSON
+
+    def __init__(self, cfg: Config):
+        self.cfg = cfg
+        self.cond = threading.Condition()
+        self.sessions: dict[str, dict] = {}
+
+    def _expire(self):
+        now = time.time()
+        for sid in [k for k, v in self.sessions.items() if v["expires"] < now]:
+            del self.sessions[sid]
+
+    def _get(self, sid: str) -> dict:
+        self._expire()
+        s = self.sessions.get(sid)
+        if s is None:
+            raise ApiError(404, "no such session (it may have ended)")
+        return s
+
+    @staticmethod
+    def _public(s: dict) -> dict:
+        return {k: s[k] for k in ("id", "device", "label", "info", "created", "expires", "last_poll", "done")} | {
+            "queued": len(s["queue"])}
+
+    def open(self, body: dict, who: str) -> dict:
+        minutes = min(float(body.get("minutes") or 30), self.cfg.remote_minutes)
+        with self.cond:
+            self._expire()
+            if len(self.sessions) >= self.MAX_SESSIONS:
+                raise ApiError(429, "too many remote sessions are open")
+            sid = uuid.uuid4().hex
+            now = time.time()
+            self.sessions[sid] = {"id": sid, "device": str(body.get("device") or "")[:64], "by": who,
+                                  "label": str(body.get("label") or "")[:120], "info": body.get("info") or {},
+                                  "created": now, "expires": now + max(1.0, minutes) * 60, "last_poll": 0.0,
+                                  "queue": [], "results": {}, "done": 0}
+            return self._public(self.sessions[sid])
+
+    def close(self, sid: str) -> dict:
+        with self.cond:
+            self._get(sid)
+            del self.sessions[sid]
+            self.cond.notify_all()
+            return {"closed": sid}
+
+    def list(self) -> list[dict]:
+        with self.cond:
+            self._expire()
+            return [self._public(s) for s in sorted(self.sessions.values(), key=lambda s: -s["created"])]
+
+    def next(self, sid: str, wait: float) -> dict | None:
+        """The unit asks for its next command (waits up to ``wait`` seconds for one)."""
+        end = time.time() + max(0.0, min(wait, 25.0))
+        with self.cond:
+            while True:
+                s = self._get(sid)
+                s["last_poll"] = time.time()
+                if s["queue"]:
+                    return s["queue"].pop(0)
+                left = end - time.time()
+                if left <= 0:
+                    return None
+                self.cond.wait(left)
+
+    def command(self, sid: str, body: dict, who: str) -> dict:
+        action = str(body.get("action") or "")
+        if not action or len(action) > 64:
+            raise ApiError(400, "a command needs an 'action'")
+        with self.cond:
+            s = self._get(sid)
+            if len(s["queue"]) >= self.MAX_QUEUE:
+                raise ApiError(429, "the unit has too many commands waiting")
+            cmd = {"id": uuid.uuid4().hex, "action": action, "args": body.get("args") or {}, "by": who,
+                   "queued": time.time()}
+            s["queue"].append(cmd)
+            self.cond.notify_all()
+            return {"id": cmd["id"], "session": sid}
+
+    def result(self, sid: str, cid: str, body: dict) -> dict:
+        with self.cond:
+            s = self._get(sid)
+            s["results"][cid] = {"id": cid, "finished": time.time(), "result": body}
+            s["done"] += 1
+            while len(s["results"]) > self.MAX_QUEUE:
+                s["results"].pop(next(iter(s["results"])))
+            self.cond.notify_all()
+            return {"ok": True}
+
+    def fetch(self, sid: str, cid: str, wait: float) -> dict | None:
+        end = time.time() + max(0.0, min(wait, 25.0))
+        with self.cond:
+            while True:
+                s = self._get(sid)
+                if cid in s["results"]:
+                    return s["results"][cid]
+                left = end - time.time()
+                if left <= 0:
+                    return None
+                self.cond.wait(left)
+
+
 def _summary(m: dict) -> dict:
     keep = ("key", "revision", "uploaded", "size", "name", "machine", "machine_summary", "concern", "question",
             "started", "stopped", "frames", "samples", "timestamps", "undecoded_streams", "streams",
@@ -330,6 +494,8 @@ def _matches(e: dict, q: str) -> bool:
 class Handler(BaseHTTPRequestHandler):
     server_version = f"CANopenerUpload/{VERSION}"
     store: Store = None         # set by make_server
+    profiles: "Profiles" = None
+    relay: "Relay" = None
     cfg: Config = None
     timeout = 120               # a connection that goes quiet is dropped (make_server sets REQUEST_TIMEOUT)
 
@@ -407,6 +573,19 @@ class Handler(BaseHTTPRequestHandler):
         return (known(self.cfg.upload_tokens), known(self.cfg.read_tokens), known(self.cfg.admin_tokens),
                 hashlib.sha256(tok).hexdigest()[:8])
 
+    def _token(self) -> bytes:
+        auth = self.headers.get("Authorization") or ""
+        return auth[7:].strip().encode("utf-8", "replace") if auth.lower().startswith("bearer ") else b""
+
+    def _need_remote(self) -> str:
+        """A remote token: may list remote sessions and send commands to units."""
+        tok = self._token()
+        if not tok:
+            raise ApiError(401, "a valid token is needed (Authorization: Bearer ...)")
+        if not any(hmac.compare_digest(tok, t.encode()) for t in self.cfg.remote_tokens):
+            raise ApiError(403, "this token can't use remote help")
+        return hashlib.sha256(tok).hexdigest()[:8]
+
     def _need(self, upload: bool = False, read: bool = False, admin: bool = False) -> str:
         up, rd, ad, who = self._rights()
         if not (up or rd or ad):
@@ -430,9 +609,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True, "version": VERSION})
         if p == ["whoami"] and m == "GET":
             up, rd, ad, _ = self._rights()
-            if not (up or rd or ad):
+            remote = any(hmac.compare_digest(self._token(), t.encode()) for t in self.cfg.remote_tokens)
+            if not (up or rd or ad or remote):
                 raise ApiError(401, "a valid token is needed (Authorization: Bearer ...)")
+            tok = self._token()
             return self._send(200, {"can_upload": up, "can_read": rd, "can_delete": ad, "server": self.cfg.name,
+                                    "can_remote": any(hmac.compare_digest(tok, t.encode())
+                                                      for t in self.cfg.remote_tokens),
                                     "version": VERSION})
         if p == ["uploads"] and m == "POST":
             who = self._need(upload=True)
@@ -476,6 +659,56 @@ class Handler(BaseHTTPRequestHandler):
             self._need(read=True)
             mb = q.get("max_bytes")
             return self._send_file(s.file_path(p[1], p[3]), int(mb) if mb and mb.isdigit() else None)
+        # --- machine profiles ---
+        if p == ["profiles"] and m == "GET":
+            self._need(read=True)
+            entries = self.profiles.index()
+            if q.get("q"):
+                words = q["q"].lower().split()
+                entries = [e for e in entries if all(w in json.dumps(e).lower() for w in words)]
+            return self._send(200, {"count": len(entries), "profiles": entries})
+        if len(p) == 2 and p[0] == "profiles" and m == "PUT":
+            who = self._need(upload=True)
+            return self._send(200, self.profiles.put(p[1], self._json(), who, self.headers.get("X-Device") or ""))
+        if len(p) == 2 and p[0] == "profiles" and m in ("GET", "HEAD"):
+            self._need(read=True)
+            rev = int(q["rev"]) if q.get("rev", "").isdigit() else None
+            return self._send_file(self.profiles.get(p[1], rev), None)
+        # --- remote help ---
+        r = self.relay
+        if p == ["remote", "sessions"] and m == "POST":
+            who = self._need(upload=True)
+            return self._send(201, r.open(self._json(), who))
+        if p == ["remote", "sessions"] and m == "GET":
+            self._need_remote()
+            return self._send(200, {"sessions": r.list()})
+        if len(p) >= 3 and p[:2] == ["remote", "sessions"]:
+            sid, rest = p[2], p[3:]
+            if not ID_RE.match(sid):
+                raise ApiError(400, "bad session id")
+            wait = float(q["wait"]) if q.get("wait", "").replace(".", "", 1).isdigit() else 0.0
+            if rest == [] and m == "DELETE":
+                if not self._rights()[0]:
+                    self._need_remote()
+                return self._send(200, r.close(sid))
+            if rest == ["next"] and m == "GET":
+                self._need(upload=True)
+                cmd = r.next(sid, wait)
+                return self._send(200, {"command": cmd})
+            if len(rest) == 2 and rest[0] == "results" and m == "POST":
+                self._need(upload=True)
+                raw = self._body(Relay.MAX_RESULT)
+                try:
+                    body = json.loads(raw.decode() or "{}")
+                except (ValueError, UnicodeDecodeError):
+                    raise ApiError(400, "the result must be JSON") from None
+                return self._send(200, r.result(sid, rest[1], body))
+            if rest == ["commands"] and m == "POST":
+                who = self._need_remote()
+                return self._send(201, r.command(sid, self._json(), who))
+            if len(rest) == 2 and rest[0] == "results" and m == "GET":
+                self._need_remote()
+                return self._send(200, {"result": r.fetch(sid, rest[1], wait)})
         raise ApiError(404, "not found")
 
     def _handle(self):
@@ -491,7 +724,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def make_server(cfg: Config) -> ThreadingHTTPServer:
-    handler = type("BoundHandler", (Handler,), {"store": Store(cfg), "cfg": cfg, "timeout": cfg.timeout})
+    handler = type("BoundHandler", (Handler,), {"store": Store(cfg), "cfg": cfg, "timeout": cfg.timeout,
+                                                "profiles": Profiles(cfg), "relay": Relay(cfg)})
     return ThreadingHTTPServer((cfg.host, cfg.port), handler)
 
 

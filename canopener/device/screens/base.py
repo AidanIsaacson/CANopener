@@ -198,15 +198,18 @@ class Dialog(Screen):
 class ConfirmDialog(Dialog):
     """'Are you sure?' with No as the default (encoder push on arrival = No)."""
 
-    def __init__(self, app, title: str, text: str, yes_label: str, on_yes, danger: bool = True):
+    def __init__(self, app, title: str, text: str, yes_label: str, on_yes, danger: bool = True, on_no=None):
         super().__init__(app)
         self.title, self.text, self.yes_label, self.on_yes, self.danger = title, text, yes_label, on_yes, danger
+        self.on_no = on_no      # told about a No too (someone is waiting for the answer)
         self.focus = 0          # 0 = No, 1 = Yes
 
     def _answer(self, yes: bool):
         self.app.pop(self)
         if yes:
             self.on_yes()
+        elif self.on_no is not None:
+            self.on_no()
 
     def softkeys(self):
         return [SoftKey("No", lambda: self._answer(False)), None, None,
