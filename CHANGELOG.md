@@ -16,6 +16,10 @@ on an older one, `git checkout v0.3.2` in its checkout.
   an identifier page nobody has described (page 14), and the engine stopped. The full scan now
   refuses to run when the engine looks to be running, says so plainly before it starts (default
   No), and only ever sweeps pages 11-13; other pages that answer are reported, not swept.
+- **Read the values the last full scan found** (handheld: Codes > More...): wakes the module the
+  way the saved report says and reads each data block and identifier that answered, twice over,
+  into `kline_values.csv` in a log. Run it engine off, idling and revving, and the values that
+  differ show which is which. Only requests that already answered are sent (pages 11-13).
 - The shape that works on the first real machine is number + `04 01`; the bare `04` ending is no
   longer tried (it made the module repeat its answer 256 times).
 

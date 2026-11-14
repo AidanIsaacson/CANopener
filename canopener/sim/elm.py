@@ -294,7 +294,7 @@ class ElmSimulator:
             if len(payload) == 5 and payload[3:] == b"\x04\x01":
                 return b"\x62" + cid + known[cid] if cid in known else bytes([0x7F, sid, 0x31])
             return bytes([0x7F, sid, 0x12])
-        if sid == 0x21 and len(payload) == 2:           # one data block exists
+        if sid == 0x21 and len(payload) in (2, 4):      # one data block exists (plain, or number + 04 01)
             return b"\x61\x10\x0c\x80\x50" if payload[1] == 0x10 else bytes([0x7F, sid, 0x12])
         return bytes([0x7F, sid, 0x11])
 

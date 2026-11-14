@@ -204,9 +204,24 @@ class CodesPage(Screen):
         def pick(what):
             if what in ("kline", "kline-full"):
                 self.kline_probe(full=what == "kline-full")
+            elif what == "kline-values":
+                self.kline_values()
         choose(self.app, "Codes", [("Deep probe (older K-line vehicles): what else answers? 2 min", "kline"),
-                                   ("Deep probe + full scan (ENGINE OFF only): up to 8 min", "kline-full")],
+                                   ("Deep probe + full scan (ENGINE OFF only): up to 8 min", "kline-full"),
+                                   ("Read the values the last full scan found: 1 min", "kline-values")],
                None, pick)
+
+    def kline_values(self):
+        from ...can.kline_probe import WARNING_VALUES
+        ctx = self.ctx
+        why = ctx.kline_probe_refusal() or ("" if ctx.kline_plan() else
+                                            "No saved deep probe with a full scan on this unit yet.")
+        if why:
+            self.app.push(InfoDialog(self.app, "Read values", [why]))
+            return
+        confirm(self.app, "Read the known values?", WARNING_VALUES, "Read",
+                lambda: ctx.kline_values(then=lambda title, lines: self.app.push(InfoDialog(self.app, title, lines))),
+                danger=False)
 
     def kline_probe(self, full: bool = False):
         """The read-only K-line deep probe: says what it does first, since it takes a while."""

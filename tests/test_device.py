@@ -1127,3 +1127,30 @@ def test_kline_deep_probe_is_refused_on_a_can_car(app_for):
     assert ctx.wait_idle()
     assert "Bluetooth OBD adapter" in ctx.kline_probe_refusal()
     assert not ctx.kline_probe() and not ctx.recording
+
+
+def test_kline_values_reads_what_the_last_full_scan_found(app_for, monkeypatch, tmp_path):
+    """Codes > More... > Read the values: the plan comes from the newest saved kline_probe.txt."""
+    from canopener.can import kline_probe
+    from canopener.core import capture as cap
+    from canopener.core import config
+    from canopener.core.connection import ELM_SIM
+    monkeypatch.setattr(kline_probe, "SETTLE", 0.0)
+    app = app_for(show_simulators=True, can__source=ELM_SIM, elm__sim_vehicle="kwp")
+    ctx = app.ctx
+    ctx.connect()
+    assert ctx.wait_idle(15)
+    assert ctx.kline_plan() is None and not ctx.kline_values()
+    old = os.path.join(config.logs_dir(), "20000101_000000_capture")
+    os.makedirs(old)
+    with open(os.path.join(old, kline_probe.REPORT_FILE), "w") as f:
+        f.write("- Service 22 reacts to the shape '22 1101 0401' (module 0x10, tester 0xF1, fast init): answered\n"
+        f.write("- Service 22 reacts to the shape '22 1101 0401' (module 0x10, tester 0xF1, fast init): answered\n"
+                "- Common identifiers that answer (22 11 xx, module 0x10, tester 0xF1, fast init): 1 (1 b): 01\n")
+    seen = []
+    assert ctx.kline_values(then=lambda title, lines: seen.append(lines))
+    assert ctx.wait_idle(30) and ctx.wait_idle(30) and ctx.capture.state == cap.SAVED
+    text = open(os.path.join(ctx.capture.folder, kline_probe.VALUES_FILE)).read().splitlines()
+    assert text[0] == kline_probe.VALUES_HEADER and sum(",2211010401,50,ok" in line for line in text) == 2
+    assert seen and seen[0][0].startswith("2 values read")
+    ctx.disconnect()

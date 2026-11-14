@@ -569,6 +569,54 @@ class DeviceContext:
         uploaded: a log is started for it if none is running, then stopped and saved.
         ``then(title, lines)`` gets the summary on the UI thread."""
         from ..can import kline_probe
+
+        def work(backend, folder, progress):
+            report = kline_probe.run(backend, progress, full=full)
+            if folder:
+                with open(os.path.join(folder, kline_probe.REPORT_FILE), "a") as f:
+                    f.write("\n".join(report.lines()) + "\n\n")      # a second run in one log is added below
+            return report.summary()
+        return self._kline_job("Deep probe", work, then)
+
+    def kline_plan(self):
+        """What the newest saved deep probe with a full scan found to read (``kline_probe.Plan``), or None."""
+        from ..can import kline_probe
+        root = config.logs_dir()
+        try:
+            names = sorted(os.listdir(root), reverse=True)
+        except OSError:
+            return None
+        for name in names:
+            try:
+                with open(os.path.join(root, name, kline_probe.REPORT_FILE)) as f:
+                    plan = kline_probe.plan_from_report(f.read())
+            except OSError:
+                continue
+            if plan is not None:
+                return plan
+        return None
+
+    def kline_values(self, then=None) -> bool:
+        """Read again what the last full scan found, twice over, into ``kline_values.csv`` in a log."""
+        from ..can import kline_probe
+        plan = self.kline_plan()
+        if plan is None:
+            self.toast("No saved deep probe with a full scan on this unit yet")
+            return False
+
+        def work(backend, folder, progress):
+            rows, summary = kline_probe.record_values(backend, plan, progress=progress)
+            if folder:
+                path = os.path.join(folder, kline_probe.VALUES_FILE)
+                new = not os.path.exists(path)
+                with open(path, "a") as f:
+                    f.write("".join(line + "\n" for line in ([kline_probe.VALUES_HEADER] if new else []) + rows))
+            return summary
+        return self._kline_job("Reading values", work, then)
+
+    def _kline_job(self, label: str, work, then=None) -> bool:
+        """Run ``work(backend, capture folder, progress) -> summary lines`` holding the adapter, inside
+        a log (started, stopped and saved for it if none is recording)."""
         why = self.kline_probe_refusal()
         if why:
             self.toast(why)
@@ -578,31 +626,24 @@ class DeviceContext:
             return False
         own_log = not self.recording
         if own_log and not (self.start_log(stream=False) and self.recording):
-            self.toast("The last log is being saved first: run the deep probe again in a moment")
+            self.toast("The last log is being saved first: try again in a moment")
             return False
         if self.obd_streamer is not None and self.obd_streamer.running:
-            self.obd_streamer.stop()            # the probe holds the adapter: live data would only queue up
+            self.obd_streamer.stop()            # the job holds the adapter: live data would only queue up
         backend, capture = self.session.backend, self.capture
 
         def progress(text):
-            self.busy = f"Deep probe: {text}"
+            self.busy = f"{label}: {text}"
 
-        def work():
-            report = kline_probe.run(backend, progress, full=full)
-            if capture.folder:
-                with open(os.path.join(capture.folder, kline_probe.REPORT_FILE), "a") as f:
-                    f.write("\n".join(report.lines()) + "\n\n")      # a second run in one log is added below
-            return report
-
-        def done(report):
-            lines = report.summary()
+        def done(lines):
+            lines = list(lines)
             if own_log and self.capture is capture and self.recording:
                 self.capture.stop()
                 lines += ["", "Saved as a log: upload it from the Log page."]
                 self.save_log()
             if then:
-                then("Deep probe", lines)
-        return self.run_job("Deep probe", work, done)
+                then(label, lines)
+        return self.run_job(label, lambda: work(backend, capture.folder, progress), done)
 
     def obd_label(self, ecu: int) -> str:
         if self.obd_client is not None:

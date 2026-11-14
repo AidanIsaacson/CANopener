@@ -92,6 +92,12 @@ answer their sample are just reported, and the full scan refuses to run with the
 (battery at or above 13.2 V) and warns first. **Don't sweep unknown identifier pages on a machine
 that's running or that can't safely lose power.**
 
+**Reading the found values again** (`kline_probe.record_values`; handheld **Codes > More... >
+Read the values the last full scan found**): the plan (session, request shape, the blocks and
+page 11-13 identifiers that answered) is parsed from the newest saved `kline_probe.txt`, and each
+request is asked twice over into `kline_values.csv` (time, pass, request, data bytes). Comparing
+runs with the engine off, idling and revving is how the values get identified.
+
 It leaves 5.5 s of silence before each new wake-up (a module ignores one until its last session
 has timed out), so it takes two to four minutes, then sets the adapter up again from scratch. The
 transcript (`kline_probe.txt`) has every command, how long it took, and each reply line as the

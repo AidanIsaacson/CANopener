@@ -127,3 +127,44 @@ def test_full_scan_is_left_out_when_the_engine_is_running(monkeypatch):
     report, sent, _ = _probe("kwp", full=True)
     assert "21FF0401" not in sent and "2211FF0401" not in sent and "2211010401" in sent
     assert any("engine looks to be running (14.3V" in f for f in report.findings)
+
+
+REAL_REPORT = """== What it found ==
+- Service 21 reacts to the shape '21 01 0401' (module 0x10, tester 0xFC, fast init): answered: 61 01 00 18 00 00
+- Service 22 reacts to the shape '22 0000 0401' (module 0x10, tester 0xFC, fast init): refused: general reject
+- Service 22 reacts to the shape '22 1101 0401' (module 0x10, tester 0xFC, fast init): answered: 62 11 01 8A
+- Data blocks that answer (21 xx, module 0x10, tester 0xFC, fast init): 00 (4 bytes), 01 (4 bytes)
+- Identification options that answer (1A xx, module 0x10, tester 0xFC, fast init): 80 (1 bytes)
+- Common identifiers that answer (22 11 xx, module 0x10, tester 0xFC, fast init): 3 (1, 4 data bytes): 00 01 EB
+- Common identifiers that answer (22 12 xx, module 0x10, tester 0xFC, fast init): none
+- Common identifiers that answer (22 14 xx, module 0x10, tester 0xFC, fast init): 2 (1 data bytes): 00 01
+- The scan of 2214xx0401 stopped at 2214460401: the module went quiet (no data)
+"""
+
+
+def test_plan_from_a_report_keeps_the_described_pages_only():
+    plan = kline_probe.plan_from_report(REAL_REPORT)
+    assert (plan.ecu, plan.tester, plan.fast) == (0x10, 0xFC, True)
+    assert plan.commands == ["21000401", "21010401", "2211000401", "2211010401", "2211EB0401"]   # never page 14
+    assert kline_probe.plan_from_report("== What it found ==\n- Generic stored codes: none\n") is None
+
+
+def test_record_values_reads_the_plan_twice_and_sets_the_adapter_up_again():
+    car = SimulatedCar(vehicle="kwp")
+    car.start()
+    b = elm327.ElmBackend("t", stream=elm327.SocketStream(car.adapter.host_socket))
+    b.open()
+    try:
+        plan = kline_probe.Plan(0x10, 0xF1, True, ["21100401", "2211010401", "2212000401"])
+        start = len(car.adapter.commands)
+        rows, summary = kline_probe.record_values(b, plan, settle=0)
+        sent = car.adapter.commands[start:]
+        assert sent.count("2211010401") == 2 and "ATSH8110F1" in sent and "ATFI" in sent
+        assert [r.split(",")[2:] for r in rows[:4]] == [
+            ["ATRV", "12.6V", "battery"], ["21100401", "0C8050", "ok"], ["2211010401", "50", "ok"],
+            ["2212000401", "", "refused: request out of range (7F 22 31)"]]
+        assert summary[0].startswith("4 values read in 2 pass(es) of 3 requests")
+        assert b.protocol == "5"
+    finally:
+        b.close()
+        car.stop()

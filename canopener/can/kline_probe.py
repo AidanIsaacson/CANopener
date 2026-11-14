@@ -503,3 +503,97 @@ def run(b: ElmBackend, progress=None, settle: float | None = None, full: bool = 
                 except OSError as e:
                     p.report.error = p.report.error or f"couldn't set the adapter up again: {e}"
     return p.report
+
+
+# ----------------------------------------------------------------------
+# reading again what a full scan found
+# ----------------------------------------------------------------------
+VALUES_FILE = "kline_values.csv"
+VALUES_HEADER = "time,pass,request,data,result"
+WARNING_VALUES = ("Reads again, twice over, the data blocks and identifiers the last full scan on this unit found "
+                  "(only ones that already answered without trouble), so the values can be compared between "
+                  "engine off, idling and revving. About a minute; live data pauses. Machine parked.")
+
+
+@dataclass
+class Plan:
+    """What to read again: the session a full scan's report says works, and the requests that answered."""
+    ecu: int
+    tester: int
+    fast: bool
+    commands: list
+
+
+def plan_from_report(text: str) -> Plan | None:
+    """The requests a saved ``kline_probe.txt`` lists as answered (data blocks, and identifiers on
+    ``CID_PAGES`` only), with the session and request shape it found. None if it lists none."""
+    import re
+    where = re.compile(r"module 0x([0-9A-F]{2}), tester 0x([0-9A-F]{2}), (fast|5-baud) init")
+    session, ending, commands = None, {}, []
+    for line in text.splitlines():
+        m = re.search(r"reacts to the shape '(21|22) ([0-9A-F]+) ([0-9A-F]+)' .*: answered", line)
+        if m:
+            ending.setdefault(m.group(1), m.group(3))
+    for line in text.splitlines():
+        blocks = re.match(r"- Data blocks that answer \(21 xx, (.*?)\): (.*)", line)
+        cids = re.match(r"- Common identifiers that answer \(22 ([0-9A-F]{2}) xx, (.*?)\): \d+ \(.*?\): (.*)", line)
+        if blocks and blocks.group(2) != "none":
+            session = session or where.search(blocks.group(1))
+            commands += [f"21{n}{ending.get('21', '')}" for n in re.findall(r"\b([0-9A-F]{2}) \(", blocks.group(2))]
+        elif cids and int(cids.group(1), 16) in CID_PAGES:
+            session = session or where.search(cids.group(2))
+            commands += [f"22{cids.group(1)}{n}{ending.get('22', '')}" for n in cids.group(3).split()]
+    if not session or not commands:
+        return None
+    return Plan(int(session.group(1), 16), int(session.group(2), 16), session.group(3) == "fast",
+                list(dict.fromkeys(commands)))
+
+
+def record_values(b: ElmBackend, plan: Plan, passes: int = 2, progress=None, settle: float | None = None):
+    """Wake the module the way ``plan`` says and ask each of its requests, ``passes`` times over.
+    Returns (rows for VALUES_FILE, summary lines). Holds the adapter and sets it up again after."""
+    why = can_probe(b)
+    if why:
+        raise ValueError(why)
+    p = _Probe(b, progress, SETTLE if settle is None else settle)
+    p.kwp = True
+    p.section = "Reading the known values"
+    rows, note = [], ""
+    with b._lock:
+        try:
+            p.close_protocol()
+            p.at("ATSP5" if plan.fast else "ATSP4")
+            p.at(f"ATSH81{plan.ecu:02X}{plan.tester:02X}")
+            if not plan.fast:
+                p.at(f"ATIIA{plan.ecu:02X}")
+            woke = p.at("ATFI" if plan.fast else "ATSI", "wake-up", REQUEST_TIMEOUT)
+            if not woke.positive or "ERROR" in " ".join(woke.lines).upper():
+                note = "The module didn't wake up: " + (" ".join(woke.lines) or "no answer")
+            else:
+                for n in range(1, passes + 1):
+                    p.say(f"Reading {len(plan.commands)} values, pass {n} of {passes}")
+                    rows.append(f"{time.time():.3f},{n},ATRV,{b.read_voltage()},battery")
+                    silent = 0
+                    for cmd in plan.commands:
+                        step = p.ask(cmd, "", keep=False)
+                        skip = 2 if cmd.startswith("21") else 3         # the answer repeats the number
+                        data = step.data[0][skip:].hex().upper() if step.positive else ""
+                        rows.append(f"{time.time():.3f},{n},{cmd},{data},{'ok' if step.positive else step.result}")
+                        silent = 0 if step.data else silent + 1
+                        if silent >= SCAN_GIVE_UP:
+                            note = f"Stopped at {cmd}: the module went quiet ({step.result})"
+                            break
+                    if note:
+                        break
+        except OSError as e:
+            note = str(e) or "connection to the adapter lost"
+        finally:
+            if b.is_open:
+                p.say("Setting the adapter up again")
+                try:
+                    b._init()
+                except OSError as e:
+                    note = note or f"couldn't set the adapter up again: {e}"
+    good = sum(1 for r in rows if r.endswith(",ok"))
+    summary = [f"{good} values read in {passes} pass(es) of {len(plan.commands)} requests."]
+    return rows, summary + ([note] if note else [])
