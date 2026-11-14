@@ -8,7 +8,9 @@ from ...core import capture as cap
 from ...core import guide, observed, profiles
 from .base import InfoDialog, Row, RowList, Screen, SoftKey, choose, confirm
 
-HELP = ["It asks you to do one thing at a time on the machine: wait for 'Get ready', then do it and hold it "
+HELP = ["It first asks what the machine is, so it only asks for things that machine has, and so the controls are "
+        "mapped with the key on and nothing running before the engine or pump is started.",
+        "", "It asks you to do one thing at a time on the machine: wait for 'Get ready', then do it and hold it "
         "until it says 'Let go'. It watches the bus while you do, and names whatever followed after the step.",
         "", "First it asks for hands off, to learn what changes by itself (those are never offered).",
         "", "If nothing followed, try again a little slower, or skip. Doing a step twice and getting the same "
@@ -17,26 +19,35 @@ HELP = ["It asks you to do one thing at a time on the machine: wait for 'Get rea
 
 
 def start(app):
-    """Pick the kind of machine and open the builder (from the Log page)."""
+    """Ask what the machine is and open the builder (from the Log page)."""
     ctx = app.ctx
     if not ctx.live:
         ctx.toast("Connect to the machine's bus first")
         return
+    answers: dict = {}
 
-    def go(name):
-        if ctx.recording or ctx.start_log(stream=False):
-            app.push(GuideScreen(app, name))
-    choose(app, "What kind of machine?", [(f"{name} ({len(steps)} steps)", name)
-                                          for name, steps in guide.SCRIPTS.items()], None, go)
+    def ask():
+        q = guide.next_question(answers)
+        if q is None:
+            title, steps = guide.build_script(answers)
+            if ctx.recording or ctx.start_log(stream=False):
+                app.push(GuideScreen(app, title, steps))
+            return
+
+        def answered(value):
+            answers[q.id] = value
+            ask()
+        choose(app, q.text, list(q.options), None, answered)
+    ask()
 
 
 class GuideScreen(Screen):
     title = "Profile builder"
 
-    def __init__(self, app, script: str):
+    def __init__(self, app, script: str, steps: list):
         super().__init__(app)
         self.script = script
-        self.g = guide.Guide(list(guide.SCRIPTS[script]))
+        self.g = guide.Guide(list(steps))
         self.rows = RowList(self._rows)
         self.session = self.ctx.session
         self.session.add_listener(self.g.feed)
@@ -55,7 +66,9 @@ class GuideScreen(Screen):
         s = g.step
         big, small = g.prompt()
         head = "Finished" if s is None or g.state == guide.DONE else f"Step {g.index + 1} of {len(g.steps)}: {s.name}"
-        rows = [Row(head, kind="header"), Row(big, kind="info", hint=small,
+        rows = [Row(s.stage, kind="info", level=lambda: "sim")] if s is not None and s.stage \
+            and g.state != guide.DONE else []
+        rows += [Row(head, kind="header"), Row(big, kind="info", hint=small,
                                               level=lambda: {guide.DO: "ok", guide.REST: "wait", guide.QUIET: "wait"}
                                               .get(g.state, "idle"))]
         left = g.remaining()

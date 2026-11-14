@@ -94,12 +94,52 @@ def test_guide_offers_a_second_thing_that_followed_and_numbers_it():
     assert sorted(e["name"] for e in g.entries()) == ["Lift", "Lift 2"] and g.state == guide.DONE
 
 
-def test_scripts_are_complete_and_cautious():
-    assert set(guide.SCRIPTS) == {"Engine truck", "Electric truck", "Something else"}
-    for steps in guide.SCRIPTS.values():
-        assert len({s.name for s in steps}) == len(steps)
-    assert all(s.caution for s in guide.SCRIPTS["Engine truck"] if s.name in ("Lift", "Forward selected"))
-    g = guide.Guide(list(guide.SCRIPTS["Engine truck"]))
+def test_questions_narrow_the_script_and_controls_come_before_the_engine():
+    q = guide.next_question({})
+    assert q.id == "machine" and {v for _l, v in q.options} == {"ic", "electric", "telehandler", "cart", "pallet",
+                                                                 "other"}
+    assert guide.next_question({"machine": "cart"}) is None             # nothing more to ask about a golf cart
+    assert guide.next_question({"machine": "pallet"}) is None
+    a = {"machine": "ic"}
+    asked = []
+    while (q := guide.next_question(a)) is not None:
+        asked.append(q.id)
+        a[q.id] = {"hydraulics": "electronic", "height": "both", "side_shift": True}[q.id]
+    assert asked == ["hydraulics", "height", "side_shift"]
+    title, steps = guide.build_script(a)
+    names = [s.name for s in steps]
+    assert title == "IC forklift, electronic hydraulics" and len(set(names)) == len(names)
+    # every control input is mapped with the key on, before the engine is started
+    start = names.index("Engine running")
+    for control in ("Seat switch", "Accelerator pedal", "Lift lever", "Lower lever", "Tilt back lever",
+                    "Side shift lever", "Forward selected"):
+        assert names.index(control) < start and steps[names.index(control)].stage == guide.CONTROLS
+    assert not steps[names.index("Lift lever")].switch and not steps[names.index("Lift lever")].caution
+    for after in ("Engine speed", "Lift", "Mast height switch", "Mast height", "Side shift"):
+        assert names.index(after) > start and steps[names.index(after)].stage == guide.WORK
+    assert steps[names.index("Mast height")].unit == "mm" and steps[names.index("Mast height")].caution
+    # manual hydraulics: no lever sensors to look for; no height sensing: no height steps
+    _t, manual = guide.build_script({"machine": "ic", "hydraulics": "manual", "height": "none", "side_shift": False})
+    manual_names = [s.name for s in manual]
+    assert "Lift lever" not in manual_names and "Mast height" not in manual_names and "Side shift" not in manual_names
+    assert "Lift" in manual_names
+
+
+def test_every_kind_of_machine_has_a_sound_script():
+    for machine in guide.MACHINES:
+        for hyd in ("electronic", "manual", "unsure"):
+            title, steps = guide.build_script({"machine": machine, "hydraulics": hyd, "height": "both",
+                                               "side_shift": True})
+            names = [s.name for s in steps]
+            assert title and steps and len(set(names)) == len(names), (machine, hyd)
+            assert all(s.prompt and s.group for s in steps)
+    electric = [s.name for s in guide.build_script({"machine": "electric", "hydraulics": "electronic"})[1]]
+    assert "Engine running" not in electric and electric.index("Lift lever") < electric.index("Pump motor")
+    tele = [s.name for s in guide.build_script({"machine": "telehandler", "hydraulics": "electronic"})[1]]
+    assert {"Boom raise lever", "Boom angle", "Boom extension"} <= set(tele)
+    assert [s.name for s in guide.build_script({"machine": "pallet"})[1]][:2] == ["Key switch", "Operator present"]
+    assert "Charging" in [s.name for s in guide.build_script({"machine": "cart"})[1]]
+    g = guide.Guide(guide.build_script({"machine": "ic", "hydraulics": "manual"})[1])
     g.begin(0.0)
     g.tick(100.0)                                           # no frames at all
     g.tick(200.0)

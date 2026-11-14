@@ -330,8 +330,9 @@ these by name.
     input, and scale suggestions from a meter channel (battery voltage, a pressure gauge).
   * *Done:* remote help through the upload server, and the SSH tunnel beside it. Still open: the
     deep probe and the value recorder as remote actions, and the same page on the desktop app.
-  * *Done:* the guided Profile Builder (handheld). Next: scripts for more kinds of machine
-    (telehandler, generator, reach truck), a desktop version, steps that expect two states
+  * *Done:* the guided Profile Builder (handheld), with questions that build the script
+    (`guide.QUESTIONS`, `build_script`). Next: more kinds of machine (generator, reach truck,
+    scissor lift), a desktop version, steps that expect two states
     (forward / neutral / reverse as one value), and using a second pass to confirm automatically.
   * **Upload one result without a whole log**, and ask for the machine on the handheld before an
     upload (every capture that day went up with no machine and no concern).

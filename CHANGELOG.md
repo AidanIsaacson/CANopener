@@ -19,8 +19,13 @@ Towards working out an unfamiliar machine from what its bus does (docs/ARCHITECT
   suggested name (when it follows a value CANopener knows) or one from a short list by part of
   the machine, and **Save** makes a profile and switches it on, so Live shows the new values at
   once. Each value keeps how it was found and how sure it is (`core/observed.py`).
-- **Guided Profile Builder.** Handheld: **Data log > Plan > Guided profile builder**. Pick the
-  kind of machine (engine truck, electric truck, something else) and it walks you through a list
+- **Guided Profile Builder.** Handheld: **Data log > Plan > Guided profile builder**. It asks
+  what the machine is (IC forklift, electric forklift, telehandler, golf cart, pallet jack,
+  something else), how the hydraulics are controlled (electronic levers or joystick, or manual),
+  whether the mast reports its height (switch, encoder, both) and whether side shift is fitted,
+  and builds the list from the answers. Control inputs come first, with the key on and nothing
+  running (each lever both ways when the hydraulics are electronic), then the engine, then the
+  working functions and the mast height. It walks you through the list
   of things to do, one at a time: "Get ready", then "do it and hold", then "let go". It tags the
   log by itself, learns first what changes when nobody touches anything, and after each step shows
   what followed and names it after the step ("Lift", "Seat switch"). Nothing followed? Try again

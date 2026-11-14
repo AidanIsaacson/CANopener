@@ -1252,7 +1252,8 @@ def test_guided_profile_builder_on_the_handheld(app_for, monkeypatch):
     from canopener.core import guide, observed, profiles
     from canopener.device.screens import guide as guide_screen
     from canopener.device.screens.base import ChoiceDialog
-    monkeypatch.setitem(guide.SCRIPTS, "Something else", [guide.Step("Lift", "Raise the forks", "Hydraulics")])
+    monkeypatch.setattr(guide, "build_script", lambda answers: (
+        "Something else", [guide.Step("Lift", "Raise the forks", "Hydraulics", stage="Controls")]))
     app = app_for()
     ctx = app.ctx
     guide_screen.start(app)
@@ -1261,8 +1262,14 @@ def test_guided_profile_builder_on_the_handheld(app_for, monkeypatch):
     assert ctx.wait_idle()
     guide_screen.start(app)
     assert isinstance(app.top, ChoiceDialog)
-    app.action(inp.ROTATE, 2)
-    app.action(inp.SELECT)                                  # "Something else"
+    assert "What kind of machine?" in app.top.title
+    app.action(inp.SELECT)                                  # IC forklift: it goes on to ask about the hydraulics
+    assert isinstance(app.top, ChoiceDialog) and "hydraulics" in app.top.title
+    app.action(inp.SELECT)
+    assert "height" in app.top.title
+    app.action(inp.SELECT)
+    assert "Side shift" in app.top.title
+    app.action(inp.SELECT)
     screen = app.top
     assert isinstance(screen, guide_screen.GuideScreen) and ctx.recording
     g = screen.g

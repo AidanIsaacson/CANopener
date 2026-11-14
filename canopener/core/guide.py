@@ -1,6 +1,10 @@
 """The guided Profile Builder: it tells the technician what to do, watches the bus while they do
 it, and names what followed.
 
+A few questions (``QUESTIONS``: the kind of machine, how its hydraulics are controlled, whether the
+mast reports its height) choose the script (``build_script``). Control inputs come first, with
+the key on and nothing running, so each is seen alone before the engine or pump adds its own traffic.
+
 A ``Guide`` walks a script of steps ("Start the engine", "Raise the forks", "Press the horn").
 For each one it wants the machine left alone for a moment (the *rest*), then the thing done and
 held (the *do*). It keeps the frames of both, compares them with ``core.changes`` and offers what
@@ -35,50 +39,176 @@ class Step:
     unit: str = ""
     switch: bool = True     # expect an on / off (else a value that moves)
     caution: str = ""       # said first when the step moves the machine
+    stage: str = ""         # the part of the walk-through it belongs to (shown as a heading)
 
 
-def _s(name, prompt, group, unit="", switch=True, caution=""):
-    return Step(name, prompt, group, unit, switch, caution)
+@dataclass
+class Question:
+    id: str
+    text: str
+    options: list           # [(label, value)]
+    when: object = None     # when(answers) -> bool: asked only then (None: always)
 
 
 MOVES = "The machine will move: clear the area, and only do it if it's safe."
-SCRIPTS = {
-    "Engine truck": [
-        _s("Engine running", "Start the engine and let it idle", "Engine"),
-        _s("Engine speed", "Hold the revs up, about half throttle", "Engine", "rpm", switch=False),
-        _s("Accelerator pedal", "Press the accelerator pedal fully (engine off is fine)", "Drive", "%", switch=False),
-        _s("Brake pedal", "Press and hold the brake pedal", "Drive"),
-        _s("Parking brake", "Release the parking brake (then set it again)", "Drive"),
-        _s("Seat switch", "Stand up off the seat", "Operator"),
-        _s("Forward selected", "Select forward (brake held)", "Drive", caution=MOVES),
-        _s("Reverse selected", "Select reverse (brake held)", "Drive", caution=MOVES),
-        _s("Lift", "Raise the forks and hold the lever", "Hydraulics", caution=MOVES),
-        _s("Lower", "Lower the forks and hold the lever", "Hydraulics", caution=MOVES),
-        _s("Tilt", "Tilt back and hold the lever", "Hydraulics", caution=MOVES),
-        _s("Side shift", "Side shift and hold the lever", "Hydraulics", caution=MOVES),
-        _s("Horn", "Press and hold the horn", "Operator"),
-        _s("Lights", "Switch the lights on", "Operator"),
-    ],
-    "Electric truck": [
-        _s("Key switch", "Turn the key on (from off)", "Electrical"),
-        _s("Seat switch", "Stand up off the seat (or release the operator-present control)", "Operator"),
-        _s("Accelerator pedal", "Press the accelerator / twist the control fully, drive wheel off the floor", "Drive",
-           "%", switch=False, caution=MOVES),
-        _s("Forward selected", "Select forward", "Drive", caution=MOVES),
-        _s("Reverse selected", "Select reverse", "Drive", caution=MOVES),
-        _s("Brake pedal", "Press and hold the brake", "Drive"),
-        _s("Lift", "Raise the forks and hold", "Hydraulics", caution=MOVES),
-        _s("Lower", "Lower the forks and hold", "Hydraulics", caution=MOVES),
-        _s("Tilt", "Tilt and hold", "Hydraulics", caution=MOVES),
-        _s("Side shift", "Side shift and hold", "Hydraulics", caution=MOVES),
-        _s("Horn", "Press and hold the horn", "Operator"),
-        _s("Charging", "Plug the charger in", "Electrical"),
-    ],
-    "Something else": [
-        _s("Switch", "Work one switch or control and hold it", "Other"),
-        _s("Value", "Move one lever, pedal or dial fully and hold it", "Other", switch=False),
-    ],
-}
+CONTROLS = "Controls: key on, engine / motors off"
+POWER = "Power on"
+WORK = "Working: engine or pump running"
+
+IC, ELECTRIC, TELEHANDLER, CART, PALLET, OTHER = "ic", "electric", "telehandler", "cart", "pallet", "other"
+ELECTRONIC, MANUAL, UNSURE = "electronic", "manual", "unsure"
+MACHINES = {IC: "IC forklift", ELECTRIC: "Electric forklift", TELEHANDLER: "Telehandler", CART: "Golf cart",
+            PALLET: "Pallet jack", OTHER: "Something else"}
+
+QUESTIONS = [
+    Question("machine", "What kind of machine?", [(label, key) for key, label in MACHINES.items()]),
+    Question("hydraulics", "How are the hydraulics controlled?",
+             [("Electronic: levers or a joystick with sensors (the valve is driven electrically)", ELECTRONIC),
+              ("Manual: the levers move the valve themselves", MANUAL),
+              ("Not sure (try the levers both ways)", UNSURE)],
+             when=lambda a: a.get("machine") in (IC, ELECTRIC, TELEHANDLER)),
+    Question("height", "Does the mast report its height?",
+             [("A height switch (free lift / staging)", "switch"), ("A height sensor or encoder", "encoder"),
+              ("Both", "both"), ("Neither", "none"), ("Not sure (look for both)", "both")],
+             when=lambda a: a.get("machine") in (IC, ELECTRIC)),
+    Question("side_shift", "Side shift or an attachment fitted?", [("Yes", True), ("No", False)],
+             when=lambda a: a.get("machine") in (IC, ELECTRIC)),
+]
+
+
+def next_question(answers: dict) -> Question | None:
+    """The next question to ask, given the answers so far (None: ready to build the script)."""
+    for q in QUESTIONS:
+        if q.id not in answers and (q.when is None or q.when(answers)):
+            return q
+    return None
+
+
+def _steps(stage: str, *rows) -> list[Step]:
+    return [Step(name, prompt, group, unit, switch, caution, stage)
+            for name, prompt, group, unit, switch, caution in rows]
+
+
+def _lever_inputs(machine: str, side_shift: bool) -> list:
+    """The control inputs of electronic hydraulics: each lever both ways, nothing running."""
+    rows = [("Lift lever", "Pull the lift lever fully to RAISE and hold (nothing should move)", "Hydraulics", "%",
+             False, ""),
+            ("Lower lever", "Push the lift lever fully to LOWER and hold", "Hydraulics", "%", False, ""),
+            ("Tilt back lever", "Pull the tilt lever fully BACK and hold", "Hydraulics", "%", False, ""),
+            ("Tilt forward lever", "Push the tilt lever fully FORWARD and hold", "Hydraulics", "%", False, "")]
+    if machine == TELEHANDLER:
+        rows = [("Boom raise lever", "Move the joystick fully to RAISE the boom and hold (nothing should move)",
+                 "Hydraulics", "%", False, ""),
+                ("Boom lower lever", "Move the joystick fully to LOWER the boom and hold", "Hydraulics", "%", False,
+                 ""),
+                ("Boom extend control", "Work the EXTEND control fully and hold", "Hydraulics", "%", False, ""),
+                ("Boom retract control", "Work the RETRACT control fully and hold", "Hydraulics", "%", False, ""),
+                ("Tilt back lever", "Joystick fully to tilt the carriage BACK and hold", "Hydraulics", "%", False, ""),
+                ("Tilt forward lever", "Joystick fully to tilt the carriage FORWARD and hold", "Hydraulics", "%",
+                 False, ""),
+                ("Auxiliary control", "Work the auxiliary control fully and hold", "Hydraulics", "%", False, "")]
+    elif side_shift:
+        rows += [("Side shift lever", "Move the side shift lever fully one way and hold", "Hydraulics", "%", False, ""),
+                 ("Auxiliary lever", "Move the auxiliary lever fully and hold (skip if there is none)", "Hydraulics",
+                  "%", False, "")]
+    return rows
+
+
+def _height(answer: str) -> list:
+    rows = []
+    if answer in ("switch", "both"):
+        rows.append(("Mast height switch", "Raise the forks up past free lift (through the height switch) and hold "
+                     "them there", "Hydraulics", "", True, MOVES))
+    if answer in ("encoder", "both"):
+        rows.append(("Mast height", "Raise the forks steadily to about head height and hold", "Hydraulics", "mm",
+                     False, MOVES))
+    return rows
+
+
+def build_script(answers: dict) -> tuple[str, list[Step]]:
+    """(a title, the steps) for the answers to QUESTIONS. Control inputs come first, with the key
+    on and nothing running, so each one is seen alone before the engine or pump adds its own traffic."""
+    machine = answers.get("machine", OTHER)
+    hyd = answers.get("hydraulics", MANUAL)
+    side_shift = bool(answers.get("side_shift"))
+    levers = _lever_inputs(machine, side_shift) if hyd in (ELECTRONIC, UNSURE) else []
+    title = MACHINES.get(machine, MACHINES[OTHER])
+    if machine in (IC, ELECTRIC, TELEHANDLER):
+        title += {ELECTRONIC: ", electronic hydraulics", MANUAL: ", manual hydraulics"}.get(hyd, "")
+    seat = ("Seat switch", "Stand up off the seat", "Operator", "", True, "")
+    pedal = ("Accelerator pedal", "Press the accelerator pedal fully and hold", "Drive", "%", False, "")
+    brake = ("Brake pedal", "Press and hold the brake pedal", "Drive", "", True, "")
+    park = ("Parking brake", "Release the parking brake (set it again afterwards)", "Drive", "", True, "")
+    fwd = ("Forward selected", "Select FORWARD with the brake held", "Drive", "", True, "")
+    rev = ("Reverse selected", "Select REVERSE with the brake held", "Drive", "", True, "")
+    horn = ("Horn", "Press and hold the horn", "Operator", "", True, "")
+    lights = ("Lights", "Switch the lights on", "Operator", "", True, "")
+    if machine in (IC, TELEHANDLER):
+        work = [("Engine speed", "Hold the revs up, about half throttle", "Engine", "rpm", False, "")]
+        if machine == IC:
+            work += [("Lift", "Raise the forks and hold the lever", "Hydraulics", "", True, MOVES),
+                     ("Lower", "Lower the forks and hold the lever", "Hydraulics", "", True, MOVES),
+                     ("Tilt", "Tilt back and hold the lever", "Hydraulics", "", True, MOVES)]
+            if side_shift:
+                work.append(("Side shift", "Side shift and hold the lever", "Hydraulics", "", True, MOVES))
+            work += _height(answers.get("height", "none"))
+        else:
+            work += [("Boom raise", "Raise the boom and hold", "Hydraulics", "", True, MOVES),
+                     ("Boom angle", "Raise the boom steadily to about 45 degrees and hold", "Hydraulics", "°", False,
+                      MOVES),
+                     ("Boom extension", "Extend the boom about half way and hold", "Hydraulics", "mm", False, MOVES),
+                     ("Tilt", "Tilt the carriage back and hold", "Hydraulics", "", True, MOVES),
+                     ("Stabilisers", "Lower the stabilisers (skip if there are none)", "Hydraulics", "", True, MOVES),
+                     ("Steering mode", "Change the steering mode (skip if there is one mode)", "Drive", "", True, "")]
+        work += [("Hydraulic pressure", "Hold tilt back against its stop for a moment", "Hydraulics", "kPa", False,
+                  MOVES)]
+        steps = (_steps(CONTROLS, seat, pedal, brake, park, fwd, rev, *levers, horn, lights)
+                 + _steps(POWER, ("Engine running", "Start the engine and let it idle", "Engine", "", True, ""))
+                 + _steps(WORK, *work))
+    elif machine == ELECTRIC:
+        work = [("Pump motor", "Raise the forks and hold the lever", "Hydraulics", "", True, MOVES),
+                ("Lower", "Lower the forks and hold the lever", "Hydraulics", "", True, MOVES),
+                ("Tilt", "Tilt back and hold the lever", "Hydraulics", "", True, MOVES)]
+        work += [("Side shift", "Side shift and hold the lever", "Hydraulics", "", True, MOVES)] if side_shift else []
+        work += _height(answers.get("height", "none"))
+        work += [("Motor speed", "Drive forward slowly in a clear area (or with the drive wheels off the floor)",
+                  "Drive", "rpm", False, MOVES),
+                 ("Battery current", "Hold tilt back against its stop for a moment", "Electrical", "A", False, MOVES)]
+        steps = (_steps(CONTROLS, seat, pedal, brake, park, fwd, rev, *levers, horn, lights)
+                 + _steps(WORK, *work)
+                 + _steps("Charging", ("Charging", "Plug the charger in (skip if it can't be done here)",
+                                       "Electrical", "", True, "")))
+    elif machine == CART:
+        steps = (_steps(CONTROLS,
+                        ("Key switch", "Turn the key from OFF to ON", "Electrical", "", True, ""),
+                        ("Forward selected", "Move the direction switch to FORWARD", "Drive", "", True, ""),
+                        ("Reverse selected", "Move the direction switch to REVERSE", "Drive", "", True, ""),
+                        pedal, brake, horn, lights)
+                 + _steps(WORK, ("Motor speed", "Drive forward slowly in a clear area (or with the drive wheels "
+                                 "off the ground)", "Drive", "rpm", False, MOVES),
+                          ("Motor current", "Pull away briskly, then let off", "Drive", "A", False, MOVES))
+                 + _steps("Charging", ("Charging", "Plug the charger in (skip if it can't be done here)",
+                                       "Electrical", "", True, "")))
+    elif machine == PALLET:
+        steps = (_steps(CONTROLS,
+                        ("Key switch", "Turn the key (or enter the code) from OFF to ON", "Electrical", "", True, ""),
+                        ("Operator present", "Pull the tiller down into the driving position and hold", "Operator",
+                         "", True, ""),
+                        ("Accelerator pedal", "Tiller down: twist the throttle fully FORWARD and hold (drive wheel "
+                         "off the floor, or brake on)", "Drive", "%", False, MOVES),
+                        ("Reverse selected", "Tiller down: twist the throttle fully to REVERSE and hold", "Drive", "",
+                         True, MOVES),
+                        ("Switch", "Press and hold the belly (emergency reverse) button", "Operator", "", True, ""),
+                        horn)
+                 + _steps(WORK, ("Lift", "Press and hold LIFT", "Hydraulics", "", True, MOVES),
+                          ("Lower", "Press and hold LOWER", "Hydraulics", "", True, MOVES),
+                          ("Motor speed", "Drive forward slowly in a clear area", "Drive", "rpm", False, MOVES))
+                 + _steps("Charging", ("Charging", "Plug the charger in (skip if it can't be done here)",
+                                       "Electrical", "", True, "")))
+    else:
+        steps = _steps("", ("Switch", "Work one switch or control and hold it", "Other", "", True, ""),
+                       ("Value", "Move one lever, pedal or dial fully and hold it", "Other", "", False, ""))
+    return title, steps
 
 
 @dataclass
@@ -140,8 +270,7 @@ class Guide:
             return "Let go", "Looking at what followed..."
         if self.state == RESULT:
             return (f"{s.name}: found" if any(o.keep for o in self.offers) else f"{s.name}: nothing kept"), self.message
-        return s.prompt, s.caution or ("Press Start, then wait for the prompt" if not self.frames_seen
-                                       else "Press Start when you're ready")
+        return s.prompt, s.caution or "Press Start, then wait for 'do it'"
 
     # --- frames in ---
     def feed(self, frame):
