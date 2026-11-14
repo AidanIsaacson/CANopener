@@ -1145,8 +1145,8 @@ def test_kline_values_reads_what_the_last_full_scan_found(app_for, monkeypatch, 
     os.makedirs(old)
     with open(os.path.join(old, kline_probe.REPORT_FILE), "w") as f:
         f.write("- Service 22 reacts to the shape '22 1101 0401' (module 0x10, tester 0xF1, fast init): answered\n"
-        f.write("- Service 22 reacts to the shape '22 1101 0401' (module 0x10, tester 0xF1, fast init): answered\n"
                 "- Common identifiers that answer (22 11 xx, module 0x10, tester 0xF1, fast init): 1 (1 b): 01\n")
+    assert ctx.kline_plan().commands == ["2211010401"]
     seen = []
     assert ctx.kline_values(then=lambda title, lines: seen.append(lines))
     assert ctx.wait_idle(30) and ctx.wait_idle(30) and ctx.capture.state == cap.SAVED
