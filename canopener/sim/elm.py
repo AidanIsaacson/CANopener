@@ -204,7 +204,7 @@ class ElmSimulator:
         if a == "PC":
             self.woke = self.kwp_session = False
             return ["OK"]
-        if a.startswith("IIA") and len(a) == 5:
+        if (a.startswith("IIA") and len(a) == 5) or (a.startswith("WM") and len(a) >= 4):
             return ["OK"]
         if a[:2] in ("AT", "ST") or a in ("CFC0", "CFC1", "M0", "M1", "CSM0", "CSM1", "JE", "JS",
                                          "JHF0", "JHF1") or (a.startswith("PB") and len(a) == 6):

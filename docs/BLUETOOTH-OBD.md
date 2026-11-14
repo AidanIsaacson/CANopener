@@ -98,6 +98,10 @@ page 11-13 identifiers that answered) is parsed from the newest saved `kline_pro
 request is asked twice over into `kline_values.csv` (time, pass, request, data bytes). Comparing
 runs with the engine off, idling and revving is how the values get identified.
 
+**Using what the probe found:** `can/kwp.py` (`KwpSession`) is the generic piece: it opens a
+session addressed to one module and sends requests one at a time. The requests themselves and
+what the answers mean are maker-specific and live in a plugin or a profile, not here.
+
 It leaves 5.5 s of silence before each new wake-up (a module ignores one until its last session
 has timed out), so it takes two to four minutes, then sets the adapter up again from scratch. The
 transcript (`kline_probe.txt`) has every command, how long it took, and each reply line as the

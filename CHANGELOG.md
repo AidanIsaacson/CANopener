@@ -16,6 +16,9 @@ on an older one, `git checkout v0.3.2` in its checkout.
   an identifier page nobody has described (page 14), and the engine stopped. The full scan now
   refuses to run when the engine looks to be running, says so plainly before it starts (default
   No), and only ever sweeps pages 11-13; other pages that answer are reported, not swept.
+- **`can/kwp.py`: a KWP2000 session addressed to one module** through a Bluetooth OBD adapter
+  (wake-up, one request at a time, keep-alive, hand the adapter back to OBD-II). Only the
+  transport: what a maker's module understands belongs in a profile or a plugin.
 - **Read the values the last full scan found** (handheld: Codes > More...): wakes the module the
   way the saved report says and reads each data block and identifier that answered, twice over,
   into `kline_values.csv` in a log. Run it engine off, idling and revving, and the values that

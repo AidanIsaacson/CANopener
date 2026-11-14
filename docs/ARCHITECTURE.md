@@ -149,6 +149,11 @@ exercise the real backend.
   keeps the 'BUS INIT' lines) while holding the backend's lock, then runs `_init()` again. The
   handheld (`DeviceContext.kline_probe`) records a log around it and writes `kline_probe.txt` into
   that capture, so it uploads. docs/BLUETOOTH-OBD.md, "Thin K-line computers".
+* **KWP2000 session** (`can/kwp.py`): once the probe has shown a module keeps more behind a
+  session addressed to it alone, `KwpSession` opens it (header, wake-up, tester-present
+  keep-alive), sends one request at a time and gives the positive answer or raises
+  (`KwpNegative` / `KwpError`), and `close()` sets the adapter up again for OBD-II. Transport
+  only: a plugin supplies the requests and their meaning (and confirms any that change the vehicle).
 * **Battery voltage**: `core.meters.ObdVoltageSource` (ATRV, ~1 Hz) joins the measurement hub on
   both front-ends while an adapter is connected (the desktop now has a hub for it), so captures
   record it in `measurements.csv`.
