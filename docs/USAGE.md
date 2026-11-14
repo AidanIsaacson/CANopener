@@ -122,7 +122,9 @@ protocols (ISO 9141-2, KWP2000) answer the standard scan-tool questions with "no
 "no codes" even with the engine light on, and keep the real answers elsewhere on the same wire.
 The **deep probe** asks everything standard that only reads and keeps every reply: on the
 handheld, **Codes → More... → Deep probe**; on a computer, `canopener-cli bluetooth kline --out
-probe.txt`. It takes about two minutes and changes nothing on the machine. The handheld saves it
+probe.txt`. It takes about two minutes and changes nothing on the machine. (The separate **full
+scan** asks thousands more questions and is for engine off, key on, machine parked: on one machine
+it made the engine computer restart and the engine stop.) The handheld saves it
 as a log, ready to upload, so someone can work out from it how to read that machine properly.
 
 **Finding modules:** `canopener-cli uds --elm --find` asks every diagnostic ID whether a module is

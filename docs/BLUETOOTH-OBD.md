@@ -69,7 +69,7 @@ short ASCII strings, `1A 83` four bytes after about 5 s of "response pending" wi
 engine off, and a refusal (`7F 1A 94`) with the engine running. Replies don't echo the option byte.
 
 5. where service `22` exists: every two-byte page sampled (`22 xx 00` / `22 xx 01`), then a full
-   scan of the pages that answered and of pages 11-15 (0.3.6; up to ten minutes in all).
+   scan of pages 11-13 only (see the fifth result below for why no others).
 
 **Third result (2026-11-13, 0.3.6):** no common identifier answers in the plain shape either:
 all 512 samples and all of pages 11-15 are refused `7F 22 12`. From 0.3.7 the probe first tries
@@ -80,6 +80,17 @@ optional (handheld: the second menu entry; `--scan`).
 `61 01 00 18 00 00`, and `22 11 01 04 01`, `22 12 01 04 01`, `22 13 01 04 01` answer with one or two
 data bytes; an unknown identifier in that shape is refused `7F 22 10`. A bare `04` ending also
 works but makes service `21` send its answer 256 times, so the probe no longer tries it.
+
+**Fifth result (2026-11-13): a full scan stopped the engine.** With the engine running, the
+sweep in the `04 01` shape listed 6 data blocks (`21 00`-`05`), 95 identifiers on page 11, 71 on
+page 12 and 23 on page 13 without trouble. It then swept page 14, which the sample had found:
+nearly every number from `22 14 00` on answered (unlike the sparse pages before it), and after
+`22 14 43` the module stopped answering altogether; the engine had stopped. It answered again
+about 20 s later and the engine restarted normally. We can't tell whether `22 14 44` itself or
+the run of page-14 reads did it. Since then: only pages 11-13 are ever swept, other pages that
+answer their sample are just reported, and the full scan refuses to run with the engine running
+(battery at or above 13.2 V) and warns first. **Don't sweep unknown identifier pages on a machine
+that's running or that can't safely lose power.**
 
 It leaves 5.5 s of silence before each new wake-up (a module ignores one until its last session
 has timed out), so it takes two to four minutes, then sets the adapter up again from scratch. The

@@ -66,15 +66,15 @@ def test_probe_finds_kwp_services_and_retries_in_the_default_session():
     text = "\n".join(report.lines())
     assert "> 2110" in text and "61 10 0C 80 50" in text and "> 2111" not in text    # refusals are only counted
     assert "every data block: 256 tried" in text and "x255" in text
-    # service 22 exists: every page sampled, then the usual pages and the one the sample found (0x30) in full
+    # service 22 exists: every page sampled, the described pages in full; page 0x30 answered its sample
+    # but is only reported, never swept (a sweep of an unknown page stopped a real engine)
     # ... asked in the shape that got an answer (number + 04 01), found by trying a few numbers first
     assert "22110104" not in sent and any("reacts to the shape '22 1101 0401'" in f for f in report.findings)
-    assert "2230000401" in sent and "2230FF0401" in sent and "2211FF0401" in sent and "2240FF0401" not in sent
+    assert "2230000401" in sent and "2230FF0401" not in sent and "2211FF0401" in sent and "2214FF0401" not in sent
+    assert any("not swept" in f and f.endswith(": 30") for f in report.findings)
     where = "module 0x10, tester 0xF1, fast init"
     assert f"Common identifiers that answer (22 11 xx, {where}): 1 (1 data bytes): 01" in report.findings
-    assert any("22 30 xx" in f and "(2 data bytes): 00" in f for f in report.findings)
     assert any("22 12 xx" in f and f.endswith("none") for f in report.findings)
-    assert "62 30 00 0C 80" in text
 
 
 def test_scan_is_skipped_without_the_data_block_service():
@@ -119,3 +119,11 @@ def test_quick_run_tries_the_shapes_but_leaves_the_full_scans_out():
     assert "2211010401" in sent and "21FF" not in sent and "2211FF0401" not in sent
     assert any(f.startswith("Quick run") for f in report.findings)
     assert any("reacts to the shape '22 1101 0401'" in f and "62 11 01 50" in f for f in report.findings)
+
+
+def test_full_scan_is_left_out_when_the_engine_is_running(monkeypatch):
+    from canopener.sim import elm as sim_elm
+    monkeypatch.setattr(sim_elm, "VOLTAGE", "14.3V")
+    report, sent, _ = _probe("kwp", full=True)
+    assert "21FF0401" not in sent and "2211FF0401" not in sent and "2211010401" in sent
+    assert any("engine looks to be running (14.3V" in f for f in report.findings)

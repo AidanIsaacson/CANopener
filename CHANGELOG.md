@@ -11,6 +11,11 @@ on an older one, `git checkout v0.3.2` in its checkout.
   The scans of every number are now a separate menu entry (**Deep probe with the full scan**,
   `--scan` on the command line) and use the shape that answered; the plain deep probe is back to
   about two minutes.
+- **Safety: the full scan is engine-off only, and sweeps fewer pages.** On the first real machine
+  a full scan with the engine running ended with the engine computer going silent partway through
+  an identifier page nobody has described (page 14), and the engine stopped. The full scan now
+  refuses to run when the engine looks to be running, says so plainly before it starts (default
+  No), and only ever sweeps pages 11-13; other pages that answer are reported, not swept.
 - The shape that works on the first real machine is number + `04 01`; the bare `04` ending is no
   longer tried (it made the module repeat its answer 256 times).
 

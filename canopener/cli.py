@@ -956,7 +956,9 @@ def _elm_tool(a, settings) -> int:
             if why:
                 print(why, file=sys.stderr)
                 return 1
-            print(kline_probe.WARNING, file=sys.stderr)
+            print(kline_probe.WARNING_FULL if a.scan else kline_probe.WARNING, file=sys.stderr)
+            if a.scan and not a.yes and input("Engine off, key on? Run the full scan? [y/N] ").strip().lower() != "y":
+                return 1
             report = kline_probe.run(b, progress=lambda t: print(f"  {t}...", file=sys.stderr, flush=True),
                                      full=a.scan)
             text = "\n".join(report.lines()) + "\n"
@@ -1096,7 +1098,8 @@ def main(argv=None) -> int:
     b.add_argument("--listen", type=float, metavar="SECONDS", help="probe: also listen passively this long")
     b.add_argument("--j1939", action="store_true", help="probe --listen: listen on J1939 (250k) instead")
     b.add_argument("--scan", action="store_true",
-                   help="kline: also try every data-block and identifier number (up to 10 minutes)")
+                   help="kline: also try every data-block and identifier number: ENGINE OFF only (asks first; "
+                   "--yes skips the question)")
     b.add_argument("--out", metavar="FILE", help="kline: write the full transcript here and print the summary")
     b.add_argument("--monitor-seconds", type=float, default=5.0, help="console: how long ATMA etc. run")
     b.set_defaults(fn=cmd_bluetooth)

@@ -21,9 +21,11 @@ everything standard that only reads, and writes down every reply exactly as the 
    First a few numbers are tried in other request shapes (more bytes after the number), in case
    the plain shape is what's refused. The full scans only run with ``full=True``.
 5. **Where it has the common-identifier read** (service ``22``, two-byte numbers): every page sampled
-   (``22 xx 00`` / ``22 xx 01``), then a full scan of each page that answered and of ``CID_PAGES``.
+   (``22 xx 00`` / ``22 xx 01``), then a full scan of ``CID_PAGES`` only, and only with the engine off
+   (see ``CID_PAGES`` for why: a sweep of another page stopped an engine).
 
-Nothing here clears, writes, resets or runs a test. No maker-specific identifiers are requested:
+Nothing here clears, writes, resets or runs a test, but see ``CID_PAGES``: the full scan (``full=True``)
+of a maker's identifiers is not risk-free and is kept to engine-off. No maker-specific identifiers are requested:
 what a maker's blocks mean belongs in a profile or the plugin, worked out from our own captures.
 
 The transcript is the point: ``Report.lines()`` goes into the capture (``kline_probe.txt``) so it
@@ -39,12 +41,13 @@ from ..obd.dtc import decode_dtc
 from .elm327 import NONCAN_PROTOCOLS, PROTOCOLS, ElmBackend, classify
 
 REPORT_FILE = "kline_probe.txt"
-# About how long ``run`` takes on a real vehicle, for the front-ends' wording.
-ABOUT = "about 2 minutes; the full scan up to 10"
-WARNING = ("Asks the engine computer read-only questions over the K-line (about 80, or a couple of thousand "
-           "with the full scan), including ones it says it doesn't support, and tries each wake-up (ISO 9141-2, "
-           "KWP2000). It doesn't clear codes, change "
-           "settings or run tests. Live data pauses while it runs (" + ABOUT + "). Key on, engine running or not.")
+WARNING = ("Asks the engine computer read-only questions over the K-line (about 80), including ones it says it "
+           "doesn't support, and tries each wake-up (ISO 9141-2, KWP2000). It doesn't clear codes, change "
+           "settings or run tests. Live data pauses while it runs (about 2 minutes). Key on, engine running or not.")
+WARNING_FULL = ("ENGINE OFF, key on, machine parked and safe to lose power. This also asks for every data-block "
+                "number and a few thousand identifier numbers. They are reads, but a maker's identifiers aren't "
+                "guaranteed harmless: on one machine a scan like this made the engine computer restart and the "
+                "engine stop. It won't run if the engine looks to be running. Up to 8 minutes.")
 REQUEST_TIMEOUT = 12.0          # a first request includes the wake-up (5-baud: 2-3 s, retried by some adapters)
 TESTERS = (0xF1, 0xFC)          # tester addresses tried: the standard one, and one some makers' tools use
 DEFAULT_ECU = 0x10              # the engine, when nothing answered OBD-II to tell us
@@ -95,9 +98,14 @@ SCANS = [(0x21, range(0x00, 0x100), "data block"), (0x1A, range(0x80, 0xA0), "id
 # Do these read services exist at all? (Any refusal but 'service not supported' says yes.)
 EXISTS = [("1200", "read freeze frame data"), ("17FF00", "read status of codes"), ("220000", "read data by common ID")]
 # Common identifiers (service 22, two bytes) are too many to try them all (65536, hours on a K-line):
-# every page is sampled at xx 00 / xx 01 and a page with an answer is scanned in full, as are these,
-# where public notes on K-line command sets of this kind put their values.
-CID_PAGES = (0x11, 0x12, 0x13, 0x14, 0x15)
+# every page is sampled at xx 00 / xx 01, and only these pages are scanned in full: the ones public
+# notes on K-line command sets of this kind describe as values. **Other pages are never swept**, even
+# when their sample answers: on the first real machine a sweep of page 14 (which answered almost every
+# number in a row, like a window onto memory or hardware registers, not a list of values) ended with
+# the engine computer going silent at 22 14 44 and the engine stopping. A "read" of a maker's
+# identifier is not guaranteed to be free of side effects.
+CID_PAGES = (0x11, 0x12, 0x13)
+RUNNING_VOLTS = 13.2            # at or above this at the OBD port the engine is taken to be running (charging)
 # Request shapes: a module that refuses every number of a read the same way may want more bytes
 # after the number (ISO 14230-3 allows a transmission mode and a count there). A few numbers are
 # tried with each ending, and the bare freeze-frame read in a few lengths: an answer that differs
@@ -177,6 +185,14 @@ def can_probe(b) -> str:
     if b.protocol and b.protocol not in NONCAN_PROTOCOLS:
         return f"This vehicle answered on {b.protocol_name}: the deep probe is for K-line ones (ISO 9141-2, KWP2000)."
     return ""
+
+
+def engine_running(b) -> bool:
+    """Is the battery being charged (the adapter's voltage reading)? Unknown counts as no."""
+    try:
+        return float((b.read_voltage() or "").upper().rstrip("V")) >= RUNNING_VOLTS
+    except (ValueError, OSError):
+        return False
 
 
 def message_body(line: str, kwp: bool) -> bytes | None:
@@ -393,8 +409,11 @@ class _Probe:
                              "common identifier (sample)", "22xx00/01")
         if sample is None:
             return
-        pages = sorted(set(CID_PAGES) | {int(s.command[2:4], 16) for s in sample})
-        for hi in pages:
+        others = sorted({int(s.command[2:4], 16) for s in sample} - set(CID_PAGES))
+        if others:
+            self.find("Common-identifier pages that answer but are not swept (" + where + "): "
+                      + " ".join(f"{hi:02X}" for hi in others))
+        for hi in CID_PAGES:
             self.say(f"Scanning common identifiers 22 {hi:02X} 00-FF")
             answered = self._sweep([f"22{hi:02X}{lo:02X}{end}" for lo in range(256)], "common identifier",
                                    f"22{hi:02X}xx{end}")
@@ -463,6 +482,10 @@ def run(b: ElmBackend, progress=None, settle: float | None = None, full: bool = 
     p = _Probe(b, progress, SETTLE if settle is None else settle, full)
     with b._lock:
         try:
+            if full and engine_running(b):
+                p.full = False
+                p.find(f"The full scan was left out: the engine looks to be running ({b.voltage} at the OBD "
+                       "port). It only runs with the engine off and the key on.")
             if b.protocol:
                 p.generic()
                 p.find_ecu()

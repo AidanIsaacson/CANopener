@@ -205,21 +205,22 @@ class CodesPage(Screen):
             if what in ("kline", "kline-full"):
                 self.kline_probe(full=what == "kline-full")
         choose(self.app, "Codes", [("Deep probe (older K-line vehicles): what else answers? 2 min", "kline"),
-                                   ("Deep probe with the full scan of every number: up to 10 min", "kline-full")],
+                                   ("Deep probe + full scan (ENGINE OFF only): up to 8 min", "kline-full")],
                None, pick)
 
     def kline_probe(self, full: bool = False):
         """The read-only K-line deep probe: says what it does first, since it takes a while."""
-        from ...can.kline_probe import WARNING
+        from ...can.kline_probe import WARNING, WARNING_FULL
         ctx = self.ctx
         why = ctx.kline_probe_refusal()
         if why:
             self.app.push(InfoDialog(self.app, "Deep probe", [why]))
             return
-        confirm(self.app, "Run the deep probe?", WARNING, "Run",
+        confirm(self.app, "Run the full scan? ENGINE OFF" if full else "Run the deep probe?",
+                WARNING_FULL if full else WARNING, "Run",
                 lambda: ctx.kline_probe(then=lambda title, lines: self.app.push(InfoDialog(self.app, title, lines)),
                                         full=full),
-                danger=False)
+                danger=full)
 
     def _show_cleared(self, lines, ok):
         self.app.push(InfoDialog(self.app, "Codes cleared" if ok else "Clear codes: check the answers", lines))
