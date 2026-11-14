@@ -139,7 +139,9 @@ That needs the `canopener-tunnel` container and one TCP port reachable from the 
    this server. Not port 22, and never to the server's own SSH.
 2. In `.env`: `TUNNEL_HOST=` the public name or address units should dial, and `TUNNEL_PORT=` if
    it isn't 47822.
-3. `mkdir -p tunnel-hostkeys data/tunnel`, then `docker compose --profile tunnel up -d --build`.
+3. `mkdir -p tunnel-hostkeys data/tunnel && sudo chown 10001 data/tunnel` (the upload server writes
+   the units' keys there, and it doesn't run as root), then
+   `docker compose --profile tunnel up -d --build`.
 
 What a unit can do there is one thing. Its key (made on the unit, enrolled through its upload
 token) is written to `data/tunnel/authorized_keys` as
