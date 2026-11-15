@@ -108,7 +108,9 @@ renaming a heading means fixing its links.
   profile's `"emcy"`.
 * Anything that runs as root goes through `core.interfaces.run_privileged` as explicit argv
   lists (never `sh -c` with user input). Keep `deploy/raspberry-pi/canopener.sudoers` matching
-  the commands `setup_steps()` produces.
+  the commands `setup_steps()` and `device/doom.install_steps()` produce (a test checks the latter).
+* Doom (`device/doom.py`) is an optional download the user is asked about, never part of the
+  install: no engine code, WADs or other game data in this repo or in `install.sh`.
 * The handheld's button wiring is `deploy/raspberry-pi/config-controls.txt`: keep its key codes
   matching `device/input.DEFAULT_KEYS` (a test checks) and its pins out of the reserved buses.
 * Pi-only work can happen on a Pi branch; bring `main` into it with `scripts/sync-from-main.sh` (a

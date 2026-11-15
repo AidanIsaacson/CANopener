@@ -394,6 +394,12 @@ class SettingsScreen(Screen):
         on = not self.ctx.settings.get("device.games")
         self.ctx.settings.set("device.games", on)
         self.ctx.toast("Games: on the home screen" if on else "Games hidden")
+        if on:
+            self._offer_doom()
+
+    def _offer_doom(self):
+        from .games import offer_doom
+        offer_doom(self.app)                # asked once: Doom is an optional download
 
     def _count_about(self):
         """Open About seven times in a row (each within 10 s of the last) and Games appears."""
@@ -409,6 +415,7 @@ class SettingsScreen(Screen):
             self._about_opens = []
             s.set("device.games", True)
             self.ctx.toast("Games unlocked: they're on the home screen")
+            self._offer_doom()
         elif left <= 3:
             self.ctx.toast(f"{left} more...")
 

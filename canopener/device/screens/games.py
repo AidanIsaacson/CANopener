@@ -18,11 +18,12 @@ import pygame
 
 from ...core import profiles, themes
 from .. import cargo as cg
+from .. import doom
 from .. import game_controls as gc
 from .. import harness as hz
 from .. import input as inp
 from ..ui import UI
-from .base import InfoDialog, Row, RowList, Screen, SoftKey, choose
+from .base import InfoDialog, Row, RowList, Screen, SoftKey, choose, confirm
 
 BEST = "games.harness_best"
 CARGO_BEST = "games.cargo_best"
@@ -40,6 +41,56 @@ def status(ctx) -> str:
 def _profile_id() -> str:
     p = profiles.active()
     return p.id if p is not None else "generic"
+
+
+# --- Doom: not ours and not installed with CANopener; fetched when asked (device/doom.py) ---
+DOOM_ASKED = "games.doom_asked"
+
+
+def offer_doom(app, always: bool = False) -> bool:
+    """Ask whether to download Doom (once, when the games menu is turned on; ``always``: asked
+    for from the Games menu). True if the question was put."""
+    s = app.ctx.settings
+    if doom.installed() or not doom.can_install() or (s.get(DOOM_ASKED) and not always):
+        return False
+    s.set(DOOM_ASKED, True)
+    confirm(app, "Install Doom?",
+            "Doom isn't part of CANopener, but the handheld can fetch it: the Chocolate Doom engine and the "
+            "free Freedoom levels, from the system's package archive (about 40 MB; needs internet).\n\n"
+            "Say No and it stays off; the Doom row under Games asks again whenever you like.",
+            "Install", lambda: install_doom(app), danger=False)
+    return True
+
+
+def install_doom(app):
+    def done(result):
+        ok, msg = result
+        if ok:
+            app.ctx.toast(f"Doom installed ({doom.wad_name()}): it's under Games")
+        else:
+            app.push(InfoDialog(app, "Doom wasn't installed", [msg, "", "To do it by hand, in a terminal:",
+                                                               "sudo apt-get install chocolate-doom freedoom"]))
+    app.ctx.run_job("Installing Doom", doom.install, done)
+
+
+def play_doom(app):
+    ctx = app.ctx
+    argv = doom.command()
+    if argv is None:
+        if not offer_doom(app, always=True):
+            app.push(InfoDialog(app, "Doom isn't installed", [
+                "It needs the Chocolate Doom engine (chocolate-doom) and game data: Freedoom, or your own "
+                f"doom.wad in {doom.data_dir()}."]))
+        return
+    if ctx.busy:
+        ctx.toast(f"Busy: {ctx.busy}")
+        return
+    if ctx.recording:
+        ctx.toast("A log is recording: stop it first (Doom takes over the screen)")
+        return
+    ok, msg = app.run_external(argv)
+    if not ok:
+        app.push(InfoDialog(app, "Doom stopped", [msg]))
 
 
 class GamesScreen(Screen):
@@ -60,6 +111,10 @@ class GamesScreen(Screen):
                     hint="a puzzle, no hurry: turn the tiles until the battery lights every lamp"),
                 Row("Arbitration", lambda: f"best {int(s.get(ARBITRATION_BEST) or 0)}", select=self._play_arbitration,
                     hint="several frames start at once: pick the one that wins the bus"),
+                Row("Doom", doom.wad_name() if doom.installed() else "not installed",
+                    select=lambda: play_doom(self.app),
+                    hint="the real one; d-pad to move, push to fire, soft keys: use, weapon, map, strafe"
+                    if doom.installed() else "not part of CANopener: select to download it"),
                 Row("Controls from CAN", f"{bound} set" if bound else "Off", kind="menu", select=self._controls,
                     hint="play with the machine's own signals: steer to turn, a switch to drop")]
 

@@ -9,6 +9,7 @@ import pytest
 from canopener.core.settings import Settings
 from canopener.device import arbitration as ab
 from canopener.device import cargo as cg
+from canopener.device import doom
 from canopener.device import game_controls as gc
 from canopener.device import harness as hz
 from canopener.device import loom as lm
@@ -16,6 +17,15 @@ from canopener.j1939 import signals
 from canopener.j1939.signals import Signal
 
 EW = hz.E | hz.W
+
+
+@pytest.fixture(autouse=True)
+def no_doom(monkeypatch):
+    """Whatever this machine has installed: no Doom, and no way to fetch it, unless a test says so."""
+    monkeypatch.setattr(doom, "ENGINE_DIRS", ())
+    monkeypatch.setattr(doom, "SYSTEM_WAD_DIRS", ())
+    monkeypatch.setattr(doom, "ENGINES", ("no-such-doom-engine",))
+    monkeypatch.setattr(doom, "can_install", lambda: False)
 
 
 def bottom_row(g, gap):
@@ -771,3 +781,106 @@ def test_loom_and_arbitration_draw_at_panel_sizes(size):
     finally:
         ctx.shutdown()
         pygame.quit()
+
+
+# --- Doom: an optional download ------------------------------------------------
+@pytest.fixture
+def fake_doom(tmp_path, monkeypatch):
+    """A stand-in engine (a script that records how it was started) and a WAD, in 'system' folders."""
+    bin_dir, wads = tmp_path / "bin", tmp_path / "wads"
+    bin_dir.mkdir()
+    wads.mkdir()
+    exe = bin_dir / "chocolate-doom"
+    exe.write_text(f'#!/bin/sh\necho "$@" > {tmp_path}/started\n')
+    exe.chmod(0o755)
+    (wads / "freedoom1.wad").write_bytes(b"IWAD")
+    monkeypatch.setattr(doom, "ENGINES", ("chocolate-doom",))
+
+    def put_in_place():
+        monkeypatch.setattr(doom, "ENGINE_DIRS", (str(bin_dir),))
+        monkeypatch.setattr(doom, "SYSTEM_WAD_DIRS", (str(wads),))
+    put_in_place.started = tmp_path / "started"
+    return put_in_place
+
+
+def test_doom_is_found_configured_and_prefers_your_own_wad(fake_doom):
+    assert not doom.installed() and doom.command() is None and doom.wad_name() == ""
+    fake_doom()
+    assert doom.installed() and doom.wad_name() == "Freedoom"
+    argv = doom.command()
+    main, extra = argv[argv.index("-config") + 1], argv[argv.index("-extraconfig") + 1]
+    assert argv[0].endswith("chocolate-doom") and argv[argv.index("-iwad") + 1].endswith("freedoom1.wad")
+    assert os.path.dirname(main) == doom.data_dir() and argv[-1] == doom.data_dir() + os.sep
+    keys = dict(line.split() for line in open(main).read().splitlines() + open(extra).read().splitlines())
+    assert keys["key_fire"] == "28" and keys["key_use"] == "59" and keys["key_menu_activate"] == "63"
+    assert keys["key_menu_help"] == "0" and keys["fullscreen"] == "1"       # the soft keys are Doom's now
+    with open(main, "a") as f:
+        f.write("sfx_volume 3\n")
+    doom.command()
+    assert "sfx_volume 3" in open(main).read()          # a setup that's there is left alone
+    open(os.path.join(doom.data_dir(), "DOOM.WAD"), "wb").close()
+    assert doom.wad_name() == "Doom" and doom.command()[2].endswith("DOOM.WAD")     # your own copy comes first
+
+
+def test_doom_installs_with_fixed_commands_only(fake_doom, monkeypatch):
+    assert doom.install() == (False, "This system has no apt-get: install chocolate-doom and a WAD by hand.")
+    monkeypatch.setattr(doom, "can_install", lambda: True)
+    ran = []
+
+    def runner(steps, timeout, optional):
+        ran.append((steps, timeout, optional))
+        fake_doom()                                     # the packages land
+        return True, "ok"
+    assert doom.install(runner) == (True, "ok")
+    assert ran == [([["apt-get", "update"],
+                     ["apt-get", "install", "-y", "--no-install-recommends", "chocolate-doom", "freedoom"]],
+                    doom.INSTALL_TIMEOUT_S, {0})]
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sudoers = " ".join(open(os.path.join(here, "deploy", "raspberry-pi", "canopener.sudoers")).read().split())
+    for step in doom.install_steps():                   # the sudoers file allows exactly these
+        assert "/usr/bin/" + " ".join(step) in sudoers
+    assert doom.install(lambda steps, timeout, optional: (False, "no network")) == (False, "no network")
+
+
+def test_turning_games_on_asks_once_whether_to_install_doom(app, fake_doom, monkeypatch):
+    from canopener.device import modes
+    from canopener.device.screens import games
+    from canopener.device.screens.base import ConfirmDialog, InfoDialog
+    monkeypatch.setattr(doom, "can_install", lambda: True)
+    app.open_mode("settings")
+    settings = app.top
+    settings._toggle_games()                            # games on: the question
+    assert isinstance(app.top, ConfirmDialog) and app.top.title == "Install Doom?" and app.top.focus == 0
+    app.step([])
+    press(app, pygame.K_RETURN)                         # No (the default)
+    assert not doom.installed() and "games" in [m.id for m in modes.shown(app.ctx)]
+    settings._toggle_games()
+    settings._toggle_games()                            # off and on again: not asked twice
+    assert not isinstance(app.top, ConfirmDialog)
+    app.open_mode("games")
+    row = next(r for r in app.top.rows.refresh() if r.label == "Doom")
+    assert row.value_text() == "not installed"
+    row.select()                                        # ... but the Doom row asks whenever you like
+    assert isinstance(app.top, ConfirmDialog)
+    installs = []
+
+    def install():
+        installs.append(1)
+        fake_doom()
+        return True, "ok"
+    monkeypatch.setattr(doom, "install", install)
+    app.top._answer(True)
+    app.ctx.wait_idle()
+    assert installs == [1] and "Doom installed (Freedoom)" in app.ctx.current_toast()
+    row = next(r for r in app.top.rows.refresh() if r.label == "Doom")
+    assert row.value_text() == "Freedoom"
+    size = app.screen.get_size()
+    row.select()                                        # play: the screen is handed over and taken back
+    assert fake_doom.started.read_text().startswith("-iwad ")
+    assert isinstance(app.top, games.GamesScreen) and app.screen.get_size() == size
+    app.step([])                                        # and the handheld draws again
+    monkeypatch.setattr(doom, "install", lambda: (False, "no network"))
+    monkeypatch.setattr(doom, "installed", lambda: False)
+    games.install_doom(app)
+    app.ctx.wait_idle()
+    assert isinstance(app.top, InfoDialog) and app.top.lines[0] == "no network"

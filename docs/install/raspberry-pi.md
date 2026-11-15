@@ -51,9 +51,10 @@ What the options do:
   [laptop installer](linux-laptop.md#your-usb-adapter-canable-20--20-pro)), creates
   `~/canopener-venv`, installs CANopener into it, and adds a **CANopener** entry to the Pi's menu.
 * `--sudoers`: lets CANopener bring `can0` up **without a password**. This is limited to exactly
-  `ip link set canN up/down/type can …` and nothing else (see
-  [`canopener.sudoers`](../../deploy/raspberry-pi/canopener.sudoers)). Needed for a screen-only
-  setup with no keyboard to type a password.
+  `ip link set canN up/down/type can …`, plus the two `apt-get` commands that fetch the handheld's
+  optional Doom download when you ask for it ([Games](../DEVICE.md#games-hidden)), and nothing
+  else (see [`canopener.sudoers`](../../deploy/raspberry-pi/canopener.sudoers)). Needed for a
+  screen-only setup with no keyboard to type a password.
 * `--autostart`: starts CANopener full-screen every time you log in to the desktop. It also
   brings up `can0` at 250k first.
 

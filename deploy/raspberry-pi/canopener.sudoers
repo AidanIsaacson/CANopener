@@ -12,5 +12,11 @@ Cmnd_Alias CANOPENER_IP = /usr/sbin/ip link set can[0-9] down, \
                           /usr/bin/ip link set can[0-9] type can *
 USERNAME ALL=(root) NOPASSWD: CANOPENER_IP
 
+# Games > Doom (an optional download, asked for on the handheld): exactly these two commands,
+# the ones canopener/device/doom.py install_steps() runs. Delete these lines to keep it out.
+Cmnd_Alias CANOPENER_DOOM = /usr/bin/apt-get update, \
+                            /usr/bin/apt-get install -y --no-install-recommends chocolate-doom freedoom
+USERNAME ALL=(root) NOPASSWD: CANOPENER_DOOM
+
 # Optional, for a power menu in a future on-device UI:
 # USERNAME ALL=(root) NOPASSWD: /usr/sbin/shutdown -h now, /usr/sbin/reboot

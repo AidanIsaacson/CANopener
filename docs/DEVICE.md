@@ -161,7 +161,7 @@ Tap **Show games menu** in the corner of **System > About this device** (or open
 times in a row) and a **Games** tile joins the home screen (after System, so the soft keys don't
 change); the same button, now **Hide games menu**, or **System > Software > Show games** hides it again.
 
-There are four. Each has a **How to play** soft key (Arbitration explains itself on its first
+There are four of CANopener's own, and Doom as an optional download (below). Each of the four has a **How to play** soft key (Arbitration explains itself on its first
 screen), keeps its best score (Loom: the highest level opened), and makes the game sounds set
 under **System > Sound** (cleared, next level, wrong answer, game over).
 
@@ -202,6 +202,23 @@ identifier is decided by its priority first. After each answer the bits are draw
 the other, with the bit where each loser backed off marked. A mistake adds 64 to the error
 counter and a right answer takes 8 off; at 256 it's bus-off and the game is over. The identifiers
 are random numbers, not any machine's.
+
+**Doom** (`device/doom.py`) is the real one, and optional: nothing of it is in CANopener or
+installed with it. The first time the games menu is turned on, the handheld asks whether to
+download it (the Chocolate Doom engine and the free Freedoom levels, about 40 MB from the system's
+package archive; needs internet). Say No and it stays off; the **Doom** row under Games asks
+again whenever you like. Your own `doom.wad` or `doom2.wad` copied into
+`~/.config/canopener/doom/` is played instead of Freedoom. Doom takes over the whole screen:
+
+* D-pad: walk and turn. Encoder push: fire.
+* Soft keys: 1 use / open, 2 next weapon, 3 map, 4 hold to strafe.
+* Fifth button: Doom's menu. **Quit Game** there (push to confirm) comes back to CANopener.
+
+The keys are set in `default.cfg` and `chocolate-doom.cfg` in that folder, written the first time
+Doom starts and left alone after that (delete them to get the handheld's setup back). Doom
+doesn't start while a log is recording, it isn't turned with the screen (**System > Display >
+Rotate**), and Controls from CAN doesn't reach it. To remove it:
+`sudo apt-get remove chocolate-doom freedoom`.
 
 **Controls from CAN** (`device/game_controls.py`): every control goes through one command
 interface, so the machine's own signals, decoded by the active profile, can play it too: steer

@@ -19,7 +19,7 @@ cd ~/CANopener
 | `canopener-launch.sh` | Runs `canopener-cli setup` for the CAN interface, then the UI fullscreen: the handheld UI or the desktop GUI, whichever was last chosen (`CANOPENER_UI` forces one). Configured with `CANOPENER_*` environment variables (see the top of the file). |
 | `config-controls.txt` | `config.txt` lines for the handheld's buttons, d-pad and rotary encoder ([docs/DEVICE.md](../../docs/DEVICE.md#controls-wiring)). |
 | `71-canopener-backlight.rules` | udev rule: the `video` group may set the screen brightness. Installed by `install.sh --device`. |
-| `canopener.sudoers` | Lets your user run **only** `ip link set canN up/down/type can ...` without a password. Without it, interface setup asks for a password (pkexec), which a kiosk can't answer. |
+| `canopener.sudoers` | Lets your user run **only** `ip link set canN up/down/type can ...` (and the two `apt-get` commands of the handheld's optional Doom download) without a password. Without it, interface setup asks for a password (pkexec), which a kiosk can't answer. |
 | `canopener.service` | systemd **user** service: start at login, restart on crash. |
 | `canopener-autostart.desktop` | Desktop login autostart that starts the service: Raspberry Pi OS's desktop (labwc) never activates `graphical-session.target`, so the service's own `WantedBy=` doesn't fire there. Installed by `install.sh --autostart` as `~/.config/autostart/canopener.desktop`. |
 | `canopener.desktop` | Application-menu entry. |

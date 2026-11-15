@@ -163,6 +163,38 @@ class DeviceApp:
         self.screen = surf
         self._fit()
 
+    def run_external(self, argv: list[str]) -> tuple[bool, str]:
+        """Hand the screen and the sound to another full-screen program, wait for it to finish,
+        then take them back. Returns (it ran and ended normally, what went wrong)."""
+        import subprocess
+        if pygame.mixer.get_init():                 # MixerSpeaker opens it again on the next tone
+            pygame.mixer.quit()
+        speaker = getattr(self.ctx, "speaker", None)
+        if isinstance(speaker, MixerSpeaker):
+            speaker.ok, speaker._sounds = None, {}
+        size = self.screen.get_size()
+        caption = pygame.display.get_caption()[0]
+        pygame.display.quit()                       # with no desktop, only one program can hold the screen
+        try:
+            r = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                               text=True, errors="replace")
+            ok, msg = r.returncode == 0, (r.stderr or "").strip()[-400:] or f"exit status {r.returncode}"
+        except OSError as e:
+            ok, msg = False, str(e)
+        finally:
+            pygame.display.init()
+            pygame.display.set_caption(caption)
+            if self.fullscreen:
+                self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+                pygame.mouse.set_visible(False)
+            else:
+                self.screen = pygame.display.set_mode(size, pygame.RESIZABLE)
+            self._fit()
+            self._touch = self._pressed = None
+            if self.encoder is not None:
+                self.encoder.read()                 # turns made in the other program aren't ours
+        return ok, "" if ok else msg
+
     def window_size(self) -> str:
         return f"{self.size[0]}x{self.size[1]}"
 
