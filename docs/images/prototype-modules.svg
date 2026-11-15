@@ -1,0 +1,302 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1300" viewBox="0 0 1000 1300" font-family="DejaVu Sans, Arial, Helvetica, sans-serif">
+<rect width="1000" height="1300" fill="#fff"/>
+<text x="500.0" y="34" font-size="20" font-weight="bold" text-anchor="middle" fill="#111">Prototype wiring 2 of 2: the modules, pin by pin</text>
+<text x="500.0" y="56" font-size="12" font-weight="normal" text-anchor="middle" fill="#444" font-style="italic">Each wire is labelled with where its other end goes. Pi numbers are header pins (page 1).</text>
+<path d="M60 84 H84" fill="none" stroke="#d32f2f" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="90" y="88" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">5 V</text>
+<path d="M137 84 H161" fill="none" stroke="#e37b00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="167" y="88" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">3.3 V</text>
+<path d="M228 84 H252" fill="none" stroke="#222222" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="258" y="88" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">ground</text>
+<path d="M326 84 H350" fill="none" stroke="#2b6cd4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="356" y="88" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">SPI / CAN INT</text>
+<path d="M473 84 H497" fill="none" stroke="#2e8b3a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="503" y="88" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">I2C</text>
+<path d="M550 84 H574" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="580" y="88" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">buttons / encoder</text>
+<path d="M725 84 H749" fill="none" stroke="#7b3fbf" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="755" y="88" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">SYNC</text>
+<path d="M809 84 H833" fill="none" stroke="#b0b0b0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="839" y="88" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">kept free / open</text>
+<rect x="30" y="110" width="460" height="400" rx="8" fill="none" stroke="#ccc" stroke-width="1.5"/>
+<text x="44" y="134" font-size="15" font-weight="bold" text-anchor="start" fill="#111">MCP2518FD module (CAN stack A)</text>
+<text x="476" y="134" font-size="12" font-weight="normal" text-anchor="end" fill="#0b6e4f">stage 1</text>
+<rect x="50" y="152" width="170" height="262" rx="5" fill="#f4f4f4" stroke="#555" stroke-width="2"/>
+<text x="135" y="174" font-size="12" font-weight="normal" text-anchor="middle" fill="#555555">P1 header</text>
+<text x="210" y="196" font-size="12" font-weight="bold" text-anchor="end" fill="#111">5V</text>
+<circle cx="220" cy="192" r="4" fill="#111111"/>
+<path d="M224 192 H280" fill="none" stroke="#d32f2f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="288" y="196" font-size="12" font-weight="normal" text-anchor="start" fill="#111111">5 V rail (fused)</text>
+<text x="210" y="215" font-size="12" font-weight="bold" text-anchor="end" fill="#111">GND</text>
+<circle cx="220" cy="211" r="4" fill="#111111"/>
+<path d="M224 211 H280" fill="none" stroke="#222222" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="288" y="215" font-size="12" font-weight="normal" text-anchor="start" fill="#111111">Pi 20</text>
+<text x="210" y="234" font-size="12" font-weight="bold" text-anchor="end" fill="#111">3V3</text>
+<circle cx="220" cy="230" r="4" fill="#111111"/>
+<path d="M224 230 H280" fill="none" stroke="#e37b00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="288" y="234" font-size="12" font-weight="normal" text-anchor="start" fill="#111111">3.3 V rail (if needed)</text>
+<text x="210" y="253" font-size="12" font-weight="bold" text-anchor="end" fill="#111">SCK</text>
+<circle cx="220" cy="249" r="4" fill="#111111"/>
+<path d="M224 249 H280" fill="none" stroke="#2b6cd4" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="288" y="253" font-size="12" font-weight="normal" text-anchor="start" fill="#111111">Pi 23 · GPIO11</text>
+<text x="210" y="272" font-size="12" font-weight="bold" text-anchor="end" fill="#111">SDI</text>
+<circle cx="220" cy="268" r="4" fill="#111111"/>
+<path d="M224 268 H280" fill="none" stroke="#2b6cd4" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="288" y="272" font-size="12" font-weight="normal" text-anchor="start" fill="#111111">Pi 19 · GPIO10 MOSI</text>
+<text x="210" y="291" font-size="12" font-weight="bold" text-anchor="end" fill="#111">SDO</text>
+<circle cx="220" cy="287" r="4" fill="#111111"/>
+<path d="M224 287 H280" fill="none" stroke="#2b6cd4" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="288" y="291" font-size="12" font-weight="normal" text-anchor="start" fill="#111111">Pi 21 · GPIO9 MISO</text>
+<text x="210" y="310" font-size="12" font-weight="bold" text-anchor="end" fill="#111">nCS</text>
+<circle cx="220" cy="306" r="4" fill="#111111"/>
+<path d="M224 306 H280" fill="none" stroke="#2b6cd4" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="288" y="310" font-size="12" font-weight="normal" text-anchor="start" fill="#111111">Pi 24 · GPIO8 CE0</text>
+<text x="210" y="329" font-size="12" font-weight="bold" text-anchor="end" fill="#111">INT</text>
+<circle cx="220" cy="325" r="4" fill="#111111"/>
+<path d="M224 325 H280" fill="none" stroke="#2b6cd4" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="288" y="329" font-size="12" font-weight="normal" text-anchor="start" fill="#111111">Pi 22 · GPIO25</text>
+<text x="210" y="348" font-size="12" font-weight="bold" text-anchor="end" fill="#111">INT0</text>
+<circle cx="220" cy="344" r="4" fill="#111111"/>
+<path d="M224 344 H280" fill="none" stroke="#b0b0b0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="288" y="348" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">open</text>
+<text x="210" y="367" font-size="12" font-weight="bold" text-anchor="end" fill="#111">INT1</text>
+<circle cx="220" cy="363" r="4" fill="#111111"/>
+<path d="M224 363 H280" fill="none" stroke="#b0b0b0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="288" y="367" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">open</text>
+<text x="210" y="386" font-size="12" font-weight="bold" text-anchor="end" fill="#111">CLK</text>
+<circle cx="220" cy="382" r="4" fill="#111111"/>
+<path d="M224 382 H280" fill="none" stroke="#b0b0b0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="288" y="386" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">open (crystal test point)</text>
+<text x="135" y="404" font-size="11" font-weight="normal" text-anchor="middle" fill="#555555">ATA6563 · 20 MHz · 120 Ω</text>
+<rect x="73" y="422" width="24" height="18" rx="2" fill="#cfe8dc" stroke="#555" stroke-width="1.5"/>
+<text x="85" y="436" font-size="12" font-weight="bold" text-anchor="middle" fill="#111">H</text>
+<path d="M85 440 V466" fill="none" stroke="#111111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="85" y="484" font-size="12" font-weight="bold" text-anchor="middle" fill="#111">DB9 7</text>
+<rect x="123" y="422" width="24" height="18" rx="2" fill="#cfe8dc" stroke="#555" stroke-width="1.5"/>
+<text x="135" y="436" font-size="12" font-weight="bold" text-anchor="middle" fill="#111">L</text>
+<path d="M135 440 V466" fill="none" stroke="#555555" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="135" y="484" font-size="12" font-weight="bold" text-anchor="middle" fill="#111">DB9 2</text>
+<rect x="173" y="422" width="24" height="18" rx="2" fill="#cfe8dc" stroke="#555" stroke-width="1.5"/>
+<text x="185" y="436" font-size="12" font-weight="bold" text-anchor="middle" fill="#111">G</text>
+<path d="M185 440 V466" fill="none" stroke="#222222" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="185" y="484" font-size="12" font-weight="bold" text-anchor="middle" fill="#111">DB9 3</text>
+<text x="50" y="502" font-size="11" font-weight="normal" text-anchor="start" fill="#555555">Twist H and L. DB9 pin 6 (second ground) optional.</text>
+<text x="250" y="450" font-size="12" font-weight="bold" text-anchor="start" fill="#111">Termination jumper:</text>
+<text x="250" y="466" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">off on a machine, on for the bench bus</text>
+<text x="250" y="482" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">P2 (4.5-36 V input): leave unconnected</text>
+<rect x="510" y="110" width="460" height="400" rx="8" fill="none" stroke="#ccc" stroke-width="1.5"/>
+<text x="524" y="134" font-size="15" font-weight="bold" text-anchor="start" fill="#111">ADS1115 and the probe inputs</text>
+<text x="956" y="134" font-size="12" font-weight="normal" text-anchor="end" fill="#0b6e4f">stage 3</text>
+<rect x="810" y="152" width="140" height="238" rx="5" fill="#f4f4f4" stroke="#555" stroke-width="2"/>
+<text x="880" y="174" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">ADS1115</text>
+<text x="880" y="190" font-size="11" font-weight="normal" text-anchor="middle" fill="#555555">address 0x48</text>
+<text x="820" y="218.0" font-size="12" font-weight="bold" text-anchor="start" fill="#111">VDD</text>
+<circle cx="810" cy="214.0" r="4" fill="#111111"/>
+<path d="M806 214.0 H750" fill="none" stroke="#e37b00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="742" y="218.0" font-size="12" font-weight="normal" text-anchor="end" fill="#111111">3.3 V rail</text>
+<text x="820" y="236.5" font-size="12" font-weight="bold" text-anchor="start" fill="#111">GND</text>
+<circle cx="810" cy="232.5" r="4" fill="#111111"/>
+<path d="M806 232.5 H750" fill="none" stroke="#222222" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="742" y="236.5" font-size="12" font-weight="normal" text-anchor="end" fill="#111111">Pi 9 (also probe COM)</text>
+<text x="820" y="255.0" font-size="12" font-weight="bold" text-anchor="start" fill="#111">SCL</text>
+<circle cx="810" cy="251.0" r="4" fill="#111111"/>
+<path d="M806 251.0 H750" fill="none" stroke="#2e8b3a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="742" y="255.0" font-size="12" font-weight="normal" text-anchor="end" fill="#111111">Pi 5 · GPIO3</text>
+<text x="820" y="273.5" font-size="12" font-weight="bold" text-anchor="start" fill="#111">SDA</text>
+<circle cx="810" cy="269.5" r="4" fill="#111111"/>
+<path d="M806 269.5 H750" fill="none" stroke="#2e8b3a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="742" y="273.5" font-size="12" font-weight="normal" text-anchor="end" fill="#111111">Pi 3 · GPIO2</text>
+<text x="820" y="292.0" font-size="12" font-weight="bold" text-anchor="start" fill="#111">ADDR</text>
+<circle cx="810" cy="288.0" r="4" fill="#111111"/>
+<path d="M806 288.0 H750" fill="none" stroke="#222222" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="742" y="292.0" font-size="12" font-weight="normal" text-anchor="end" fill="#111111">ground</text>
+<text x="820" y="310.5" font-size="12" font-weight="bold" text-anchor="start" fill="#111">ALRT</text>
+<circle cx="810" cy="306.5" r="4" fill="#111111"/>
+<path d="M806 306.5 H750" fill="none" stroke="#b0b0b0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="742" y="310.5" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">open</text>
+<text x="820" y="329.0" font-size="12" font-weight="bold" text-anchor="start" fill="#111">A0</text>
+<circle cx="810" cy="325.0" r="4" fill="#111111"/>
+<path d="M806 325.0 H750" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="742" y="329.0" font-size="12" font-weight="normal" text-anchor="end" fill="#111111">probe 1 front end</text>
+<text x="820" y="347.5" font-size="12" font-weight="bold" text-anchor="start" fill="#111">A1</text>
+<circle cx="810" cy="343.5" r="4" fill="#111111"/>
+<path d="M806 343.5 H750" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="742" y="347.5" font-size="12" font-weight="normal" text-anchor="end" fill="#111111">probe 2 front end</text>
+<text x="820" y="366.0" font-size="12" font-weight="bold" text-anchor="start" fill="#111">A2</text>
+<circle cx="810" cy="362.0" r="4" fill="#111111"/>
+<path d="M806 362.0 H750" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="742" y="366.0" font-size="12" font-weight="normal" text-anchor="end" fill="#111111">probe 3 front end</text>
+<text x="820" y="384.5" font-size="12" font-weight="bold" text-anchor="start" fill="#111">A3</text>
+<circle cx="810" cy="380.5" r="4" fill="#111111"/>
+<path d="M806 380.5 H750" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="742" y="384.5" font-size="12" font-weight="normal" text-anchor="end" fill="#111111">probe 4 front end</text>
+<text x="524" y="410" font-size="12" font-weight="bold" text-anchor="start" fill="#111">Front end, one per probe (×4). R1: metal film, measured.</text>
+<text x="524" y="440" font-size="12" font-weight="normal" text-anchor="start" fill="#111">probe n</text>
+<path d="M524 444 H580" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M580 444 l5 -8 l10 16 l10 -16 l10 16 l10 -16 l10 16 l10 -16 l10 16 l5 -8" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="620" y="430" font-size="12" font-weight="normal" text-anchor="middle" fill="#111">R1 1 MΩ 1%</text>
+<path d="M660 444 H910" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="914" y="448" font-size="12" font-weight="bold" text-anchor="start" fill="#111">→ An</text>
+<circle cx="700" cy="444" r="4" fill="#111111"/>
+<path d="M700 446 l-8 5 l16 10 l-16 10 l16 10 l-16 10 l16 10 l-8 5" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="686" y="480" font-size="12" font-weight="normal" text-anchor="end" fill="#111">R2 49.9 kΩ</text>
+<circle cx="780" cy="444" r="4" fill="#111111"/>
+<path d="M780 444 V471.0 M768 471.0 H792 M768 479.0 H792 M780 479.0 V506" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="796" y="479.0" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">100 nF</text>
+<circle cx="855" cy="444" r="4" fill="#111111"/>
+<path d="M855 444 V506" fill="none" stroke="#b0b0b0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="862" y="474" font-size="11" font-weight="normal" text-anchor="start" fill="#555555">clamp</text>
+<text x="862" y="488" font-size="11" font-weight="normal" text-anchor="start" fill="#555555">(fit later)</text>
+<path d="M700 506 H855" fill="none" stroke="#222222" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="524" y="502" font-size="12" font-weight="normal" text-anchor="start" fill="#111">COM = ground</text>
+<rect x="30" y="530" width="460" height="400" rx="8" fill="none" stroke="#ccc" stroke-width="1.5"/>
+<text x="44" y="554" font-size="15" font-weight="bold" text-anchor="start" fill="#111">Buttons and encoder</text>
+<text x="476" y="554" font-size="12" font-weight="normal" text-anchor="end" fill="#0b6e4f">stage 0b</text>
+<path d="M440 580 V900" fill="none" stroke="#222222" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="440" y="572" font-size="12" font-weight="bold" text-anchor="middle" fill="#111">ground rail</text>
+<text x="46" y="598" font-size="12" font-weight="bold" text-anchor="start" fill="#111">Button 1 (F1)</text>
+<text x="46" y="612" font-size="11" font-weight="normal" text-anchor="start" fill="#555555">Pi 29 · GPIO5</text>
+<path d="M180 600 H330" fill="none" stroke="#b38f00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="338" cy="600" r="3.5" fill="#111111"/>
+<circle cx="372" cy="600" r="3.5" fill="#111111"/>
+<path d="M330 600 H338 M372 600 H380 M340 596 L370 586" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M355 591 V580 M347 580 H363" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M380 600 H440" fill="none" stroke="#222222" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="440" cy="600" r="4" fill="#111111"/>
+<text x="46" y="632" font-size="12" font-weight="bold" text-anchor="start" fill="#111">Button 2 (F2)</text>
+<text x="46" y="646" font-size="11" font-weight="normal" text-anchor="start" fill="#555555">Pi 31 · GPIO6</text>
+<path d="M180 634 H330" fill="none" stroke="#b38f00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="338" cy="634" r="3.5" fill="#111111"/>
+<circle cx="372" cy="634" r="3.5" fill="#111111"/>
+<path d="M330 634 H338 M372 634 H380 M340 630 L370 620" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M355 625 V614 M347 614 H363" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M380 634 H440" fill="none" stroke="#222222" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="440" cy="634" r="4" fill="#111111"/>
+<text x="46" y="666" font-size="12" font-weight="bold" text-anchor="start" fill="#111">Button 3 (F3)</text>
+<text x="46" y="680" font-size="11" font-weight="normal" text-anchor="start" fill="#555555">Pi 32 · GPIO12</text>
+<path d="M180 668 H330" fill="none" stroke="#b38f00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="338" cy="668" r="3.5" fill="#111111"/>
+<circle cx="372" cy="668" r="3.5" fill="#111111"/>
+<path d="M330 668 H338 M372 668 H380 M340 664 L370 654" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M355 659 V648 M347 648 H363" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M380 668 H440" fill="none" stroke="#222222" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="440" cy="668" r="4" fill="#111111"/>
+<text x="46" y="700" font-size="12" font-weight="bold" text-anchor="start" fill="#111">Button 4 (F4)</text>
+<text x="46" y="714" font-size="11" font-weight="normal" text-anchor="start" fill="#555555">Pi 33 · GPIO13</text>
+<path d="M180 702 H330" fill="none" stroke="#b38f00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="338" cy="702" r="3.5" fill="#111111"/>
+<circle cx="372" cy="702" r="3.5" fill="#111111"/>
+<path d="M330 702 H338 M372 702 H380 M340 698 L370 688" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M355 693 V682 M347 682 H363" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M380 702 H440" fill="none" stroke="#222222" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="440" cy="702" r="4" fill="#111111"/>
+<text x="46" y="734" font-size="12" font-weight="bold" text-anchor="start" fill="#111">Button 5 (Back)</text>
+<text x="46" y="748" font-size="11" font-weight="normal" text-anchor="start" fill="#555555">Pi 36 · GPIO16</text>
+<path d="M180 736 H330" fill="none" stroke="#b38f00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="338" cy="736" r="3.5" fill="#111111"/>
+<circle cx="372" cy="736" r="3.5" fill="#111111"/>
+<path d="M330 736 H338 M372 736 H380 M340 732 L370 722" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M355 727 V716 M347 716 H363" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M380 736 H440" fill="none" stroke="#222222" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="440" cy="736" r="4" fill="#111111"/>
+<rect x="260" y="768" width="90" height="128" rx="5" fill="#fff" stroke="#555" stroke-width="2"/>
+<text x="305" y="762" font-size="11" font-weight="normal" text-anchor="middle" fill="#555555">EC11 encoder</text>
+<text x="270" y="784" font-size="12" font-weight="bold" text-anchor="start" fill="#111">A</text>
+<text x="46" y="784" font-size="12" font-weight="normal" text-anchor="start" fill="#111">Pi 18 · GPIO24</text>
+<path d="M180 780 H260" fill="none" stroke="#b38f00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="270" y="808" font-size="12" font-weight="bold" text-anchor="start" fill="#111">C</text>
+<path d="M350 804 H440" fill="none" stroke="#222222" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="440" cy="804" r="4" fill="#111111"/>
+<text x="270" y="832" font-size="12" font-weight="bold" text-anchor="start" fill="#111">B</text>
+<text x="46" y="832" font-size="12" font-weight="normal" text-anchor="start" fill="#111">Pi 7 · GPIO4</text>
+<path d="M180 828 H260" fill="none" stroke="#b38f00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="270" y="856" font-size="12" font-weight="bold" text-anchor="start" fill="#111">SW</text>
+<text x="46" y="856" font-size="12" font-weight="normal" text-anchor="start" fill="#111">Pi 37 · GPIO26</text>
+<path d="M180 852 H260" fill="none" stroke="#b38f00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="270" y="880" font-size="12" font-weight="bold" text-anchor="start" fill="#111">SW</text>
+<path d="M350 876 H440" fill="none" stroke="#222222" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="440" cy="876" r="4" fill="#111111"/>
+<text x="46" y="908" font-size="11" font-weight="normal" text-anchor="start" fill="#555555">KY-040 module: CLK = A, DT = B, SW = push,</text>
+<text x="46" y="922" font-size="11" font-weight="normal" text-anchor="start" fill="#555555">GND to the rail, + to the 3.3 V rail (never 5 V).</text>
+<rect x="510" y="530" width="460" height="400" rx="8" fill="none" stroke="#ccc" stroke-width="1.5"/>
+<text x="524" y="554" font-size="15" font-weight="bold" text-anchor="start" fill="#111">The two Picos</text>
+<text x="956" y="554" font-size="12" font-weight="normal" text-anchor="end" fill="#0b6e4f">stages 2a, 2b</text>
+<rect x="530" y="574" width="160" height="186" rx="5" fill="#f4f4f4" stroke="#555" stroke-width="2"/>
+<text x="610" y="596" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">Pico 2 (meter)</text>
+<text x="680" y="624" font-size="12" font-weight="bold" text-anchor="end" fill="#111">GP15 · 20</text>
+<circle cx="690" cy="620" r="4" fill="#111111"/>
+<text x="680" y="644" font-size="12" font-weight="bold" text-anchor="end" fill="#111">GND · 18</text>
+<circle cx="690" cy="640" r="4" fill="#111111"/>
+<text x="680" y="664" font-size="12" font-weight="bold" text-anchor="end" fill="#111">GP26 · 31</text>
+<circle cx="690" cy="660" r="4" fill="#111111"/>
+<text x="680" y="684" font-size="12" font-weight="bold" text-anchor="end" fill="#111">GP27 · 32</text>
+<circle cx="690" cy="680" r="4" fill="#111111"/>
+<text x="680" y="704" font-size="12" font-weight="bold" text-anchor="end" fill="#111">GP28 · 34</text>
+<circle cx="690" cy="700" r="4" fill="#111111"/>
+<text x="680" y="724" font-size="12" font-weight="bold" text-anchor="end" fill="#111">AGND · 33</text>
+<circle cx="690" cy="720" r="4" fill="#111111"/>
+<text x="680" y="744" font-size="12" font-weight="bold" text-anchor="end" fill="#111">USB</text>
+<circle cx="690" cy="740" r="4" fill="#111111"/>
+<rect x="530" y="792" width="160" height="104" rx="5" fill="#f4f4f4" stroke="#555" stroke-width="2"/>
+<text x="610" y="814" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">Pico (logic)</text>
+<text x="680" y="840" font-size="12" font-weight="bold" text-anchor="end" fill="#111">GP2 · 4</text>
+<circle cx="690" cy="836" r="4" fill="#111111"/>
+<text x="680" y="862" font-size="12" font-weight="bold" text-anchor="end" fill="#111">GND · 3</text>
+<circle cx="690" cy="858" r="4" fill="#111111"/>
+<text x="680" y="884" font-size="12" font-weight="bold" text-anchor="end" fill="#111">USB</text>
+<circle cx="690" cy="880" r="4" fill="#111111"/>
+<path d="M694 620 H810" fill="none" stroke="#7b3fbf" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="816" y="624" font-size="12" font-weight="bold" text-anchor="start" fill="#111">Pi 40 · GPIO21 (pps)</text>
+<path d="M740 620 V836 H694" fill="none" stroke="#7b3fbf" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="740" cy="620" r="4" fill="#111111"/>
+<path d="M694 640 H810" fill="none" stroke="#222222" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="816" y="644" font-size="12" font-weight="normal" text-anchor="start" fill="#111">Pi 39 (ground)</text>
+<path d="M724 640 V858 H694" fill="none" stroke="#222222" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="724" cy="640" r="4" fill="#111111"/>
+<path d="M694 660 H810" fill="none" stroke="#b0b0b0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="816" y="664" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">CAN-H</text>
+<path d="M694 680 H810" fill="none" stroke="#b0b0b0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="816" y="684" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">CAN-L</text>
+<path d="M694 700 H810" fill="none" stroke="#b0b0b0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="816" y="704" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">CAN GND</text>
+<text x="816" y="724" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">dividers' ground</text>
+<text x="750" y="916" font-size="11" font-weight="bold" text-anchor="middle" fill="#555555">CAN monitors (dashed): 100k/10k dividers, only once clamps are fitted.</text>
+<path d="M694 740 H810" fill="none" stroke="#a8a8a8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="816" y="744" font-size="12" font-weight="normal" text-anchor="start" fill="#111">Pi USB (data + power)</text>
+<path d="M694 880 H810" fill="none" stroke="#a8a8a8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="816" y="884" font-size="12" font-weight="normal" text-anchor="start" fill="#111">Pi USB (data + power)</text>
+<rect x="30" y="950" width="940" height="320" rx="8" fill="none" stroke="#ccc" stroke-width="1.5"/>
+<text x="44" y="974" font-size="15" font-weight="bold" text-anchor="start" fill="#111">Power rails on the breadboard</text>
+<text x="956" y="974" font-size="12" font-weight="normal" text-anchor="end" fill="#0b6e4f">build first</text>
+<text x="50" y="1018" font-size="13" font-weight="bold" text-anchor="start" fill="#111">Pi pin 2 (5V)</text>
+<path d="M50 1030 H260" fill="none" stroke="#d32f2f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="260" y="1018" width="60" height="24" rx="3" fill="#fff" stroke="#111111" stroke-width="2"/>
+<path d="M266 1040 L314 1020" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="290" y="1062" font-size="12" font-weight="normal" text-anchor="middle" fill="#555555">PTC 0.5 A hold</text>
+<text x="290" y="1076" font-size="12" font-weight="normal" text-anchor="middle" fill="#555555">MF-MSMF050-2</text>
+<path d="M320 1030 H930" fill="none" stroke="#d32f2f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="930" y="1018" font-size="13" font-weight="bold" text-anchor="end" fill="#111">5 V rail: CAN module 5V</text>
+<text x="50" y="1098" font-size="13" font-weight="bold" text-anchor="start" fill="#111">Pi pin 1 (3V3)</text>
+<path d="M50 1110 H930" fill="none" stroke="#e37b00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="930" y="1098" font-size="13" font-weight="bold" text-anchor="end" fill="#111">3.3 V rail: ADS1115 VDD, KY-040 +, CAN 3V3 if needed</text>
+<text x="50" y="1188" font-size="13" font-weight="bold" text-anchor="start" fill="#111">Pi pin 6 or 20 (GND)</text>
+<path d="M50 1200 H930" fill="none" stroke="#222222" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="930" y="1222" font-size="13" font-weight="bold" text-anchor="end" fill="#111">ground rail: every module, the buttons, the encoder</text>
+<path d="M430 1030 V1060 M418 1060 H442 M418 1068 H442 M430 1068 V1200" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="446" y="1068" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">10 µF</text>
+<circle cx="430" cy="1030" r="4" fill="#111111"/>
+<circle cx="430" cy="1200" r="4" fill="#111111"/>
+<path d="M520 1030 V1060 M508 1060 H532 M508 1068 H532 M520 1068 V1200" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="536" y="1068" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">100 nF</text>
+<circle cx="520" cy="1030" r="4" fill="#111111"/>
+<circle cx="520" cy="1200" r="4" fill="#111111"/>
+<path d="M650 1110 V1140 M638 1140 H662 M638 1148 H662 M650 1148 V1200" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="666" y="1148" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">10 µF</text>
+<circle cx="650" cy="1110" r="4" fill="#111111"/>
+<circle cx="650" cy="1200" r="4" fill="#111111"/>
+<path d="M740 1110 V1140 M728 1140 H752 M728 1148 H752 M740 1148 V1200" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="756" y="1148" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">100 nF</text>
+<circle cx="740" cy="1110" r="4" fill="#111111"/>
+<circle cx="740" cy="1200" r="4" fill="#111111"/>
+<text x="50" y="1250" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">Not on the rails: the display keeps its own lead to pins 4 and 6; the Picos are on USB. Electrolytic: stripe to ground.</text>
+</svg>

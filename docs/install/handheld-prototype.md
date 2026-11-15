@@ -57,6 +57,16 @@ anything else.
 | Encoder push | 26 | 37 | 38 | 20 | *Kept free* (CAN stack B INT) |
 | Encoder ground, SYNC ground | GND | 39 | 40 | 21 | SYNC in from the Pico 2 |
 
+## Pin-by-pin diagrams
+
+Two pages to wire from: where every header pin goes, and each module's pins with the local wiring
+and the power rails. Each wire is labelled at both ends. A printable copy of this whole guide with
+these pages is [handheld-prototype.pdf](handheld-prototype.pdf).
+
+![Every pin of the Pi 5's header and where it goes](../images/prototype-pins.svg)
+
+![Each module's pins, the CAN to DB9 wiring, a probe input, the buttons and encoder, the Picos' SYNC wire, and the power rails](../images/prototype-modules.svg)
+
 ## 1. Power rails
 
 Everything on the breadboards takes its power from the Pi's header through two rails you build

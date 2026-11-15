@@ -1,0 +1,225 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1300" viewBox="0 0 1000 1300" font-family="DejaVu Sans, Arial, Helvetica, sans-serif">
+<rect width="1000" height="1300" fill="#fff"/>
+<text x="500.0" y="34" font-size="20" font-weight="bold" text-anchor="middle" fill="#111">Prototype wiring 1 of 2: the Pi 5 header, pin by pin</text>
+<text x="500.0" y="56" font-size="12" font-weight="normal" text-anchor="middle" fill="#444" font-style="italic">Seen from above, pin 1 (square pad) at the top, the end farthest from the USB ports. Wire colours are for the drawing only.</text>
+<path d="M60 84 H84" fill="none" stroke="#d32f2f" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="90" y="88" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">5 V</text>
+<path d="M137 84 H161" fill="none" stroke="#e37b00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="167" y="88" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">3.3 V</text>
+<path d="M228 84 H252" fill="none" stroke="#222222" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="258" y="88" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">ground</text>
+<path d="M326 84 H350" fill="none" stroke="#2b6cd4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="356" y="88" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">SPI / CAN INT</text>
+<path d="M473 84 H497" fill="none" stroke="#2e8b3a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="503" y="88" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">I2C</text>
+<path d="M550 84 H574" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="580" y="88" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">buttons / encoder</text>
+<path d="M725 84 H749" fill="none" stroke="#7b3fbf" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="755" y="88" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">SYNC</text>
+<path d="M809 84 H833" fill="none" stroke="#b0b0b0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="839" y="88" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">kept free / open</text>
+<rect x="440" y="120" width="120" height="1088" rx="6" fill="#e8f2ec" stroke="#0b6e4f" stroke-width="2"/>
+<text x="500" y="110" font-size="15" font-weight="bold" text-anchor="middle" fill="#111">Raspberry Pi 5</text>
+<rect x="458" y="133" width="34" height="34" rx="3" fill="#fff" stroke="#e37b00" stroke-width="4"/>
+<text x="475" y="155" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">1</text>
+<path d="M455 150 H383" fill="none" stroke="#e37b00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="147" font-size="14" font-weight="bold" text-anchor="end" fill="#111111">3.3 V rail</text>
+<text x="375" y="165" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">3V3</text>
+<circle cx="525" cy="150" r="17" fill="#fff" stroke="#d32f2f" stroke-width="4"/>
+<text x="525" y="155" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">2</text>
+<path d="M545 150 H617" fill="none" stroke="#d32f2f" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="625" y="147" font-size="14" font-weight="bold" text-anchor="start" fill="#111111">fuse (PTC), then the 5 V rail</text>
+<text x="625" y="165" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">5V</text>
+<circle cx="475" cy="204" r="17" fill="#fff" stroke="#2e8b3a" stroke-width="4"/>
+<text x="475" y="209" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">3</text>
+<path d="M455 204 H383" fill="none" stroke="#2e8b3a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="201" font-size="14" font-weight="bold" text-anchor="end" fill="#111111">ADS1115 SDA</text>
+<text x="375" y="219" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">GPIO2 SDA</text>
+<circle cx="525" cy="204" r="17" fill="#fff" stroke="#d32f2f" stroke-width="4"/>
+<text x="525" y="209" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">4</text>
+<path d="M545 204 H617" fill="none" stroke="#d32f2f" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="625" y="201" font-size="14" font-weight="bold" text-anchor="start" fill="#111111">Touch Display 2 power</text>
+<text x="625" y="219" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">5V</text>
+<circle cx="475" cy="258" r="17" fill="#fff" stroke="#2e8b3a" stroke-width="4"/>
+<text x="475" y="263" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">5</text>
+<path d="M455 258 H383" fill="none" stroke="#2e8b3a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="255" font-size="14" font-weight="bold" text-anchor="end" fill="#111111">ADS1115 SCL</text>
+<text x="375" y="273" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">GPIO3 SCL</text>
+<circle cx="525" cy="258" r="17" fill="#fff" stroke="#222222" stroke-width="4"/>
+<text x="525" y="263" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">6</text>
+<path d="M545 258 H617" fill="none" stroke="#222222" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="625" y="255" font-size="14" font-weight="bold" text-anchor="start" fill="#111111">Touch Display 2 ground</text>
+<text x="625" y="273" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">GND</text>
+<circle cx="475" cy="312" r="17" fill="#fff" stroke="#b38f00" stroke-width="4"/>
+<text x="475" y="317" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">7</text>
+<path d="M455 312 H383" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="309" font-size="14" font-weight="bold" text-anchor="end" fill="#111111">encoder B</text>
+<text x="375" y="327" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">GPIO4</text>
+<circle cx="525" cy="312" r="17" fill="#fff" stroke="#b0b0b0" stroke-width="4" stroke-dasharray="4 3"/>
+<text x="525" y="317" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">8</text>
+<path d="M545 312 H617" fill="none" stroke="#b0b0b0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="625" y="309" font-size="14" font-weight="normal" text-anchor="start" fill="#555555">kept free: ESP32 (stage 6)</text>
+<text x="625" y="327" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">GPIO14 TXD</text>
+<circle cx="475" cy="366" r="17" fill="#fff" stroke="#222222" stroke-width="4"/>
+<text x="475" y="371" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">9</text>
+<path d="M455 366 H383" fill="none" stroke="#222222" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="363" font-size="14" font-weight="bold" text-anchor="end" fill="#111111">ADS1115 GND, probe COM</text>
+<text x="375" y="381" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">GND</text>
+<circle cx="525" cy="366" r="17" fill="#fff" stroke="#b0b0b0" stroke-width="4" stroke-dasharray="4 3"/>
+<text x="525" y="371" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">10</text>
+<path d="M545 366 H617" fill="none" stroke="#b0b0b0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="625" y="363" font-size="14" font-weight="normal" text-anchor="start" fill="#555555">kept free: ESP32 (stage 6)</text>
+<text x="625" y="381" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">GPIO15 RXD</text>
+<circle cx="475" cy="420" r="17" fill="#fff" stroke="#b38f00" stroke-width="4"/>
+<text x="475" y="425" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">11</text>
+<path d="M455 420 H383" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="417" font-size="14" font-weight="bold" text-anchor="end" fill="#111111">d-pad up (later)</text>
+<text x="375" y="435" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">GPIO17</text>
+<circle cx="525" cy="420" r="17" fill="#fff" stroke="#b0b0b0" stroke-width="4" stroke-dasharray="4 3"/>
+<text x="525" y="425" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">12</text>
+<path d="M545 420 H617" fill="none" stroke="#b0b0b0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="625" y="417" font-size="14" font-weight="normal" text-anchor="start" fill="#555555">buzzer (optional)</text>
+<text x="625" y="435" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">GPIO18</text>
+<circle cx="475" cy="474" r="17" fill="#fff" stroke="#b38f00" stroke-width="4"/>
+<text x="475" y="479" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">13</text>
+<path d="M455 474 H383" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="471" font-size="14" font-weight="bold" text-anchor="end" fill="#111111">d-pad down (later)</text>
+<text x="375" y="489" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">GPIO27</text>
+<circle cx="525" cy="474" r="17" fill="#fff" stroke="#222222" stroke-width="4"/>
+<text x="525" y="479" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">14</text>
+<path d="M545 474 H617" fill="none" stroke="#222222" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="625" y="471" font-size="14" font-weight="bold" text-anchor="start" fill="#111111">spare ground</text>
+<text x="625" y="489" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">GND</text>
+<circle cx="475" cy="528" r="17" fill="#fff" stroke="#b38f00" stroke-width="4"/>
+<text x="475" y="533" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">15</text>
+<path d="M455 528 H383" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="525" font-size="14" font-weight="bold" text-anchor="end" fill="#111111">d-pad left (later)</text>
+<text x="375" y="543" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">GPIO22</text>
+<circle cx="525" cy="528" r="17" fill="#fff" stroke="#b38f00" stroke-width="4"/>
+<text x="525" y="533" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">16</text>
+<path d="M545 528 H617" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="625" y="525" font-size="14" font-weight="bold" text-anchor="start" fill="#111111">d-pad right (later)</text>
+<text x="625" y="543" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">GPIO23</text>
+<circle cx="475" cy="582" r="17" fill="#fff" stroke="#e37b00" stroke-width="4"/>
+<text x="475" y="587" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">17</text>
+<path d="M455 582 H383" fill="none" stroke="#e37b00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="579" font-size="14" font-weight="bold" text-anchor="end" fill="#111111">spare 3.3 V</text>
+<text x="375" y="597" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">3V3</text>
+<circle cx="525" cy="582" r="17" fill="#fff" stroke="#b38f00" stroke-width="4"/>
+<text x="525" y="587" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">18</text>
+<path d="M545 582 H617" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="625" y="579" font-size="14" font-weight="bold" text-anchor="start" fill="#111111">encoder A</text>
+<text x="625" y="597" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">GPIO24</text>
+<circle cx="475" cy="636" r="17" fill="#fff" stroke="#2b6cd4" stroke-width="4"/>
+<text x="475" y="641" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">19</text>
+<path d="M455 636 H383" fill="none" stroke="#2b6cd4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="633" font-size="14" font-weight="bold" text-anchor="end" fill="#111111">CAN module SDI</text>
+<text x="375" y="651" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">GPIO10 MOSI</text>
+<circle cx="525" cy="636" r="17" fill="#fff" stroke="#222222" stroke-width="4"/>
+<text x="525" y="641" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">20</text>
+<path d="M545 636 H617" fill="none" stroke="#222222" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="625" y="633" font-size="14" font-weight="bold" text-anchor="start" fill="#111111">ground rail, CAN module GND</text>
+<text x="625" y="651" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">GND</text>
+<circle cx="475" cy="690" r="17" fill="#fff" stroke="#2b6cd4" stroke-width="4"/>
+<text x="475" y="695" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">21</text>
+<path d="M455 690 H383" fill="none" stroke="#2b6cd4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="687" font-size="14" font-weight="bold" text-anchor="end" fill="#111111">CAN module SDO</text>
+<text x="375" y="705" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">GPIO9 MISO</text>
+<circle cx="525" cy="690" r="17" fill="#fff" stroke="#2b6cd4" stroke-width="4"/>
+<text x="525" y="695" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">22</text>
+<path d="M545 690 H617" fill="none" stroke="#2b6cd4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="625" y="687" font-size="14" font-weight="bold" text-anchor="start" fill="#111111">CAN module INT</text>
+<text x="625" y="705" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">GPIO25</text>
+<circle cx="475" cy="744" r="17" fill="#fff" stroke="#2b6cd4" stroke-width="4"/>
+<text x="475" y="749" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">23</text>
+<path d="M455 744 H383" fill="none" stroke="#2b6cd4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="741" font-size="14" font-weight="bold" text-anchor="end" fill="#111111">CAN module SCK</text>
+<text x="375" y="759" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">GPIO11 SCLK</text>
+<circle cx="525" cy="744" r="17" fill="#fff" stroke="#2b6cd4" stroke-width="4"/>
+<text x="525" y="749" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">24</text>
+<path d="M545 744 H617" fill="none" stroke="#2b6cd4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="625" y="741" font-size="14" font-weight="bold" text-anchor="start" fill="#111111">CAN module nCS</text>
+<text x="625" y="759" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">GPIO8 CE0</text>
+<circle cx="475" cy="798" r="17" fill="#fff" stroke="#222222" stroke-width="4"/>
+<text x="475" y="803" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">25</text>
+<path d="M455 798 H383" fill="none" stroke="#222222" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="795" font-size="14" font-weight="bold" text-anchor="end" fill="#111111">second ground to the rail</text>
+<text x="375" y="813" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">GND</text>
+<circle cx="525" cy="798" r="17" fill="#fff" stroke="#b0b0b0" stroke-width="4" stroke-dasharray="4 3"/>
+<text x="525" y="803" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">26</text>
+<path d="M545 798 H617" fill="none" stroke="#b0b0b0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="625" y="795" font-size="14" font-weight="normal" text-anchor="start" fill="#555555">kept free: CAN stack B</text>
+<text x="625" y="813" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">GPIO7 CE1</text>
+<circle cx="475" cy="852" r="17" fill="#fff" stroke="#b0b0b0" stroke-width="4" stroke-dasharray="4 3"/>
+<text x="475" y="857" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">27</text>
+<path d="M455 852 H383" fill="none" stroke="#b0b0b0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="375" y="849" font-size="14" font-weight="normal" text-anchor="end" fill="#555555">don't use (HAT EEPROM)</text>
+<text x="375" y="867" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">ID_SD</text>
+<circle cx="525" cy="852" r="17" fill="#fff" stroke="#b0b0b0" stroke-width="4" stroke-dasharray="4 3"/>
+<text x="525" y="857" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">28</text>
+<path d="M545 852 H617" fill="none" stroke="#b0b0b0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="625" y="849" font-size="14" font-weight="normal" text-anchor="start" fill="#555555">don't use (HAT EEPROM)</text>
+<text x="625" y="867" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">ID_SC</text>
+<circle cx="475" cy="906" r="17" fill="#fff" stroke="#b38f00" stroke-width="4"/>
+<text x="475" y="911" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">29</text>
+<path d="M455 906 H383" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="903" font-size="14" font-weight="bold" text-anchor="end" fill="#111111">button 1 (F1)</text>
+<text x="375" y="921" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">GPIO5</text>
+<circle cx="525" cy="906" r="17" fill="#fff" stroke="#222222" stroke-width="4"/>
+<text x="525" y="911" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">30</text>
+<path d="M545 906 H617" fill="none" stroke="#222222" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="625" y="903" font-size="14" font-weight="bold" text-anchor="start" fill="#111111">buttons' ground</text>
+<text x="625" y="921" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">GND</text>
+<circle cx="475" cy="960" r="17" fill="#fff" stroke="#b38f00" stroke-width="4"/>
+<text x="475" y="965" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">31</text>
+<path d="M455 960 H383" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="957" font-size="14" font-weight="bold" text-anchor="end" fill="#111111">button 2 (F2)</text>
+<text x="375" y="975" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">GPIO6</text>
+<circle cx="525" cy="960" r="17" fill="#fff" stroke="#b38f00" stroke-width="4"/>
+<text x="525" y="965" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">32</text>
+<path d="M545 960 H617" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="625" y="957" font-size="14" font-weight="bold" text-anchor="start" fill="#111111">button 3 (F3)</text>
+<text x="625" y="975" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">GPIO12</text>
+<circle cx="475" cy="1014" r="17" fill="#fff" stroke="#b38f00" stroke-width="4"/>
+<text x="475" y="1019" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">33</text>
+<path d="M455 1014 H383" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="1011" font-size="14" font-weight="bold" text-anchor="end" fill="#111111">button 4 (F4)</text>
+<text x="375" y="1029" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">GPIO13</text>
+<circle cx="525" cy="1014" r="17" fill="#fff" stroke="#222222" stroke-width="4"/>
+<text x="525" y="1019" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">34</text>
+<path d="M545 1014 H617" fill="none" stroke="#222222" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="625" y="1011" font-size="14" font-weight="bold" text-anchor="start" fill="#111111">spare ground</text>
+<text x="625" y="1029" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">GND</text>
+<circle cx="475" cy="1068" r="17" fill="#fff" stroke="#b0b0b0" stroke-width="4" stroke-dasharray="4 3"/>
+<text x="475" y="1073" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">35</text>
+<path d="M455 1068 H383" fill="none" stroke="#b0b0b0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="375" y="1065" font-size="14" font-weight="normal" text-anchor="end" fill="#555555">spare</text>
+<text x="375" y="1083" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">GPIO19</text>
+<circle cx="525" cy="1068" r="17" fill="#fff" stroke="#b38f00" stroke-width="4"/>
+<text x="525" y="1073" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">36</text>
+<path d="M545 1068 H617" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="625" y="1065" font-size="14" font-weight="bold" text-anchor="start" fill="#111111">button 5 (F5, Back)</text>
+<text x="625" y="1083" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">GPIO16</text>
+<circle cx="475" cy="1122" r="17" fill="#fff" stroke="#b38f00" stroke-width="4"/>
+<text x="475" y="1127" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">37</text>
+<path d="M455 1122 H383" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="1119" font-size="14" font-weight="bold" text-anchor="end" fill="#111111">encoder push</text>
+<text x="375" y="1137" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">GPIO26</text>
+<circle cx="525" cy="1122" r="17" fill="#fff" stroke="#b0b0b0" stroke-width="4" stroke-dasharray="4 3"/>
+<text x="525" y="1127" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">38</text>
+<path d="M545 1122 H617" fill="none" stroke="#b0b0b0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
+<text x="625" y="1119" font-size="14" font-weight="normal" text-anchor="start" fill="#555555">kept free: CAN stack B INT</text>
+<text x="625" y="1137" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">GPIO20</text>
+<circle cx="475" cy="1176" r="17" fill="#fff" stroke="#222222" stroke-width="4"/>
+<text x="475" y="1181" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">39</text>
+<path d="M455 1176 H383" fill="none" stroke="#222222" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="1173" font-size="14" font-weight="bold" text-anchor="end" fill="#111111">encoder ground, SYNC ground</text>
+<text x="375" y="1191" font-size="12" font-weight="normal" text-anchor="end" fill="#555555">GND</text>
+<circle cx="525" cy="1176" r="17" fill="#fff" stroke="#7b3fbf" stroke-width="4"/>
+<text x="525" y="1181" font-size="13" font-weight="bold" text-anchor="middle" fill="#111">40</text>
+<path d="M545 1176 H617" fill="none" stroke="#7b3fbf" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="625" y="1173" font-size="14" font-weight="bold" text-anchor="start" fill="#111111">SYNC in from Pico 2 GP15</text>
+<text x="625" y="1191" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">GPIO21</text>
+<text x="500" y="1250" font-size="12" font-weight="normal" text-anchor="middle" fill="#555555">Ground: any GND pin works; 6, 20 and 39 feed the rails. 3V3 / 5V pins are joined inside the Pi.</text>
+<text x="500" y="1270" font-size="12" font-weight="bold" text-anchor="middle" fill="#111">GPIO pins are 3.3 V only: nothing at 5 V or more ever goes to one.</text>
+</svg>
