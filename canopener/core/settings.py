@@ -80,6 +80,8 @@ DEFAULTS: dict = {
     "device.games": False,              # Games on the home screen (System > About, seven times)
     "games.harness_best": 0,
     "games.cargo_best": 0,
+    "games.loom_level": 1,              # Loom: the highest level opened so far
+    "games.arbitration_best": 0,
     "games.controls": {},               # profile id -> signal bindings (device/game_controls.py)
     # sending captures off the unit (core/upload.py); the server's token is kept apart, not here
     "upload.target": "server",          # which uploader: "server" (deploy/upload-server) or a plugin's id

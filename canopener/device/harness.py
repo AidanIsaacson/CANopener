@@ -6,6 +6,10 @@ circuit (branches included) lights up and clears: bar to bar scores double, a lo
 same bar single. The wires above fall into the gap, which can close another circuit: a chain.
 Segments that don't connect pile up; the game ends when a new one has nowhere to appear.
 
+Segments are dealt from a shuffled bag (so no kind stays away for long), and one that has landed
+can still be slid or turned for a moment before it sets. What happened (a segment set, a circuit
+closed, a new level) is queued in ``events`` for the screen's sounds and effects.
+
 Pure logic (no Pygame), driven by ``update(now)`` with the clock passed in, so tests can play it.
 Every control goes through ``Harness.command``: the handheld's buttons and encoder, and the
 machine's own signals via ``game_controls`` (steer to turn, the lower switch drops), so the game
@@ -30,6 +34,8 @@ STRAIGHT, BEND, TEE, CROSS = N | S, N | E, N | E | S, N | E | S | W
 KINDS = ((STRAIGHT, 2), (BEND, 3), (TEE, 3), (CROSS, 2))
 
 CLEAR_S = 0.35              # how long a finished circuit lights up before it goes
+LOCK_S = 0.45               # a landed segment that was just moved or turned gets this long before it sets
+MAX_SLIDES = 12             # ... at most this many times
 CIRCUITS_PER_LEVEL = 5
 
 
@@ -69,6 +75,13 @@ class Harness:
         self.held = False           # one swap per segment
         self.lit: set[tuple[int, int]] = set()     # cells lighting up before they clear
         self._clear_at = 0.0
+        self.events: list[tuple] = []       # for the screen: ("lock", cells, rows dropped),
+        #                                     ("clear", cells, points, chain, bar to bar), ("level", n), ("over",)
+        self.placed = 0
+        self._bag: list[int] = []
+        self._moved_at = -1e9
+        self._slides = 0
+        self._paused_at = 0.0
         self.next = self._random()
         self.piece: Piece | None = None
         self._fall_at = now + fall_interval(1)
@@ -80,8 +93,12 @@ class Harness:
 
     # --- pieces ---
     def _random(self) -> int:
-        kinds, weights = zip(*KINDS)
-        return rotate(self.rng.choices(kinds, weights)[0], self.rng.randrange(4))
+        """The next segment from the bag: every kind as often as its weight, shuffled, so the mix
+        is fair over any ten segments instead of only in the long run."""
+        if not self._bag:
+            self._bag = [kind for kind, weight in KINDS for _ in range(weight)]
+            self.rng.shuffle(self._bag)
+        return rotate(self._bag.pop(), self.rng.randrange(4))
 
     def _take_next(self) -> int:
         mask, self.next = self.next, self._random()
@@ -91,9 +108,11 @@ class Harness:
         p = Piece(mask, COLS // 2)
         if self.grid[p.y][p.x]:
             self.piece, self.over = None, True
+            self.events.append(("over",))
             return
         self.piece, self.held = p, False
         self._fall_at = now + fall_interval(self.level)
+        self._slides = 0
 
     def _free(self, x: int, y: int) -> bool:
         return 0 <= x < COLS and 0 <= y < ROWS and not self.grid[y][x]
@@ -108,15 +127,16 @@ class Harness:
         """One control input, from whichever source (buttons, encoder, CAN). TURN: steps,
         + clockwise; LEFT / RIGHT: columns; COLUMN: the column to head for."""
         if cmd == COLUMN:
-            if not self.busy:
-                self.move(n - self.piece.x)
-        elif cmd == LEFT:
-            self.move(-n)
-        elif cmd == RIGHT:
-            self.move(n)
+            if not self.busy and self.move(n - self.piece.x):
+                self._moved_at = now
+        elif cmd in (LEFT, RIGHT):
+            if self.move(-n if cmd == LEFT else n):
+                self._moved_at = now
         elif cmd == DROP:
             self.drop(now)
         elif cmd == TURN:
+            if not self.busy and n % 4:
+                self._moved_at = now
             self.turn(n)
         elif cmd == SWAP:
             self.swap(now)
@@ -144,9 +164,10 @@ class Harness:
     def drop(self, now: float):
         if self.busy:
             return
+        y0 = self.piece.y
         while self._free(self.piece.x, self.piece.y + 1):
             self.piece.y += 1
-        self._lock(now)
+        self._lock(now, self.piece.y - y0)
 
     def swap(self, now: float):
         """Swap the falling segment for the one on the side (once per segment)."""
@@ -162,9 +183,13 @@ class Harness:
         if self.over:
             return
         self.paused = not self.paused
-        if not self.paused:
-            self._fall_at = now + fall_interval(self.level)
-            self._clear_at = max(self._clear_at, now + CLEAR_S if self.lit else 0)
+        if self.paused:
+            self._paused_at = now
+        else:                               # the clock stood still: what was pending stays as far off
+            away = max(0.0, now - self._paused_at)
+            self._fall_at += away
+            self._clear_at += away
+            self._moved_at += away
 
     # --- time ---
     def update(self, now: float):
@@ -178,13 +203,24 @@ class Harness:
             if self._free(self.piece.x, self.piece.y + 1):
                 self.piece.y += 1
                 self._fall_at = now + fall_interval(self.level)
+            elif self._slides < MAX_SLIDES and now - self._moved_at < LOCK_S:
+                self._slides += 1           # just moved or turned: a moment more before it sets
+                self._fall_at = self._moved_at + LOCK_S
             else:
                 self._lock(now)
 
-    def _lock(self, now: float):
+    def fall_frac(self, now: float) -> float:
+        """How far the segment is into its next row (0-1), so the screen can draw it gliding."""
+        if self.busy or not self._free(self.piece.x, self.piece.y + 1):
+            return 0.0
+        return max(0.0, min(1.0, 1 - (self._fall_at - now) / fall_interval(self.level)))
+
+    def _lock(self, now: float, dropped: int = 0):
         p, self.piece = self.piece, None
         self.grid[p.y][p.x] = p.mask
+        self.placed += 1
         self.chain = 0
+        self.events.append(("lock", [(p.x, p.y)], dropped))
         self._check(now)
 
     def _check(self, now: float):
@@ -194,8 +230,13 @@ class Harness:
             self.best_chain = max(self.best_chain, self.chain)
             self.lit = set().union(*found)
             self._clear_at = now + CLEAR_S
+            level = self.level
             self.circuits += len(found)
-            self.score += sum(10 * len(g) * (2 if self.spans(g) else 1) for g in found) * self.chain * len(found)
+            points = sum(10 * len(g) * (2 if self.spans(g) else 1) for g in found) * self.chain * len(found)
+            self.score += points
+            self.events.append(("clear", sorted(self.lit), points, self.chain, any(self.spans(g) for g in found)))
+            if self.level != level:
+                self.events.append(("level", self.level))
         else:
             self._spawn(self._take_next(), now)
 
@@ -255,6 +296,33 @@ class Harness:
         """Bar to bar (worth double), not just back to the bar it started from."""
         return any(x == 0 and self.grid[y][x] & W for x, y in group) and \
             any(x == COLS - 1 and self.grid[y][x] & E for x, y in group)
+
+    def live_cells(self) -> set[tuple[int, int]]:
+        """Every wire joined to a bus bar (drawn lit, so you can see how far each one reaches)."""
+        todo = [(0, y) for y in range(ROWS) if self.grid[y][0] & W]
+        todo += [(COLS - 1, y) for y in range(ROWS) if self.grid[y][COLS - 1] & E]
+        seen = set(todo)
+        while todo:
+            for n in self.neighbours(*todo.pop()):
+                if n not in seen:
+                    seen.add(n)
+                    todo.append(n)
+        return seen
+
+    def preview(self) -> str | None:
+        """What dropping the segment here, turned like this, would do: "circuit" (closes one),
+        "live" (joins a wire that reaches a bar) or None (joins nothing yet)."""
+        y = self.ghost_y()
+        if y is None:
+            return None
+        x = self.piece.x
+        self.grid[y][x] = self.piece.mask
+        try:
+            if self.find_circuits():
+                return "circuit"
+            return "live" if (x, y) in self.live_cells() else None
+        finally:
+            self.grid[y][x] = 0
 
     def ghost_y(self) -> int | None:
         """Where the falling segment would land (drawn as an outline)."""

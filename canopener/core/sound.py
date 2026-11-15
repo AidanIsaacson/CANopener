@@ -75,6 +75,8 @@ EVENTS = [
     ("error", "Something failed", "low"),
     ("game_clear", "Game: circuit or row cleared", "click"),
     ("game_over", "Game over", "falling"),
+    ("game_level", "Game: next level, or a puzzle solved", "rising"),
+    ("game_wrong", "Game: wrong answer", "low"),
 ]
 EVENT_LABELS = {e: label for e, label, _ in EVENTS}
 DEFAULT_TONES = {e: tone for e, _, tone in EVENTS}

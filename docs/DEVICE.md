@@ -161,25 +161,53 @@ Tap **Show games menu** in the corner of **System > About this device** (or open
 times in a row) and a **Games** tile joins the home screen (after System, so the soft keys don't
 change); the same button, now **Hide games menu**, or **System > Software > Show games** hides it again.
 
-Both games (the screens are `device/screens/games.py`) are played with the handheld turned a
-quarter turn anticlockwise, so they draw portrait and turn the picture. The encoder turns the
+There are four. Each has a **How to play** soft key (Arbitration explains itself on its first
+screen), keeps its best score (Loom: the highest level opened), and makes the game sounds set
+under **System > Sound** (cleared, next level, wrong answer, game over).
+
+Harness and Cargo (the screens are `device/screens/games.py`) are played with the handheld turned
+a quarter turn anticlockwise, so they draw portrait and turn the picture. The encoder turns the
 piece, the d-pad's up / down (now left / right) move it, its left (now down) drops it, pushing
 the encoder swaps it for the side piece, Back pauses. With just the touchscreen: tap a column to
 move the piece there (tap the piece to turn it), the row of buttons under the board (move left,
-Turn, Swap, Drop, move right), and tap the score to pause.
+Turn, Swap, Drop, move right), and tap the score to pause. In both, pieces are dealt from a
+shuffled bag (no shape stays away for long), a piece that has landed can still be slid or turned
+for a moment before it sets, and the outline shows where it will land.
 
 **Harness** (`device/harness.py`): wire segments fall into a board between two bus bars. A wire
 touching the bars at two points clears with everything joined to it: bar to bar scores double,
-back to the same bar single; wires falling into the gap can close a chain.
+back to the same bar single; wires falling into the gap can close a chain. Wire that already
+reaches a bar is drawn lit, and the landing outline changes colour when the segment would join
+lit wire or close a circuit.
 
 **Cargo** (`device/cargo.py`): a falling-block game. Crates of Cargo's own shapes (singles, pairs,
 a pallet, three-crate bars and corners, five-crate P / U / V / T / L loads) drop into a trailer;
-a row packed wall to wall ships out, and several rows at once score more.
+a row packed wall to wall ships out, and several rows at once score more. Shipping something with
+crate after crate builds a streak (a bonus each time), and emptying the trailer is a clean sweep.
+
+Loom and Arbitration are played the ordinary way up.
+
+**Loom** (`device/loom.py`, screen `device/screens/games_loom.py`): a puzzle with no clock. A
+wiring loom has been pulled apart: turn the tiles until the battery feeds every wire and every
+lamp is lit. The d-pad moves the cursor, the encoder turns the tile under it (push: a quarter
+turn), or tap a tile. Fewer turns than par earns three stars; solving a level opens the next,
+bigger one (**Level −** / **Level +** go back to earlier ones).
+
+**Arbitration** (`device/arbitration.py`, screen `device/screens/games_arbitration.py`): several
+nodes start sending at once; pick the frame that wins the bus before the time runs out (tap it,
+press its soft key, or move the marker and push). It follows CAN's real rules, brought in a level
+at a time: the lowest identifier wins, a data frame beats a remote request for the same
+identifier, an 11-bit frame beats a 29-bit one that starts with the same 11 bits, and a J1939
+identifier is decided by its priority first. After each answer the bits are drawn one frame under
+the other, with the bit where each loser backed off marked. A mistake adds 64 to the error
+counter and a right answer takes 8 off; at 256 it's bus-off and the game is over. The identifiers
+are random numbers, not any machine's.
 
 **Controls from CAN** (`device/game_controls.py`): every control goes through one command
 interface, so the machine's own signals, decoded by the active profile, can play it too: steer
-to turn the piece, the lower switch drops it (both games). Games > Controls from CAN picks a signal on the bus
-for each action. A binding is an **edge** (a threshold, for switches), a **delta** (one step per
+to turn the piece, the lower switch drops it. In Loom the move and follow-value controls move the
+cursor along the row and drop / swap move it down / up; in Arbitration they move the marker and
+drop answers. **Games > Controls from CAN** picks a signal on the bus for each action. A binding is an **edge** (a threshold, for switches), a **delta** (one step per
 so much change, for a steering angle) or a **position** (the value's range spread across the
 columns). They're kept per profile in `settings.json`:
 
