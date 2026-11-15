@@ -216,8 +216,9 @@ again whenever you like. Your own `doom.wad` or `doom2.wad` copied into
 
 The keys are set in `default.cfg` and `chocolate-doom.cfg` in that folder, written the first time
 Doom starts and left alone after that (delete them to get the handheld's setup back). Doom
-doesn't start while a log is recording, it isn't turned with the screen (**System > Display >
-Rotate**), and Controls from CAN doesn't reach it. To remove it:
+doesn't start while a log is recording. It isn't turned with the screen (**System > Display >
+Rotate**): on a panel that needs that setting, such as the Touch Display 2, it comes up sideways
+unless the system itself turns the screen, and the machine's signals can play it too (Doom from CAN, below). To remove it:
 `sudo apt-get remove chocolate-doom freedoom`.
 
 **Controls from CAN** (`device/game_controls.py`): every control goes through one command
@@ -238,6 +239,22 @@ columns). They're kept per profile in `settings.json`:
 
 Reading only: nothing is sent. The signals are read straight from the session each frame (Live
 Data samples five times a second, too slow for a quick switch).
+
+**Doom from CAN** (`device/doom_controls.py`): Doom reads the keyboard itself, so it has its own
+actions at the bottom of **Games > Controls from CAN**: **Walk forward**, **Walk back**, **Fire**
+and **Use / open**. Each holds its key down for as long as the signal is past its threshold (a
+pedal past a quarter of its travel, a switch that's on), and **Turn the piece** also turns you,
+so a steering angle steers. While Doom runs, the handheld makes a keyboard and a mouse of its own
+for this (through `/dev/uinput`) and removes them when Doom ends. A signal that stops arriving
+lets its key go after a second. Three things to know:
+
+* It needs the machine connected (**CAN**) before Doom starts, and at least one of those five
+  actions set.
+* It needs `install.sh --device` (it lets the `input` group make input devices: see
+  `72-canopener-uinput.rules`), then logging out and in. Without it Doom still plays, and the
+  handheld says why the signals didn't reach it when you come back.
+* How far a step of the turn binding turns you is `"games.doom_turn"` in `settings.json` (mouse
+  counts, 40 to start with; bigger turns further, negative reverses it).
 
 ## Meters and the data log (the groundwork)
 
@@ -387,8 +404,8 @@ Install with the handheld options (step by step: [Handheld, first steps](install
 ./deploy/raspberry-pi/install.sh --sudoers --autostart --device
 ```
 
-`--device` adds you to the `input` (encoder) and `video` (brightness) groups and installs a udev
-rule for the backlight. The installer switches a fresh install to the handheld UI, and the
+`--device` adds you to the `input` (encoder) and `video` (brightness) groups and installs udev
+rules for the backlight and for Doom from CAN (above). The installer switches a fresh install to the handheld UI, and the
 launcher starts whichever UI was last chosen, full screen (switch in the app as above, or force
 one with `CANOPENER_UI=device` / `desktop` in the service). Logs go to
 `~/.local/state/canopener/launch.log`.

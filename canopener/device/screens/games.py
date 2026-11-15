@@ -18,7 +18,7 @@ import pygame
 
 from ...core import profiles, themes
 from .. import cargo as cg
-from .. import doom
+from .. import doom, doom_controls
 from .. import game_controls as gc
 from .. import harness as hz
 from .. import input as inp
@@ -88,9 +88,23 @@ def play_doom(app):
     if ctx.recording:
         ctx.toast("A log is recording: stop it first (Doom takes over the screen)")
         return
-    ok, msg = app.run_external(argv)
+    bridge, note = None, ""
+    try:                                    # the machine's signals as Doom's controls, if any are set
+        bridge = doom_controls.DoomControls.for_profile(ctx.settings, _profile_id(), ctx.session)
+    except OSError as e:
+        note = (f"Controls from CAN didn't reach Doom: no access to {doom_controls.DEVICE} ({e.strerror or e}). "
+                "Run deploy/raspberry-pi/install.sh --device, then log out and in.")
+    if bridge is not None:
+        bridge.start()
+    try:
+        ok, msg = app.run_external(argv)
+    finally:
+        if bridge is not None:
+            bridge.stop()
     if not ok:
         app.push(InfoDialog(app, "Doom stopped", [msg]))
+    elif note:
+        ctx.toast(note)
 
 
 class GamesScreen(Screen):
@@ -164,8 +178,13 @@ class GameControlsScreen(Screen):
             b = gc.binding_for(s, pid, do)
             rows.append(Row(gc.ACTION_LABELS[do], (b or {}).get("signal", "Off"),
                             select=lambda do=do: self._bind(do), hint=_describe(b)))
-        rows.append(Row("Pick from signals on the bus now (Live Data). Fine-tune in settings.json, "
-                        "games.controls.", kind="info"))
+        rows.append(Row("Doom (held while the signal is past its threshold)", kind="header"))
+        for do in gc.DOOM_ACTIONS:
+            b = gc.binding_for(s, pid, do)
+            rows.append(Row(gc.ACTION_LABELS[do], (b or {}).get("signal", "Off"),
+                            select=lambda do=do: self._bind(do), hint=_describe(b)))
+        rows.append(Row("Doom also turns with \"Turn the piece\". Pick from signals on the bus now (Live Data). "
+                        "Fine-tune in settings.json, games.controls.", kind="info"))
         return rows
 
     def _bind(self, do):
@@ -204,6 +223,9 @@ class GameControlsScreen(Screen):
 def _describe(b: dict | None) -> str:
     if not b:
         return ""
+    if b.get("do") in gc.DOOM_ACTIONS:
+        return f"held while at or below {b['below']:g}" if "below" in b else \
+            f"held while at or above {b.get('above', 0.5):g}"
     if "min" in b:
         return f"{b['min']:g} to {b['max']:g} across the board"
     if "every" in b:

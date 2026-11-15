@@ -62,8 +62,11 @@ for arg in "$@"; do
         echo "== Handheld: rotary encoder (input group), screen brightness (video group + udev rule)"
         sudo usermod -aG input,video "$USER"
         sudo install -m 644 "$HERE/71-canopener-backlight.rules" /etc/udev/rules.d/71-canopener-backlight.rules
+        # optional games extra: CAN signals as Doom's controls (see the rule file)
+        sudo install -m 644 "$HERE/72-canopener-uinput.rules" /etc/udev/rules.d/72-canopener-uinput.rules
         sudo udevadm control --reload-rules
         sudo udevadm trigger --subsystem-match=backlight || true
+        sudo udevadm trigger --subsystem-match=misc --sysname-match=uinput || true
         echo "   log out and in again for the groups to apply"
         echo "   wire the buttons / encoder, then add $HERE/config-controls.txt to /boot/firmware/config.txt"
         ;;

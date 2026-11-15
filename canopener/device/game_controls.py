@@ -9,6 +9,11 @@ A binding names a signal (as Live Data lists it) and what it does:
   reverses it): turn the piece as the steering angle changes, or move it.
 * **position** (``min`` / ``max``): the value's range spread across the board's columns.
 
+Doom (``device/doom.py``) reads the keyboard itself, so it has actions of its own (walk forward,
+walk back, fire, use): their bindings use a threshold too, but as a **hold**: the key stays down
+for as long as the value is past it (``Binding.held``). ``device/doom_controls.py`` turns them,
+and the turn binding, into key presses and mouse movement Doom can see.
+
 Bindings are kept per profile (``games.controls`` in settings.json: profile id -> list), e.g.
 ``{"signal": "Steering angle", "do": "turn", "every": 15}``. Reading only: nothing is sent.
 Standard library only, no Pygame.
@@ -25,6 +30,10 @@ MOVE = "move"               # a binding's action: delta steps become LEFT / RIGH
 ACTIONS = (TURN, MOVE, COLUMN, DROP, SWAP, PAUSE)
 ACTION_LABELS = {TURN: "Turn the piece", MOVE: "Move the piece", COLUMN: "Piece follows value",
                  DROP: "Drop", SWAP: "Swap with the side piece", PAUSE: "Pause"}
+# Doom's own: held for as long as the signal is past its threshold.
+FORWARD, BACK, FIRE, USE = "doom_forward", "doom_back", "doom_fire", "doom_use"
+DOOM_ACTIONS = (FORWARD, BACK, FIRE, USE)
+ACTION_LABELS.update({FORWARD: "Walk forward", BACK: "Walk back", FIRE: "Fire", USE: "Use / open"})
 SETTING = "games.controls"
 
 
@@ -59,6 +68,12 @@ class Binding:
         if self.every:
             return "delta"
         return "edge"
+
+    def held(self, v: float) -> bool:
+        """Past the threshold right now (Doom's hold actions: the key is down while this is true)."""
+        if self.below is not None:
+            return v <= self.below
+        return v >= (0.5 if self.above is None else self.above)
 
     def step(self, v: float, columns: int) -> list[tuple[str, int]]:
         """The commands a new value gives. The first value only sets the starting point, so a
@@ -105,6 +120,13 @@ def suggest(do: str, sig: Signal, lo: float | None, hi: float | None) -> dict:
             d["above"] = 0.5                    # one step per press
         else:
             d["every"] = round((hi - lo) / 6, 3) if seen else 1     # about six steps end to end
+    elif do in (FORWARD, BACK) and seen and not switch:
+        # a lever that goes both ways: forward past a quarter of its travel one way, back the
+        # other; a pedal: past a quarter of its travel
+        if lo < 0 < hi:
+            d.update({"below": round(lo / 4, 3)} if do == BACK else {"above": round(hi / 4, 3)})
+        else:
+            d["above"] = round(lo + (hi - lo) / 4, 3)
     else:
         d["above"] = 0.5 if switch or not seen else round((lo + hi) / 2, 3)
     return d
@@ -135,13 +157,18 @@ class SignalControls:
         return self._sigs[name]
 
     def value(self, session, b: Binding) -> float | None:
+        got = self.sample(session, b)
+        return None if got is None else got[0]
+
+    def sample(self, session, b: Binding) -> tuple[float, float] | None:
+        """The bound signal's newest value and when its frame arrived (None: not seen, or not a number)."""
         sig = self.signal(b.signal)
         if sig is None:
             return None
         with session.lock:
             if sig.can_id is not None:
                 got = session.latest_std.get(sig.can_id)
-                newest = got[1] if got else None
+                t, newest = got if got else (-1.0, None)
             else:
                 newest, t = None, -1.0
                 for (pgn, sa), (ft, d) in session.latest.items():
@@ -149,7 +176,8 @@ class SignalControls:
                         newest, t = d, ft
         if newest is None:
             return None
-        return sig.decode(newest)
+        v = sig.decode(newest)
+        return None if v is None or isinstance(v, str) else (float(v), t)
 
     def poll(self, session) -> list[tuple[str, int]]:
         if session is None:

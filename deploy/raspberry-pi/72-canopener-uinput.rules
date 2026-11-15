@@ -1,0 +1,5 @@
+# Let the input group make input devices (/dev/uinput), so the machine's CAN signals can play the
+# handheld's Doom (Games > Controls from CAN; canopener/device/doom_controls.py). Anything in the
+# input group can then send key presses to this computer: leave this file out if that's not wanted.
+# Installed by install.sh --device into /etc/udev/rules.d/.
+KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"

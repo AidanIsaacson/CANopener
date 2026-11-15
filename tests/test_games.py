@@ -9,7 +9,7 @@ import pytest
 from canopener.core.settings import Settings
 from canopener.device import arbitration as ab
 from canopener.device import cargo as cg
-from canopener.device import doom
+from canopener.device import doom, doom_controls
 from canopener.device import game_controls as gc
 from canopener.device import harness as hz
 from canopener.device import loom as lm
@@ -646,7 +646,8 @@ def test_the_games_menu_opens_all_four_and_the_can_controls(app):
     next(r for r in app.top.rows.refresh() if r.label == "Controls from CAN").select()
     assert isinstance(app.top, games.GameControlsScreen)
     app.step([])
-    assert [r.label for r in app.top.rows.rows if r.selectable] == [gc.ACTION_LABELS[a] for a in gc.ACTIONS]
+    assert [r.label for r in app.top.rows.rows if r.selectable] == [
+        gc.ACTION_LABELS[a] for a in gc.ACTIONS + gc.DOOM_ACTIONS]
 
 
 def test_a_falling_game_shows_what_happened_and_explains_itself(app):
@@ -884,3 +885,118 @@ def test_turning_games_on_asks_once_whether_to_install_doom(app, fake_doom, monk
     games.install_doom(app)
     app.ctx.wait_idle()
     assert isinstance(app.top, InfoDialog) and app.top.lines[0] == "no network"
+
+
+# --- Doom: controls from CAN -----------------------------------------------------
+class FakeOutput:
+    def __init__(self):
+        self.events, self.closed = [], False
+
+    def key(self, code, down):
+        self.events.append(("key", code, down))
+
+    def turn(self, counts):
+        self.events.append(("turn", counts))
+
+    def close(self):
+        self.closed = True
+
+
+def test_doom_is_driven_by_the_machines_signals(profile_signals):
+    dc = doom_controls
+    sess, out, clock = FakeSession(), FakeOutput(), [100.0]
+    ctl = gc.SignalControls([gc.Binding("Steering angle", gc.TURN, every=10), gc.Binding("Lower switch", gc.FIRE),
+                             gc.Binding("Steering angle", gc.FORWARD, above=50),
+                             gc.Binding("Steering angle", gc.COLUMN, min=-100, max=100)], 1)
+    assert dc.wanted(ctl.bindings) and not dc.wanted(ctl.bindings[3:])      # "follows value" means nothing to Doom
+    bridge = dc.DoomControls(ctl, sess, out, turn_counts=40, clock=lambda: clock[0])
+
+    def look(steer, lower):
+        out.events.clear()
+        sess.latest[(0xFF20, 0x27)] = (clock[0], frame(steer, lower))
+        bridge.tick()
+        return out.events
+    assert look(0, 1) == [("key", dc.KEY_ENTER, True)]          # the switch is on: fire is held from the start
+    assert look(5, 1) == [("turn", 20)]                         # half a step of steering: half the counts
+    assert look(-5, 1) == [("turn", -40)]
+    assert look(-5, 0) == [("key", dc.KEY_ENTER, False)]
+    assert look(60, 0) == [("key", dc.KEY_UP, True), ("turn", 260)]     # past 50: walking, and turning
+    assert look(60, 0) == []                                    # held: nothing new to say
+    out.events.clear()
+    clock[0] += dc.STALE_S + 0.1                                # the bus goes quiet: the key is let go
+    bridge.tick()
+    assert out.events == [("key", dc.KEY_UP, False)]
+    assert look(-60, 0) == []                                   # back again: no jump from where it was
+    assert look(60, 1) == [("key", dc.KEY_ENTER, True), ("key", dc.KEY_UP, True), ("turn", 480)]
+    out.events.clear()
+    bridge.start()
+    bridge.stop()                                               # Doom ended: everything released, devices gone
+    assert out.events[-2:] == [("key", dc.KEY_ENTER, False), ("key", dc.KEY_UP, False)] and out.closed
+
+
+def test_doom_bindings_are_suggested_as_holds_and_only_made_when_wanted(profile_signals):
+    steer, lower = profile_signals
+    assert gc.suggest(gc.FIRE, lower, 0, 1) == {"signal": "Lower switch", "do": gc.FIRE, "above": 0.5}
+    assert gc.suggest(gc.FORWARD, steer, -80, 80)["above"] == 20        # a lever that goes both ways
+    assert gc.suggest(gc.BACK, steer, -80, 80)["below"] == -20
+    assert gc.suggest(gc.FORWARD, steer, 0, 100)["above"] == 25         # a pedal
+    assert gc.Binding("s", gc.BACK, below=-20).held(-30) and not gc.Binding("s", gc.BACK, below=-20).held(0)
+    s = Settings()
+    made = []
+    assert doom_controls.DoomControls.for_profile(s, "loader", FakeSession(), made) is None     # nothing bound
+    gc.save_binding(s, "loader", {"signal": "Lower switch", "do": gc.DROP}, gc.DROP)
+    assert doom_controls.DoomControls.for_profile(s, "loader", FakeSession(), made) is None     # nothing of Doom's
+    gc.save_binding(s, "loader", gc.suggest(gc.FIRE, lower, 0, 1), gc.FIRE)
+    assert doom_controls.DoomControls.for_profile(s, "loader", None, made) is None              # not connected
+    s.set(doom_controls.TURN_SETTING, -25)
+    bridge = doom_controls.DoomControls.for_profile(s, "loader", FakeSession(), made)
+    assert bridge.turn_counts == -25 and [b.do for b in bridge.controls.bindings] == [gc.DROP, gc.FIRE]
+
+
+def test_the_virtual_input_devices_are_set_up_and_written_the_kernels_way(tmp_path):
+    dc = doom_controls
+    path = tmp_path / "uinput"
+    path.write_bytes(b"")
+    calls = []
+    dev = dc.VirtualDevice("test keys", keys=(dc.KEY_UP,), rels=(dc.REL_X,), path=str(path),
+                           ioctl=lambda fd, req, arg=0: calls.append((req, arg)))
+    assert calls == [(dc.UI_SET_EVBIT, dc.EV_SYN), (dc.UI_SET_EVBIT, dc.EV_KEY), (dc.UI_SET_KEYBIT, dc.KEY_UP),
+                     (dc.UI_SET_EVBIT, dc.EV_REL), (dc.UI_SET_RELBIT, dc.REL_X), (dc.UI_DEV_CREATE, 0)]
+    dev.emit(dc.EV_KEY, dc.KEY_UP, 1)
+    dev.close()
+    dev.close()                                                 # twice is fine
+    assert calls[-1] == (dc.UI_DEV_DESTROY, 0)
+    data = path.read_bytes()
+    assert dc.USER_DEV.size == 1116 and data[:9] == b"test keys" and len(data) == 1116 + 2 * dc.EVENT.size
+    events = [dc.EVENT.unpack_from(data, 1116 + i * dc.EVENT.size)[2:] for i in range(2)]
+    assert events == [(dc.EV_KEY, dc.KEY_UP, 1), (dc.EV_SYN, dc.SYN_REPORT, 0)]
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    rule = open(os.path.join(here, "deploy", "raspberry-pi", "72-canopener-uinput.rules")).read()
+    assert 'KERNEL=="uinput"' in rule and 'GROUP="input"' in rule
+    assert "72-canopener-uinput.rules" in open(os.path.join(here, "deploy", "raspberry-pi", "install.sh")).read()
+    assert set(dc.KEYS.values()) == {28, 59, 103, 108}          # the keys Doom's setup listens for
+    assert (doom.MAIN_CONFIG["key_fire"], doom.MAIN_CONFIG["key_use"]) == (28, 59)
+
+
+def test_playing_doom_runs_the_can_controls_alongside(app, fake_doom, monkeypatch):
+    from canopener.device.screens import games
+    fake_doom()
+    log = []
+
+    class Bridge:
+        def start(self):
+            log.append("start")
+
+        def stop(self):
+            log.append("stop" if fake_doom.started.exists() else "stopped early")
+    monkeypatch.setattr(doom_controls.DoomControls, "for_profile", classmethod(lambda cls, *a: Bridge()))
+    app.push(games.GamesScreen(app))
+    games.play_doom(app)
+    assert log == ["start", "stop"]                             # there for the whole of Doom, gone after
+
+    def no_access(cls, *a):
+        raise PermissionError(13, "Permission denied")
+    monkeypatch.setattr(doom_controls.DoomControls, "for_profile", classmethod(no_access))
+    fake_doom.started.unlink()
+    games.play_doom(app)                                        # Doom still plays; the reason is shown after
+    assert fake_doom.started.exists() and "install.sh --device" in app.ctx.current_toast()
