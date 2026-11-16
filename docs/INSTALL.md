@@ -53,7 +53,7 @@ the installer command to run once in a terminal.
 
 ```bash
 ~/CANopener/deploy/linux/install.sh --update                             # laptop
-cd ~/CANopener && git pull && ./deploy/raspberry-pi/install.sh --sudoers --autostart   # Pi
+cd ~/CANopener && git pull && ./deploy/raspberry-pi/install.sh --autostart   # Pi
 ```
 
 On the Pi, use the same options you installed with, then reboot (or

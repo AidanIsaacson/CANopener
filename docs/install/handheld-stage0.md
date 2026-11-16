@@ -50,7 +50,7 @@ Then run the installer with the handheld options:
 
 ```bash
 cd ~/CANopener
-./deploy/raspberry-pi/install.sh --sudoers --autostart --device
+./deploy/raspberry-pi/install.sh --autostart --device
 ```
 
 `--device` lets the app read the encoder (stage 0b) and set the brightness. Log out and back in

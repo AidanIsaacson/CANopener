@@ -303,6 +303,13 @@ two Picos, the sync input, the Pi's ADC, the ESP32, the parts behind the meter P
 installed (the default: never touched), Installed (missing = a red lamp with a hint, retried) or
 Use if found. "Set all from build stage" fills them in. Meter sources for the meter Pico, the ESP32
 and the Pi's ADC start from these; the Meters rows above stay for a bench Pi or a laptop.
+**Setting a part on the Pi's own pins also sets the Pi up for it** (`core/bootconfig.py`): the page
+shows the lines it will add to `/boot/firmware/config.txt`, asks first, writes them into one marked
+block through the root helper `canopener-boot-config` (installed by the Pi installer), and
+loads the driver at once where it can (the CAN stacks, the ADC, the sync input). The buttons and the
+ESP32's UART need a restart, which it offers; so does taking a part out. Each CAN stack has its
+crystal (20 MHz on the prototype module, 40 MHz on the custom board) and SPI speed (1 MHz for
+breadboard wiring) on the same page. `canopener-cli hardware --apply` does the same over SSH.
 [ELECTRONICS.md](ELECTRONICS.md) section 19 has the list. Waveforms and logic captures (kHz-MHz) don't belong in a CSV row
 per sample: they will be their own files in the capture folder, on the same timebase, listed in
 `capture.json`.
@@ -357,7 +364,8 @@ needs free ([ELECTRONICS.md](ELECTRONICS.md) 5.1): I2C1 (GPIO2/3) for the ADS111
 MCP2518FD CAN controllers (CE0 + INT GPIO25, CE1 + INT GPIO20), GPIO21 for the SYNC pulse from the
 meter Pico, the UART (GPIO14/15) for the ESP32, and GPIO18 for a PWM buzzer. I2S audio is given up
 for GPIO20/21; GPIO19 is the only spare. Their overlay lines are in
-[`deploy/raspberry-pi/config-hardware.txt`](../deploy/raspberry-pi/config-hardware.txt).
+[`deploy/raspberry-pi/config-hardware.txt`](../deploy/raspberry-pi/config-hardware.txt), and
+System > Installed options writes them for you.
 
 | Control | GPIO | Sends | App action |
 |---|---|---|---|
@@ -401,7 +409,7 @@ else rotates: the app draws sideways and turns touch coordinates to match.
 Install with the handheld options (step by step: [Handheld, first steps](install/handheld-stage0.md)):
 
 ```bash
-./deploy/raspberry-pi/install.sh --sudoers --autostart --device
+./deploy/raspberry-pi/install.sh --autostart --device
 ```
 
 `--device` adds you to the `input` (encoder) and `video` (brightness) groups and installs udev

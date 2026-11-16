@@ -1,5 +1,9 @@
-# CANopener handheld hardware: append the lines for the stages you've BUILT to
-# /boot/firmware/config.txt, then reboot. Controls are separate: config-controls.txt.
+# CANopener handheld hardware: the config.txt lines for each part on the Pi's pins.
+# The app writes these for you: System > Installed options on the handheld, or
+# `canopener-cli hardware --stage 3 --apply` (the Pi installer sets up the helper). It puts them in
+# a marked block at the end of /boot/firmware/config.txt. Copy them by hand only on a Pi without the
+# app's helper. The helper's table (canopener-boot-config) and core/bootconfig.py match this file.
+# Controls are separate: config-controls.txt.
 #
 # Pins and the reasons for them: docs/ELECTRONICS.md (5.1 Pi header). Then tell the app what's
 # fitted, so it never polls a part that isn't there:

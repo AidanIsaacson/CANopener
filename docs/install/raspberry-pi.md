@@ -42,7 +42,7 @@ one is missing.
 
 ```bash
 cd ~/CANopener
-./deploy/raspberry-pi/install.sh --sudoers --autostart
+./deploy/raspberry-pi/install.sh --autostart
 ```
 
 What the options do:
@@ -50,11 +50,13 @@ What the options do:
 * *(always)*: installs the USB CAN adapter drivers and the CANable plug-in rule (same as the
   [laptop installer](linux-laptop.md#your-usb-adapter-canable-20--20-pro)), creates
   `~/canopener-venv`, installs CANopener into it, and adds a **CANopener** entry to the Pi's menu.
-* `--sudoers`: lets CANopener bring `can0` up **without a password**. This is limited to exactly
-  `ip link set canN up/down/type can …`, plus the two `apt-get` commands that fetch the handheld's
-  optional Doom download when you ask for it ([Games](../DEVICE.md#games-hidden)), and nothing
-  else (see [`canopener.sudoers`](../../deploy/raspberry-pi/canopener.sudoers)). Needed for a
-  screen-only setup with no keyboard to type a password.
+* *(always, unless you add `--no-sudoers`)*: lets CANopener bring `can0` up **without a password**,
+  and lets **System > Installed options** on the handheld set the Pi up for parts on its pins (CAN
+  stacks, the ADC, the buttons). It allows exactly `ip link set canN up/down/type can …` and the
+  boot-settings helper `canopener-boot-config`, which only writes its own fixed lines into its own
+  marked block of `config.txt`, plus the two `apt-get` commands that fetch the handheld's optional
+  Doom download when you ask for it ([Games](../DEVICE.md#games-hidden)) (see [`canopener.sudoers`](../../deploy/raspberry-pi/canopener.sudoers)).
+  A screen-only setup needs it: there's no keyboard to type a password.
 * `--autostart`: starts CANopener full-screen every time you log in to the desktop. It also
   brings up `can0` at 250k first.
 
@@ -125,7 +127,7 @@ screen), or `canopener-cli update` over SSH. The full update from a terminal:
 
 ```bash
 cd ~/CANopener && git pull
-./deploy/raspberry-pi/install.sh --sudoers --autostart
+./deploy/raspberry-pi/install.sh --autostart
 ```
 
 with the same options you installed with, then reboot (or `systemctl --user restart canopener`).
@@ -140,5 +142,5 @@ More: [Updating](../INSTALL.md#updating).
 | `pip` can't find PySide6 | You're on the 32-bit OS. Reflash with Raspberry Pi OS **(64-bit)**, or use `sudo apt install python3-pyqt6` and `~/canopener-venv/bin/pip install -e .` |
 | `can0` doesn't exist with a USB adapter | `~/canopener-venv/bin/canopener-cli interfaces` says why (e.g. slcan firmware not attached, adapter in DFU mode). See the laptop guide's [troubleshooting](linux-laptop.md#troubleshooting). |
 | `can0` doesn't exist with a HAT | Check the overlay line, the HAT's crystal (`8000000` / `16000000` / `20000000` / `40000000`) and interrupt pin, then reboot. `dmesg \| grep -i -E "mcp|can"` shows driver messages. |
-| Interface setup asks for a password | Re-run the installer with `--sudoers`. |
+| Interface setup asks for a password | Re-run the installer (without `--no-sudoers`). |
 | Everything is tiny on the touchscreen | Set `CANOPENER_ARGS=--fullscreen --scale 1.5` (see above). |

@@ -302,17 +302,28 @@ class SettingsScreen(Screen):
         return rows
 
     def _hardware_rows(self):
-        """Installed options: what this unit has fitted. Not installed = never touched."""
-        hw = self.ctx.hardware
+        """Installed options: what this unit has fitted. Not installed = never touched. Setting one
+        also sets up the Pi for it (its boot-config lines and driver, core.bootconfig), after asking."""
+        from ...core import bootconfig
+        hw, ctx = self.ctx.hardware, self.ctx
         stages = [(f"Stage {st}", st) for st in hardware.STAGES]
         rows = [Row("Installed options", kind="header"),
                 Row("Set all from build stage", select=lambda: choose(
                     self.app, "Built up to stage", stages, None,
-                    lambda st: (hw.set_stage(st), self.ctx.apply_meters())),
+                    lambda st: (hw.set_stage(st), self._boot_changes())),
                     hint="then change single parts below")]
+        pending = ctx.boot_plan()
+        if not pending.empty:
+            rows.append(Row("Set up the Pi for these parts", kind="action", select=self._boot_changes,
+                            level=lambda: "wait", hint=f"{len(pending.add) + len(pending.remove)} change(s) to its "
+                                                       "boot settings waiting"))
+        elif ctx.boot_restart_needed():
+            rows.append(Row("Restart to finish setting up", kind="action", level=lambda: "wait",
+                            select=lambda: self._power("Restart", system.REBOOT),
+                            hint="boot settings were changed since the last start"))
 
         def setter(oid):
-            return lambda v: (hw.set_state(oid, v), self.ctx.apply_meters())
+            return lambda v: (hw.set_state(oid, v), self._boot_changes())
         for opt in hardware.OPTIONS:
             st = hw.status(opt.id)
             rows.append(Row(f"{opt.name} (stage {opt.stage})",
@@ -322,7 +333,52 @@ class SettingsScreen(Screen):
                             adjust=lambda d, opt=opt: setter(opt.id)(cycle(hardware.STATES, hw.state(opt.id), d)),
                             level=lambda opt=opt: hw.status(opt.id).level,
                             hint=f"{st.text}: {st.detail}" if st.detail else st.text))
+            if opt.id in bootconfig.CAN and hw.state(opt.id) != hardware.NO:
+                for label, key, options in (("crystal", "oscillator", bootconfig.OSCILLATORS),
+                                            ("SPI speed", "spi_hz", bootconfig.SPI_SPEEDS)):
+                    rows.append(self._row(f"    {opt.name} {label}", f"hardware.{opt.id}.{key}", options,
+                                          then=self._boot_changes))
         return rows
+
+    def _boot_changes(self):
+        """After a change on Installed options: show what the Pi's boot settings need, and do it
+        when the person says yes."""
+        from ...core import bootconfig
+        ctx = self.ctx
+        ctx.apply_meters()
+        plan = ctx.boot_plan()
+        if plan.empty:
+            return
+        if not bootconfig.helper_installed():
+            self.app.push(InfoDialog(self.app, "One-time setup needed", [
+                "To set the Pi up for these parts, CANopener needs permission to change its boot settings. "
+                "That takes one command, run once over SSH or with a keyboard:", "", f"  {bootconfig.SETUP}", "",
+                "Then come back here and pick Set up the Pi for these parts.", "",
+                "What it would change:"] + plan.describe(bootconfig.is_pi5())))
+            return
+
+        def done(result):
+            if not result.ok:
+                self.app.push(InfoDialog(self.app, "Couldn't set it up", [result.message]))
+            elif result.restart:
+                confirm(self.app, "Restart now?", result.message + " Restarting closes CANopener for a minute; "
+                        "a recording in progress is saved.", "Restart", lambda: self._power_now(system.REBOOT),
+                        danger=False)
+            else:
+                ctx.toast(result.message)
+        confirm(self.app, "Set up the Pi for this?", "\n".join(
+            ["Changes the Pi's boot settings (config.txt, its own marked block only):"] + plan.describe(
+                bootconfig.is_pi5())), "Set up", lambda: ctx.apply_boot(plan, done), danger=False)
+
+    def _power_now(self, argv):
+        """Restart / power off without asking again (the caller already did)."""
+        if self.ctx.unsaved:
+            self.app.show_saving()
+        self.ctx.shutdown()
+        try:
+            subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            self.ctx.toast(f"Restart failed: {e}")
 
     # --- actions ---
     def _brightness(self, d):

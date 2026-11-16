@@ -10,17 +10,18 @@ CANable 2.0; not yet with a HAT.)
 ```bash
 git clone https://github.com/AidanIsaacson/CANopener.git ~/CANopener
 cd ~/CANopener
-./deploy/raspberry-pi/install.sh --sudoers --autostart
+./deploy/raspberry-pi/install.sh --autostart
 ```
 
 | File | Purpose |
 |---|---|
-| `install.sh` | Runs [`../linux/adapter-setup.sh`](../linux) (USB CAN drivers, CANable plug-in rule), creates `~/canopener-venv`, installs the app (with the handheld UI as the default), adds the launcher and a menu entry. `--sudoers`, `--autostart` and `--device` (encoder + brightness access) are optional. |
+| `install.sh` | Runs [`../linux/adapter-setup.sh`](../linux) (USB CAN drivers, CANable plug-in rule), creates `~/canopener-venv`, installs the app (with the handheld UI as the default), adds the launcher and a menu entry. It also installs `canopener.sudoers` and `canopener-boot-config` (leave both out with `--no-sudoers`). `--autostart` and `--device` (encoder + brightness access) are optional. |
 | `canopener-launch.sh` | Runs `canopener-cli setup` for the CAN interface, then the UI fullscreen: the handheld UI or the desktop GUI, whichever was last chosen (`CANOPENER_UI` forces one). Configured with `CANOPENER_*` environment variables (see the top of the file). |
 | `config-controls.txt` | `config.txt` lines for the handheld's buttons, d-pad and rotary encoder ([docs/DEVICE.md](../../docs/DEVICE.md#controls-wiring)). |
 | `71-canopener-backlight.rules` | udev rule: the `video` group may set the screen brightness. Installed by `install.sh --device`. |
 | `72-canopener-uinput.rules` | Installed by `--device`: lets the `input` group make input devices, which is how CAN signals play the handheld's optional Doom ([Games](../../docs/DEVICE.md#games-hidden)). Leave it out if you don't want that. |
-| `canopener.sudoers` | Lets your user run **only** `ip link set canN up/down/type can ...` (and the two `apt-get` commands of the handheld's optional Doom download) without a password. Without it, interface setup asks for a password (pkexec), which a kiosk can't answer. |
+| `canopener.sudoers` | Lets your user run **only** `ip link set canN up/down/type can ...`, `canopener-boot-config` and the two `apt-get` commands of the handheld's optional Doom download without a password. Without it, interface setup asks for a password (pkexec), which a kiosk can't answer. |
+| `canopener-boot-config` | The boot-settings helper behind **System > Installed options**: writes the lines for the parts marked fitted (its own fixed table, the same as `config-hardware.txt`) into one marked block at the end of `config.txt`, and loads the drivers that can be loaded without a restart. Installed root-owned in `/usr/local/sbin` by `install.sh`; nothing else it's given gets in. |
 | `canopener.service` | systemd **user** service: start at login, restart on crash. |
 | `canopener-autostart.desktop` | Desktop login autostart that starts the service: Raspberry Pi OS's desktop (labwc) never activates `graphical-session.target`, so the service's own `WantedBy=` doesn't fire there. Installed by `install.sh --autostart` as `~/.config/autostart/canopener.desktop`. |
 | `canopener.desktop` | Application-menu entry. |
@@ -29,7 +30,7 @@ cd ~/CANopener
 
 The overlay lines for an MCP2515 or MCP2518FD HAT are in step 4 of the
 [Raspberry Pi guide](../../docs/install/raspberry-pi.md#4-connect-the-can-hardware); the handheld's
-own CAN stacks are in `config-hardware.txt`.
+own CAN stacks are set up from **System > Installed options** (the lines are in `config-hardware.txt`).
 
 An MCP2518FD HAT is the most faithful way to exercise the planned hardware before the custom
 board: it uses the same mainline `mcp251xfd` driver as the CM5 build, so `ip link` behaves the

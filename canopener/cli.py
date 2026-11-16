@@ -827,6 +827,15 @@ def cmd_hardware(a) -> int:
         if oid not in ("meter_pico", "logic_pico", "esp32"):
             sys.exit("--port works for meter_pico, logic_pico and esp32")
         hw.settings.set(f"hardware.{oid}.port", path)
+    for item in a.can or []:
+        oid, _, rest = item.partition(":")
+        if oid not in ("can_a", "can_b"):
+            sys.exit("--can takes can_a or can_b, e.g. can_a:osc=40000000:spi=1000000")
+        for kv in rest.split(":") if rest else []:
+            key, _, value = kv.partition("=")
+            if key not in ("osc", "spi") or not value.isdigit():
+                sys.exit(f"bad --can setting {kv!r}: osc=HZ or spi=HZ")
+            hw.settings.set(f"hardware.{oid}." + ("oscillator" if key == "osc" else "spi_hz"), int(value))
     marks = {hardware.OK: "ok ", hardware.WAIT: "?  ", hardware.BAD: "!! ", hardware.OFF: "-  "}
     for st in hw.report():
         o = st.option
@@ -834,7 +843,29 @@ def cmd_hardware(a) -> int:
         if st.level == hardware.BAD or a.verbose:
             print(f"{'':<23}{st.detail or o.hint}")
     print(f"\nStored in {hw.settings.file} (\"hardware\"). Not installed = never touched.")
-    return 0
+    return _boot_config(hw, a)
+
+
+def _boot_config(hw, a) -> int:
+    """The Pi's boot settings for the installed options (core.bootconfig): show, and with --apply do."""
+    from .core import bootconfig
+    plan = bootconfig.plan(hw)
+    if plan.empty:
+        if bootconfig.restart_needed(hw.settings):
+            print("Boot settings: saved; restart to finish.")
+        elif any(hw.state(o) != "no" for o in bootconfig.PARTS):
+            print("Boot settings: up to date.")
+        return 0
+    print("\nBoot settings to change for these options:")
+    print("\n".join("  " + line for line in plan.describe(bootconfig.is_pi5())))
+    if not a.apply:
+        print("Run again with --apply to make the change.")
+        return 0
+    if not a.yes and input("Change the Pi's boot settings? [y/N] ").strip().lower() != "y":
+        return 1
+    result = bootconfig.apply(plan, hw.settings)
+    print(result.message)
+    return 0 if result.ok else 1
 
 
 def cmd_bluetooth(a) -> int:
@@ -1226,6 +1257,10 @@ def main(argv=None) -> int:
     hw = sub.add_parser("hardware", help="installed options on the handheld: what's fitted and whether it's found")
     hw.add_argument("--stage", help="mark everything up to this build stage installed, the rest not (1, 2a ... 8)")
     hw.add_argument("--set", action="append", metavar="ID=STATE", help="one option: yes / no / auto (repeatable)")
+    hw.add_argument("--can", action="append", metavar="ID:osc=HZ:spi=HZ",
+                    help="a CAN stack's crystal and SPI speed, e.g. can_a:osc=20000000:spi=1000000 (spi=0: full speed)")
+    hw.add_argument("--apply", action="store_true", help="also set up the Pi's boot settings and drivers for them")
+    hw.add_argument("--yes", action="store_true", help="--apply without asking")
     hw.add_argument("--port", action="append", metavar="ID=PATH", help="serial port of a Pico or the ESP32")
     hw.add_argument("-v", "--verbose", action="store_true", help="show what each option is and where to look")
     hw.set_defaults(fn=cmd_hardware)

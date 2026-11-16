@@ -1316,3 +1316,64 @@ def test_guided_profile_builder_on_the_handheld(app_for, monkeypatch):
     assert observed.load_doc(p.path)["observed"]["sessions"][0]["source"].startswith("guided profile builder")
     assert not isinstance(app.top, guide_screen.GuideScreen)
     ctx.disconnect()
+
+
+def test_installed_options_set_up_the_pi_after_asking(app_for, monkeypatch, tmp_path):
+    """System > Installed options: marking the ADC installed shows the boot-config lines, asks, runs
+    the helper, loads it live, and says so; a part that needs a restart offers one."""
+    from canopener.core import bootconfig, hardware
+    from canopener.device.screens.base import ConfirmDialog, InfoDialog
+    from canopener.device.screens.settings import SettingsScreen
+    cfg = tmp_path / "config.txt"
+    cfg.write_text("[all]\n")
+    monkeypatch.setattr(bootconfig, "config_path", lambda: str(cfg))
+    ran = []
+
+    def run(steps, **kw):
+        ran.append(steps[0])
+        if steps[0][1] == "set":                                    # what the helper would write
+            tokens = " ".join(steps[0][2:])
+            cfg.write_text(f"[all]\n{bootconfig.BEGIN}\n{bootconfig.TOKENS_PREFIX} {tokens}\n{bootconfig.END}\n")
+        return True, "ok"
+    real_apply = bootconfig.apply
+    monkeypatch.setattr(bootconfig, "apply", lambda plan, settings=None: real_apply(plan, settings, run=run))
+    app = app_for()
+    ctx = app.ctx
+    page = SettingsScreen(app, "Installed options")
+    app.push(page)
+    app.step([])
+
+    monkeypatch.setattr(bootconfig, "helper_installed", lambda: False)
+    ctx.hardware.set_state("adc_pi", hardware.YES)
+    page._boot_changes()
+    assert isinstance(app.top, InfoDialog) and "raspberry-pi/install.sh" in " ".join(app.top.lines)
+    assert "dtoverlay=ads1115" in " ".join(app.top.lines)
+    app.pop()
+    assert "Set up the Pi for these parts" in [r.label for r in page._rows()]
+
+    monkeypatch.setattr(bootconfig, "helper_installed", lambda: True)
+    page._boot_changes()
+    assert isinstance(app.top, ConfirmDialog) and "dtoverlay=ads1115" in app.top.text and "Loads now" in app.top.text
+    app.action(inp.ROTATE, 1)
+    app.action(inp.SELECT)
+    assert ctx.wait_idle(10)
+    app.step([])
+    assert ran == [[bootconfig.HELPER, "set", "adc_pi"], [bootconfig.HELPER, "live", "adc_pi"]]
+    assert "Working now: ADC on the Pi" in ctx.current_toast()
+    assert "Set up the Pi for these parts" not in [r.label for r in page._rows()]
+
+    ran.clear()
+    ctx.hardware.set_state("esp32", hardware.YES)                   # UART: only after a restart
+    page._boot_changes()
+    app.action(inp.ROTATE, 1)
+    app.action(inp.SELECT)
+    assert ctx.wait_idle(10)
+    app.step([])
+    assert ran == [[bootconfig.HELPER, "set", "adc_pi", "esp32"]]
+    assert isinstance(app.top, ConfirmDialog) and "Restart now?" in app.top.title
+    app.action(inp.SELECT)                                          # No: the page offers it from then on
+    labels = [r.label for r in page._rows()]
+    assert "Restart to finish setting up" in labels
+    ctx.hardware.set_state("can_a", hardware.YES)
+    labels = [r.label for r in page._rows()]
+    assert "    CAN stack A crystal" in labels and "    CAN stack A SPI speed" in labels

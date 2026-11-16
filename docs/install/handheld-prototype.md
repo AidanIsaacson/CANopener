@@ -184,19 +184,17 @@ battery or power bank, not a wall supply ([ELECTRONICS.md section 10](../ELECTRO
 Build in this order, checking each before the next: power rails, controls, CAN module, Picos,
 ADS1115.
 
-Add the lines for what you've built to `/boot/firmware/config.txt` (after the controls' lines) and
-reboot:
+Tell the app what's fitted, and it sets the Pi up for it: on the handheld, **System > Installed
+options**, then set each part you've built to **Installed** (or **Set all from build stage**). It
+shows the lines it will add to the Pi's boot settings and asks first. The CAN stack and the ADS1115
+start working straight away; the buttons and the ESP32 need a restart, which it offers. On a
+breadboard, set **CAN stack A SPI speed** to **1 MHz** (just below the part on the same page).
+From SSH: `canopener-cli hardware --stage 3 --apply`.
 
-```
-dtparam=spi=on
-dtoverlay=mcp251xfd,spi0-0,oscillator=20000000,interrupt=25
-dtoverlay=pps-gpio,gpiopin=21
-dtparam=i2c_arm=on
-dtoverlay=ads1115,addr=0x48,cha_enable,chb_enable,chc_enable,chd_enable
-```
-
-Then tell the app what's fitted: `canopener-cli hardware --stage 3`, or **System > Installed
-options > Set all from build stage** on the handheld.
+The [Pi installer](raspberry-pi.md) sets up the small helper that's allowed to change the boot
+settings (a Pi installed before November 2026: run it once more). The lines it writes are the
+ones in [`config-hardware.txt`](../../deploy/raspberry-pi/config-hardware.txt), in a marked block at
+the end of `/boot/firmware/config.txt`; the rest of the file isn't touched.
 
 ## Check it
 
