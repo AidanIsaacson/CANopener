@@ -1,7 +1,7 @@
 #!/bin/bash
 # Install CANopener on a Raspberry Pi (Raspberry Pi OS 64-bit) for the current user.
 #   ./deploy/raspberry-pi/install.sh            # venv + launcher + menu entry
-#   ./deploy/raspberry-pi/install.sh --sudoers  # also allow passwordless CAN setup
+#   ./deploy/raspberry-pi/install.sh --sudoers  # also allow passwordless CAN setup and Installed options
 #   ./deploy/raspberry-pi/install.sh --autostart  # also start at login (systemd user service)
 #   ./deploy/raspberry-pi/install.sh --device     # handheld: encoder + brightness access (see docs/DEVICE.md)
 set -euo pipefail
@@ -45,6 +45,8 @@ for arg in "$@"; do
         sudo visudo -cf "$tmp"
         sudo install -m 440 -o root -g root "$tmp" /etc/sudoers.d/canopener
         rm -f "$tmp"
+        echo "== /usr/local/sbin/canopener-boot-config (Installed options can set up the Pi)"
+        sudo install -m 755 -o root -g root "$HERE/canopener-boot-config" /usr/local/sbin/canopener-boot-config
         ;;
     --autostart)
         echo "== systemd user service"

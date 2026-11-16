@@ -3,6 +3,17 @@
 What changed in each version, newest first. Versions are git tags (`v0.3.3`): to put a unit back
 on an older one, `git checkout v0.3.2` in its checkout.
 
+## Unreleased
+
+- **Installed options now set the Pi up.** On the handheld, setting a part on the Pi's own pins
+  (CAN stack A or B, the ADC, the sync input, the buttons, the ESP32) to Installed shows the lines
+  it adds to the Pi's boot settings, asks, writes them into one marked block of `config.txt` and
+  loads the driver straight away where it can; the buttons and the ESP32, and taking a part out,
+  need a restart, which it offers. Each CAN stack also gets its crystal and SPI speed (1 MHz for
+  breadboard wiring). `canopener-cli hardware --apply` does it over SSH. Needs
+  `install.sh --sudoers` once, which now also installs the root helper `canopener-boot-config`:
+  it only ever writes its own fixed lines into its own block.
+
 ## 0.4.0 (2026-11-13)
 
 Working out an unfamiliar machine from what its bus does, and getting help while you do. Built

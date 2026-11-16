@@ -12,5 +12,10 @@ Cmnd_Alias CANOPENER_IP = /usr/sbin/ip link set can[0-9] down, \
                           /usr/bin/ip link set can[0-9] type can *
 USERNAME ALL=(root) NOPASSWD: CANOPENER_IP
 
+# Installed options (System > Installed options): the boot settings and drivers for parts on the
+# Pi's pins. The helper is root-owned and only writes its own fixed lines into its own marked
+# block of config.txt, whatever it's given (deploy/raspberry-pi/canopener-boot-config).
+USERNAME ALL=(root) NOPASSWD: /usr/local/sbin/canopener-boot-config
+
 # Optional, for a power menu in a future on-device UI:
 # USERNAME ALL=(root) NOPASSWD: /usr/sbin/shutdown -h now, /usr/sbin/reboot

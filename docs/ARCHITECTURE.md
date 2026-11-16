@@ -168,6 +168,15 @@ exercise the real backend.
   doesn't calls `confirm`, which on the handheld posts a default-No dialog to the UI thread
   (`remote_actions.Asker`, `DeviceContext.post`) and waits up to a minute. The server relays and
   stores nothing. Profile uploads (`upload.upload_profile`) use the same server.
+* **Installed options set the Pi up** (`core/bootconfig.py`, `deploy/raspberry-pi/canopener-boot-config`):
+  `plan(hw)` turns the options for parts on the Pi's pins (`PARTS`) into helper tokens and compares
+  them with the marked block in `config.txt` (readable without root); `apply` runs the helper's
+  `set` (rewrites only that block, backing the file up first) and `live` (dtparam / dtoverlay now,
+  for `LIVE` parts) through `run_privileged`, and records when a restart is still needed. The
+  helper is root-owned, standard library only, imports nothing of ours, and checks every token
+  against its own table; `tests/test_bootconfig.py` keeps that table, `LINES` here,
+  `config-hardware.txt` and `config-controls.txt` equal. Screens: the handheld's Installed options
+  page; CLI `hardware --apply`.
 * **Honest sends** (`ElmBackend._raise_if_not_sent`): when the adapter says a frame never reached
   the bus (`TX_FAILED`) and nothing answered, `send` raises, so `Session.send_frame` reports it
   (`health.tx_error`) and doesn't log the frame; `scan.run_scan` gives up after a first request

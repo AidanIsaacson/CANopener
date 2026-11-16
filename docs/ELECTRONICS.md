@@ -670,6 +670,9 @@ Two rules make it safe: **detection only looks** (sysfs and `/dev` entries; it n
 so it can't block), and **talking to hardware stays on its own thread** with timeouts, as every
 measurement source already does. Set them on the handheld (System > Installed options) or over SSH:
 `canopener-cli hardware --stage 2b --set can_b=auto -v`. Stored in `settings.json` (`hardware`).
+Setting a part on the Pi's pins also writes its `config.txt` lines (the ones in
+`deploy/raspberry-pi/config-hardware.txt`) and loads its driver where it can, after asking
+(`--apply` over SSH); see docs/DEVICE.md.
 
 ## Footnotes
 

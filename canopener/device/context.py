@@ -143,6 +143,28 @@ class DeviceContext:
         p = profiles.active()
         return p.name if p else "No profile"
 
+    # --- installed options -> the Pi's boot settings (core.bootconfig) ---
+    def boot_plan(self):
+        from ..core import bootconfig
+        return bootconfig.plan(self.hardware)
+
+    def apply_boot(self, plan, then=None) -> bool:
+        """Write the boot settings for ``plan`` and load what can be loaded now (a job: it runs the
+        root helper). ``then(result)`` on the UI thread."""
+        from ..core import bootconfig
+        settings = self.settings
+
+        def done(result):
+            self.hardware._cache.clear()
+            self.apply_meters()
+            if then:
+                then(result)
+        return self.run_job("Changing boot settings", lambda: bootconfig.apply(plan, settings), done)
+
+    def boot_restart_needed(self) -> bool:
+        from ..core import bootconfig
+        return bootconfig.restart_needed(self.settings)
+
     def apply_meters(self):
         """(Re)start the measurement sources: installed options plus those switched on in settings."""
         for src in self.hub.sources():

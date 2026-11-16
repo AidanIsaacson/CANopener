@@ -50,10 +50,12 @@ What the options do:
 * *(always)*: installs the USB CAN adapter drivers and the CANable plug-in rule (same as the
   [laptop installer](linux-laptop.md#your-usb-adapter-canable-20--20-pro)), creates
   `~/canopener-venv`, installs CANopener into it, and adds a **CANopener** entry to the Pi's menu.
-* `--sudoers`: lets CANopener bring `can0` up **without a password**. This is limited to exactly
-  `ip link set canN up/down/type can …` and nothing else (see
-  [`canopener.sudoers`](../../deploy/raspberry-pi/canopener.sudoers)). Needed for a screen-only
-  setup with no keyboard to type a password.
+* `--sudoers`: lets CANopener bring `can0` up **without a password**, and lets **System >
+  Installed options** on the handheld set the Pi up for parts on its pins (CAN stacks, the ADC,
+  the buttons). It allows exactly `ip link set canN up/down/type can …` and the boot-settings helper
+  `canopener-boot-config`, which only writes its own fixed lines into its own marked block of
+  `config.txt` (see [`canopener.sudoers`](../../deploy/raspberry-pi/canopener.sudoers)). Needed for a
+  screen-only setup with no keyboard to type a password.
 * `--autostart`: starts CANopener full-screen every time you log in to the desktop. It also
   brings up `can0` at 250k first.
 

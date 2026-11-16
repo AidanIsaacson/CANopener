@@ -35,6 +35,11 @@ DEFAULTS: dict = {
     "can.bitrate": 250000,              # 0 = auto (the signal finder picks it)
     "can.listen_only": False,
     "can.connect_on_start": False,
+    "hardware.can_a.oscillator": 20000000,      # CAN stack crystals and SPI speeds (core.bootconfig): 20 MHz on
+    "hardware.can_a.spi_hz": 0,                  # the prototype module, 40 MHz on the custom board; SPI 0 = full speed
+    "hardware.can_b.oscillator": 20000000,
+    "hardware.can_b.spi_hz": 0,
+    "hardware.restart_after": 0,                 # when boot settings were last changed (a restart finishes them)
     "upload.profiles": True,            # send profiles made on this unit to the upload server too (core.upload)
     "elm.adapter": "",                  # Bluetooth OBD: the adapter's address (core.bluetooth, can.elm327)
     "elm.protocol": "0",                # its ATSP protocol: "0" searches, "6" = CAN 11-bit 500k, "A" = J1939 ...

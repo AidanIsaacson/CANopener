@@ -1,0 +1,280 @@
+#!/usr/bin/env python3
+# canopener-boot-config: the one thing CANopener may do as root to set up on-deck hardware.
+#
+# Installed by deploy/raspberry-pi/install.sh --sudoers as /usr/local/sbin/canopener-boot-config
+# (root-owned), with a sudoers rule that lets the CANopener user run it without a password. It
+# can only do what is written below, whatever arguments it is given:
+#
+#   canopener-boot-config show                 the block it manages, and the options in it
+#   canopener-boot-config set [TOKEN ...]      rewrite that block for exactly these options
+#   canopener-boot-config live TOKEN           load that option's drivers now (dtparam / dtoverlay)
+#
+# TOKEN is an option id from PARTS (can_a, adc_pi ...); the CAN stacks also take
+# :osc=<crystal Hz> and :spi=<max SPI Hz>, each checked against a fixed list. The block sits at
+# the end of /boot/firmware/config.txt between two marker lines; nothing outside it is changed,
+# and the file is copied to config.txt.canopener-bak before every write.
+#
+# Exit status: 0 done, 2 bad arguments, 3 this option needs a restart (no live loading), 1 failed.
+# The app's copy of the table is canopener/core/bootconfig.py: tests keep the two in step.
+# Standard library only, no imports from CANopener (it runs as root; the app's files are the user's).
+
+import os
+import subprocess
+import sys
+
+CONFIGS = ("/boot/firmware/config.txt", "/boot/config.txt")
+BEGIN = "# >>> CANopener installed options (written by the app: System > Installed options) >>>"
+END = "# <<< CANopener installed options <<<"
+TOKENS_PREFIX = "# options:"
+
+OSCILLATORS = (4000000, 20000000, 40000000)
+SPI_SPEEDS = (500000, 1000000, 2000000, 4000000, 8000000, 10000000, 20000000)
+
+GPIO_KEYS = [(5, 59, "F1"), (6, 60, "F2"), (12, 61, "F3"), (13, 62, "F4"), (16, 63, "F5"), (17, 103, "UP"),
+             (27, 108, "DOWN"), (22, 105, "LEFT"), (23, 106, "RIGHT"), (26, 28, "SELECT")]
+
+
+def _can(cs: int, irq: int, osc: int, spi: int) -> list[str]:
+    extra = f",speed={spi}" if spi else ""
+    return ["dtparam=spi=on", f"dtoverlay=mcp251xfd,spi0-{cs},oscillator={osc},interrupt={irq}{extra}"]
+
+
+def lines(option: str, osc: int = 20000000, spi: int = 0, pi5: bool = True) -> list[str]:
+    """The config.txt lines for one option (in the order they are written)."""
+    if option == "controls":
+        out = [f'dtoverlay=gpio-key,gpio={g},active_low=1,gpio_pull=up,keycode={k},label="{n}"'
+               for g, k, n in GPIO_KEYS[:9]]
+        return out + ["gpio=24,4=ip,pu", "dtoverlay=rotary-encoder,pin_a=24,pin_b=4,relative_axis=1,steps-per-period=1",
+                      'dtoverlay=gpio-key,gpio=26,active_low=1,gpio_pull=up,keycode=28,label="SELECT"']
+    if option == "can_a":
+        return _can(0, 25, osc, spi)
+    if option == "can_b":
+        return _can(1, 20, osc, spi)
+    if option == "sync":
+        return ["dtoverlay=pps-gpio,gpiopin=21"]
+    if option == "adc_pi":
+        return ["dtparam=i2c_arm=on",
+                "dtoverlay=ads1115,addr=0x48,cha_enable,cha_cfg=4,chb_enable,chb_cfg=5,chc_enable,chc_cfg=6,"
+                "chd_enable,chd_cfg=7"]
+    if option == "esp32":
+        return ["dtparam=uart0=on"] if pi5 else ["enable_uart=1", "dtoverlay=disable-bt"]
+    raise KeyError(option)
+
+
+PARTS = ("controls", "can_a", "can_b", "sync", "adc_pi", "esp32")
+LIVE = ("can_a", "can_b", "sync", "adc_pi")      # the rest only take effect after a restart
+
+
+class Bad(Exception):
+    pass
+
+
+def parse_token(token: str) -> tuple[str, int, int]:
+    """'can_a:osc=40000000:spi=1000000' -> ('can_a', 40000000, 1000000). Raises Bad."""
+    name, *params = token.split(":")
+    if name not in PARTS:
+        raise Bad(f"unknown option {name!r} (known: {', '.join(PARTS)})")
+    osc, spi = 20000000, 0
+    for p in params:
+        key, _, value = p.partition("=")
+        if name not in ("can_a", "can_b") or key not in ("osc", "spi") or not value.isdigit():
+            raise Bad(f"bad setting {p!r} for {name}")
+        if key == "osc":
+            osc = int(value)
+            if osc not in OSCILLATORS:
+                raise Bad(f"crystal must be one of {OSCILLATORS}")
+        else:
+            spi = int(value)
+            if spi not in SPI_SPEEDS:
+                raise Bad(f"SPI speed must be one of {SPI_SPEEDS}")
+    return name, osc, spi
+
+
+def is_pi5() -> bool:
+    try:
+        with open("/proc/device-tree/model", errors="replace") as f:
+            return "Pi 5" in f.read()
+    except OSError:
+        return True
+
+
+def config_path(override: str | None) -> str:
+    if override:
+        if os.geteuid() == 0:
+            raise Bad("--config is for testing only; it isn't allowed as root")
+        return override
+    for p in CONFIGS:
+        if os.path.exists(p):
+            return p
+    raise Bad("no config.txt found in /boot/firmware or /boot")
+
+
+def split(text: str) -> tuple[list[str], list[str], list[str]]:
+    """(before the block, the block's lines, after it)."""
+    rows = text.splitlines()
+    if BEGIN not in rows:
+        return rows, [], []
+    i = rows.index(BEGIN)
+    j = rows.index(END, i) if END in rows[i:] else len(rows) - 1
+    return rows[:i], rows[i + 1:j], rows[j + 1:]
+
+
+def block_tokens(block: list[str]) -> list[str]:
+    for row in block:
+        if row.startswith(TOKENS_PREFIX):
+            return row[len(TOKENS_PREFIX):].split()
+    return []
+
+
+def render(tokens: list[str], outside: list[str], pi5: bool) -> list[str]:
+    """The block for these tokens (empty: no block). Lines already active outside it are skipped."""
+    if not tokens:
+        return []
+    have = {r.strip() for r in outside if r.strip() and not r.strip().startswith("#")}
+    out, seen = [BEGIN, TOKENS_PREFIX + " " + " ".join(tokens), "[all]"], set()
+    for tok in tokens:
+        name, osc, spi = parse_token(tok)
+        out.append(f"# {name}")
+        for line in lines(name, osc, spi, pi5):
+            if line in seen or line in have:
+                continue
+            seen.add(line)
+            out.append(line)
+    return out + [END]
+
+
+def write(path: str, text: str):
+    with open(path) as f:
+        old = f.read()
+    if old == text:
+        return
+    with open(path + ".canopener-bak", "w") as f:
+        f.write(old)
+    tmp = path + ".canopener-new"
+    with open(tmp, "w") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    try:
+        os.replace(tmp, path)
+    except OSError:                         # a FAT boot partition that won't rename over a file
+        with open(path, "w") as f:
+            f.write(text)
+        os.unlink(tmp)
+
+
+def cmd_set(path: str, tokens: list[str]) -> int:
+    for t in tokens:
+        parse_token(t)
+    names = [parse_token(t)[0] for t in tokens]
+    if len(set(names)) != len(names):
+        raise Bad("an option is listed twice")
+    with open(path) as f:
+        text = f.read()
+    before, _block, after = split(text)
+    while before and not before[-1].strip():
+        before.pop()
+    outside = before + after
+    block = render(tokens, outside, is_pi5())
+    rows = before + ([""] + block if block else []) + after
+    write(path, "\n".join(rows) + "\n")
+    print("ok: " + (" ".join(tokens) if tokens else "no options"))
+    return 0
+
+
+def cmd_show(path: str) -> int:
+    with open(path) as f:
+        _before, block, _after = split(f.read())
+    print("options: " + " ".join(block_tokens(block)))
+    for row in block:
+        print(row)
+    return 0
+
+
+def _run(argv: list[str], dry: bool) -> bool:
+    if dry:
+        print("would run: " + " ".join(argv))
+        return True
+    r = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+    if r.returncode:
+        sys.stderr.write((r.stderr or r.stdout or f"{argv[0]} failed").strip() + "\n")
+    return r.returncode == 0
+
+
+def _present(name: str) -> bool:
+    """Already running (from config.txt at boot, or loaded earlier): nothing to load."""
+    if name in ("can_a", "can_b"):
+        drv = f"/sys/bus/spi/devices/spi0.{0 if name == 'can_a' else 1}/driver"
+        return os.path.basename(os.path.realpath(drv)) == "mcp251xfd" if os.path.exists(drv) else False
+    if name == "adc_pi":
+        import glob
+        for d in glob.glob("/sys/bus/iio/devices/iio:device*"):
+            try:
+                with open(os.path.join(d, "name")) as f:
+                    if f.read().strip() in ("ads1115", "ads1015"):
+                        return True
+            except OSError:
+                pass
+        return False
+    if name == "sync":
+        return os.path.exists("/dev/pps0")
+    return False
+
+
+def cmd_live(token: str, dry: bool) -> int:
+    name, osc, spi = parse_token(token)
+    if name not in LIVE:
+        print(f"{name}: takes effect after a restart")
+        return 3
+    if _present(name) and not dry:
+        print(f"{name}: already running")
+        return 0
+    steps = []
+    for line in lines(name, osc, spi):
+        kind, _, rest = line.partition("=")
+        if kind == "dtparam":
+            steps.append(["dtparam", rest])
+        elif kind == "dtoverlay":
+            overlay, *params = rest.split(",")
+            steps.append(["dtoverlay", overlay, *params])
+    for argv in steps:
+        if not _run(argv, dry):
+            print(f"{name}: couldn't load it now; it will load after a restart")
+            return 3
+    print(f"{name}: loaded")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    args = list(argv)
+    override, dry = None, False
+    if "--config" in args:
+        i = args.index("--config")
+        override = args[i + 1] if i + 1 < len(args) else ""
+        del args[i:i + 2]
+    if "--dry-run" in args:
+        args.remove("--dry-run")
+        dry = True
+    try:
+        if not args or args[0] not in ("show", "set", "live"):
+            raise Bad("usage: canopener-boot-config show | set [TOKEN ...] | live TOKEN")
+        if args[0] == "live":
+            if len(args) != 2:
+                raise Bad("live takes one option")
+            return cmd_live(args[1], dry)
+        path = config_path(override)
+        if args[0] == "show":
+            return cmd_show(path)
+        if os.geteuid() != 0 and not override:
+            raise Bad("set has to run as root (sudo)")
+        return cmd_set(path, args[1:])
+    except Bad as e:
+        sys.stderr.write(f"canopener-boot-config: {e}\n")
+        return 2
+    except OSError as e:
+        sys.stderr.write(f"canopener-boot-config: {e}\n")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
