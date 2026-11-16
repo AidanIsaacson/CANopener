@@ -27,6 +27,7 @@ from .screens.base import Screen, SoftKey
 from .ui import UI, Theme
 
 TAP_SLOP_MM = 2.5           # a finger moving less than this is a tap, more is a drag
+HOLD_S = 0.5                # a finger held still this long picks up what's under it (ui.hold)
 MIN_WINDOW = 320            # pixels: the smallest a window may be dragged to, either way
 
 
@@ -94,6 +95,8 @@ class DeviceApp:
         self._pressed = None                # the tap area under the finger, drawn lit while it's down
         self._chirped = False               # one touch chirp per frame (a tap can also be a soft key)
         self._touch = None              # (start pos, tap fn, scroller, moved, last pos)
+        self._hold = None               # [when the finger went down, hold target, dragging]
+        self.now = time.monotonic       # the clock for long presses (tests turn it forward)
         if not modes.modes():
             modes.register_builtin()
         for p in plugins.loaded():
@@ -190,7 +193,7 @@ class DeviceApp:
             else:
                 self.screen = pygame.display.set_mode(size, pygame.RESIZABLE)
             self._fit()
-            self._touch = self._pressed = None
+            self._touch = self._pressed = self._hold = None
             if self.encoder is not None:
                 self.encoder.read()                 # turns made in the other program aren't ours
         return ok, "" if ok else msg
@@ -325,23 +328,42 @@ class DeviceApp:
             pos = self.to_logical(ev.pos)
             rect, fn = self.ui.hit_rect_at(pos)
             self._touch = [pos, fn, self.ui.drag_at(pos), False, pos]
+            target = self.ui.hold_at(pos)
+            self._hold = [self.now(), target, False] if target is not None else None
             self._pressed = rect if fn is not None and rect.w * rect.h < self.size[0] * self.size[1] / 3 else None
             if fn is not None:
                 self.chirp()
         elif ev.type == pygame.MOUSEMOTION and self._touch is not None:
             pos = self.to_logical(ev.pos)
+            if self._hold is not None and self._hold[2]:        # carrying something
+                self._touch[4] = pos
+                self._hold[1].move(pos)
+                return
             start, _, scroller, moved, last = self._touch
             if not moved and abs(pos[1] - start[1]) + abs(pos[0] - start[0]) > TAP_SLOP_MM * self.theme.px_per_mm:
                 self._touch[3] = moved = True
-                self._pressed = None
+                self._pressed = self._hold = None           # moved before the long press: a scroll
             if moved and scroller is not None:
                 scroller.scroll_by(last[1] - pos[1])
             self._touch[4] = pos
         elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1 and self._touch is not None:
             _, fn, _, moved, _ = self._touch
-            self._touch = self._pressed = None
-            if not moved and fn is not None:
+            hold = self._hold
+            self._touch = self._pressed = self._hold = None
+            if hold is not None and hold[2]:
+                hold[1].end(self.to_logical(ev.pos))
+            elif not moved and fn is not None:
                 fn()
+
+    def check_hold(self):
+        """A finger that has stayed still on a hold area long enough picks it up."""
+        h = self._hold
+        if h is None or h[2] or self._touch is None or self.now() - h[0] < HOLD_S:
+            return
+        h[2] = True
+        self._pressed = None
+        self.ctx.cue("touch")
+        h[1].begin(self._touch[4])
 
     def poll_hardware(self):
         if self.encoder is not None:
@@ -476,6 +498,7 @@ class DeviceApp:
         for ev in (pygame.event.get() if events is None else events):
             self.handle_event(ev)
         self.poll_hardware()
+        self.check_hold()
         self.ctx.tick()
         self.draw()
         pygame.display.flip()

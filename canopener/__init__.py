@@ -1,3 +1,3 @@
 """CANopener: open-source diagnostics for equipment and vehicles on CAN / J1939."""
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"

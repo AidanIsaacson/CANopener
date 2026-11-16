@@ -3,7 +3,27 @@
 What changed in each version, newest first. Versions are git tags (`v0.3.3`): to put a unit back
 on an older one, `git checkout v0.3.2` in its checkout.
 
-## Unreleased
+## 0.4.1 (2026-11-16)
+
+- **Games, reworked and two more.** Harness and Cargo play better: pieces come from a shuffled
+  bag, a landed piece can still be slid or turned for a moment, pieces glide, clears spark and
+  score floats up, and each has a How to play page. Harness's landing outline says whether the
+  segment would join live wire or close a circuit; Cargo adds streak and clean-sweep bonuses.
+  New: **Loom**, a no-clock wiring puzzle with growing levels and stars, and **Arbitration**,
+  pick the frame that wins the bus by CAN's real rules, until too many mistakes put you bus-off.
+- **Doom, as an optional download.** Turning the games menu on asks once whether to fetch the
+  Chocolate Doom engine and the free Freedoom levels from the system's package archive (the Doom
+  row asks again any time). It plays full screen with keys set for the handheld, and the
+  machine's CAN signals can play it too (walk, fire, use, steer), through a virtual keyboard and
+  mouse that `install.sh --device` allows.
+- **Games > Configure controls**, one menu for how the games are played: hold the handheld
+  turned either way for Harness and Cargo, the encoder push to swap or drop, reverse the encoder,
+  Doom's turn speed and keys, and the machine's signals as controls, showing each one's value now.
+  Picking a signal there no longer fails while connected.
+- **Arrange the home screen**: press and hold a tile, then drag it. The order is kept.
+- **CAN > Live and the Meter remember the enlarged value.** What's ticked, the grid and the
+  double-tapped value stay put through other screens and restarts, and come back as soon as
+  those values are on the bus again.
 
 - **Installed options now set the Pi up.** On the handheld, setting a part on the Pi's own pins
   (CAN stack A or B, the ADC, the sync input, the buttons, the ESP32) to Installed shows the lines
@@ -14,7 +34,8 @@ on an older one, `git checkout v0.3.2` in its checkout.
   it, `canopener-boot-config`, only ever writes its own fixed lines into its own block.
 - **The Pi installer now always sets up the passwordless CAN rule and that helper** (they were the
   `--sudoers` option; leave them out with `--no-sudoers`). A Pi installed before this needs the
-  installer run once more, since an in-app update can't install anything as root.
+  installer run once more, since an in-app update can't install anything as root; that also
+  installs the rules Doom needs (its download and, with `--device`, CAN signals as its controls).
 
 ## 0.4.0 (2026-11-13)
 

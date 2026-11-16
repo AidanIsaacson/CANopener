@@ -57,6 +57,9 @@ Fixed, like a scan tool: nothing reflows or pops up where a thumb doesn't expect
   Disconnect), **Codes** and **Live data** (straight to those CAN pages), **Start log** (or Stop
   log). More modes slot in later (logic analyzer, scope, ...) through
   `canopener/device/modes.py`, and plugins can add their own with `register_device(api)`.
+  **Press and hold a tile, then drag it** to move it: the others make room as it goes, and the
+  order is kept, through restarts too. A tile that appears later (Games, a plugin's) goes after
+  the ones you've arranged.
 * Soft keys that do the same thing sit on the same button: **Reset min/max** is button 3 on Live
   and Meter, and **Start log** is button 4 on Home and Meter.
 
@@ -69,8 +72,8 @@ the encoder does nothing.
 
 | Mode | Pages / what's there |
 |---|---|
-| **CAN** | **Connect** (source, interface, bitrate or *Auto* via the signal finder, listen-only, profile, connect at power-on, adapter and bus status; for **Bluetooth OBD**, the adapter, the **Vehicle** (car, J1939 truck, or a plugin's bus) and **Bluetooth adapters**: scan, pair with a PIN picked from the common ones, rename from a short list, test (what the adapter can do), forget; the battery voltage at the OBD port appears on the Meter screen and in the data log). **Codes** (J1939 active / stored / full scan with lamps, or OBD-II codes from every module; select a code for details, *Live data* jumps to its sensor; on an older K-line machine that answers almost nothing, *More... > Deep probe* asks everything read-only and saves the answers as a log). **Live** (every value, tick the ones you want, *Grid* shows them big with a 60 s trace; **double-tap** one in the grid to enlarge it, with the others stacked beside it, and double-tap it again or press Back to put it back). On a saved log, *More > What changed between the timestamps?* lists the bytes and bits that followed each thing you did, names them from a short list and saves them as a profile ([USAGE.md](USAGE.md#working-out-a-machine-from-what-its-bus-does)). **Bus** (modules with frame rates, or every CAN ID with changing bytes marked). **Log** (below). |
-| **Meter** | Each measurement channel as a big readout with min / max and a trace; **Hold** freezes the readings, min / max and traces on the screen (the meter and the data log keep running); **double-tap** a channel to enlarge it, with the others stacked beside it (double-tap it again, or Back, puts the grid back); each source's status ("not detected, retrying"). |
+| **CAN** | **Connect** (source, interface, bitrate or *Auto* via the signal finder, listen-only, profile, connect at power-on, adapter and bus status; for **Bluetooth OBD**, the adapter, the **Vehicle** (car, J1939 truck, or a plugin's bus) and **Bluetooth adapters**: scan, pair with a PIN picked from the common ones, rename from a short list, test (what the adapter can do), forget; the battery voltage at the OBD port appears on the Meter screen and in the data log). **Codes** (J1939 active / stored / full scan with lamps, or OBD-II codes from every module; select a code for details, *Live data* jumps to its sensor; on an older K-line machine that answers almost nothing, *More... > Deep probe* asks everything read-only and saves the answers as a log). **Live** (every value, tick the ones you want, *Grid* shows them big with a 60 s trace; **double-tap** one in the grid to enlarge it, with the others stacked beside it, and double-tap it again or press Back to put it back; what's ticked, the grid and the enlarged value are kept when you go to another screen or restart, and come back as soon as those values are on the bus again). On a saved log, *More > What changed between the timestamps?* lists the bytes and bits that followed each thing you did, names them from a short list and saves them as a profile ([USAGE.md](USAGE.md#working-out-a-machine-from-what-its-bus-does)). **Bus** (modules with frame rates, or every CAN ID with changing bytes marked). **Log** (below). |
+| **Meter** | Each measurement channel as a big readout with min / max and a trace; **Hold** freezes the readings, min / max and traces on the screen (the meter and the data log keep running); **double-tap** a channel to enlarge it, with the others stacked beside it (double-tap it again, or Back, puts the grid back; it stays enlarged after another screen or a restart); each source's status ("not detected, retrying"). |
 | **Data log** | Start / stop, timestamps (planned list or as-you-go), undo, save, trim to the stretch around the timestamps, copy to a USB stick, recover a log a power cut interrupted, **Open** a saved one again. Records the bus **and every meter channel**. **Machine** picks what's being logged from what the bus reports or a recent machine; **Upload** sends a saved log to your upload server or a private GitHub repository ([USAGE.md](USAGE.md#machine-details-and-uploading-captures)); **More** has Trim, Copy to USB and Upload to…. |
 | **Profile builder** | For a machine nothing describes yet: it asks what the machine is (kind, fuel, aftertreatment, hydraulic controls, mast height sensing), then walks you through its controls and functions one at a time, key on first and the engine after, and names what each does on the bus. Save makes a profile and switches it on ([USAGE.md](USAGE.md#working-out-a-machine-from-what-its-bus-does)). It only listens. |
 | **System** | A short menu; each group opens its own page. **Display** (theme and accent colour, [below](#themes); brightness, screen size, picture rotation). **Controls** (which edge the buttons are on, 4 or 5 buttons, what button 5 does, the key map). **Units** (changed right on the menu). **Sound** ([below](#sound)). **Meters** (USB / serial meter, the Pi's ADC). **Simulators** (a pretend machine, car and meter, and which car the Bluetooth OBD simulator plays). **Installed options**. **Storage** (logs folder, copy to USB). **Software** (check for updates, plugins, desktop app instead). **About this device** (temperature, uptime, IP), and exit to desktop / restart / power off. |
@@ -161,12 +164,21 @@ Tap **Show games menu** in the corner of **System > About this device** (or open
 times in a row) and a **Games** tile joins the home screen (after System, so the soft keys don't
 change); the same button, now **Hide games menu**, or **System > Software > Show games** hides it again.
 
-There are four of CANopener's own, and Doom as an optional download (below). Each of the four has a **How to play** soft key (Arbitration explains itself on its first
+There are four of CANopener's own, and Doom as an optional download (below). **Configure
+controls**, at the bottom of the Games menu, sets how they're played: which way you hold the
+handheld for Harness and Cargo (turned anticlockwise or clockwise; the picture, the d-pad and the
+buttons follow), whether pushing the encoder swaps or drops there, reversing the encoder in every
+game, Doom's turn speed from CAN and putting Doom's keys back, and the machine's own signals as
+controls (**Controls from CAN**, below; **Clear CAN** forgets this profile's).
+
+Each of the four has a **How to play** soft key (Arbitration explains itself on its first
 screen), keeps its best score (Loom: the highest level opened), and makes the game sounds set
 under **System > Sound** (cleared, next level, wrong answer, game over).
 
 Harness and Cargo (the screens are `device/screens/games.py`) are played with the handheld turned
-a quarter turn anticlockwise, so they draw portrait and turn the picture. The encoder turns the
+a quarter turn anticlockwise (or clockwise: **Configure controls**), so they draw portrait and turn
+the picture. As described here it's held anticlockwise; held clockwise, the d-pad's directions
+swap ends to match. The encoder turns the
 piece, the d-pad's up / down (now left / right) move it, its left (now down) drops it, pushing
 the encoder swaps it for the side piece, Back pauses. With just the touchscreen: tap a column to
 move the piece there (tap the piece to turn it), the row of buttons under the board (move left,
@@ -225,7 +237,7 @@ unless the system itself turns the screen, and the machine's signals can play it
 interface, so the machine's own signals, decoded by the active profile, can play it too: steer
 to turn the piece, the lower switch drops it. In Loom the move and follow-value controls move the
 cursor along the row and drop / swap move it down / up; in Arbitration they move the marker and
-drop answers. **Games > Controls from CAN** picks a signal on the bus for each action. A binding is an **edge** (a threshold, for switches), a **delta** (one step per
+drop answers. **Games > Configure controls** picks a signal on the bus for each action. A binding is an **edge** (a threshold, for switches), a **delta** (one step per
 so much change, for a steering angle) or a **position** (the value's range spread across the
 columns). They're kept per profile in `settings.json`:
 
@@ -241,7 +253,7 @@ Reading only: nothing is sent. The signals are read straight from the session ea
 Data samples five times a second, too slow for a quick switch).
 
 **Doom from CAN** (`device/doom_controls.py`): Doom reads the keyboard itself, so it has its own
-actions at the bottom of **Games > Controls from CAN**: **Walk forward**, **Walk back**, **Fire**
+actions in the Doom part of **Games > Configure controls**: **Walk forward**, **Walk back**, **Fire**
 and **Use / open**. Each holds its key down for as long as the signal is past its threshold (a
 pedal past a quarter of its travel, a switch that's on), and **Turn the piece** also turns you,
 so a steering angle steers. While Doom runs, the handheld makes a keyboard and a mouse of its own
@@ -253,8 +265,8 @@ lets its key go after a second. Three things to know:
 * It needs `install.sh --device` (it lets the `input` group make input devices: see
   `72-canopener-uinput.rules`), then logging out and in. Without it Doom still plays, and the
   handheld says why the signals didn't reach it when you come back.
-* How far a step of the turn binding turns you is `"games.doom_turn"` in `settings.json` (mouse
-  counts, 40 to start with; bigger turns further, negative reverses it).
+* How far a step of the turn binding turns you is **Turn speed from CAN** there (mouse counts, 40 to
+  start with; bigger turns further), with **Reverse Doom's turning from CAN** beside it.
 
 ## Meters and the data log (the groundwork)
 

@@ -2,7 +2,8 @@
 
 Hold freezes what's on the screen: the readings, their min / max and the traces (the meter and
 the data log keep running underneath). Double-tapping a channel enlarges it, with the others
-stacked beside it.
+stacked beside it; the enlarged channel is kept (``device.meter_zoom`` in settings.json), so it's
+still enlarged after another screen or a restart.
 
 The readings come from ``core.measure.MeasurementHub`` (sources in ``core.meters``); the same
 channels show in CAN > Live and are recorded by the data log, on the bus's timebase.
@@ -17,6 +18,8 @@ from .. import input as inp
 from ..ui import GridView
 from .base import Screen, SoftKey
 from .live import draw_value_tile
+
+ZOOM = "device.meter_zoom"          # the enlarged channel's row key, kept between screens and restarts
 
 
 def status(ctx) -> str:
@@ -76,7 +79,7 @@ class MeterScreen(Screen):
         elif action == inp.SELECT:
             self.toggle_hold()
         elif action == inp.BACK and self.grid.unzoom():
-            pass                                # Back first puts an enlarged channel back in the grid
+            self.ctx.settings.set(ZOOM, None)   # Back first puts an enlarged channel back in the grid
         else:
             return False
         return True
@@ -104,10 +107,18 @@ class MeterScreen(Screen):
             ui.paragraph(bad.status.detail if bad else "Waiting for readings...", area.inflate(-t.pad * 4, -t.pad * 4),
                          "body", "dim")
             return
+        saved = ctx.settings.get(ZOOM)
+        saved = tuple(saved) if saved else None
+        self.grid.zoom = keys.index(saved) if saved in keys else None
         tiles = self.grid.layout(area, len(keys), round(t.touch * 4), round(t.touch * 2.2), 4)
         for i, (k, r) in enumerate(zip(keys, tiles)):
             if self.hold is not None and k in self.hold:
                 draw_value_tile(ui, r, m, self.hold[k], ctx.units, i == self.grid.focus, "HOLD")
             else:
                 draw_value_tile(ui, r, m, m.rows[k], ctx.units, i == self.grid.focus)
-            ui.hit(r, lambda i=i: self.grid.tap(i))
+            ui.hit(r, lambda i=i: self._tap(i, keys))
+
+    def _tap(self, i, keys):
+        if self.grid.tap(i):                    # a double tap: enlarged, or back in the grid
+            z = self.grid.zoom
+            self.ctx.settings.set(ZOOM, list(keys[z]) if z is not None and z < len(keys) else None)

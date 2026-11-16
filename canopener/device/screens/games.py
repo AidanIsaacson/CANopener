@@ -11,6 +11,7 @@ Loom and Arbitration are played the ordinary way up: ``games_loom.py`` and ``gam
 """
 
 import math
+import os
 import random
 import time
 
@@ -129,8 +130,8 @@ class GamesScreen(Screen):
                     select=lambda: play_doom(self.app),
                     hint="the real one; d-pad to move, push to fire, soft keys: use, weapon, map, strafe"
                     if doom.installed() else "not part of CANopener: select to download it"),
-                Row("Controls from CAN", f"{bound} set" if bound else "Off", kind="menu", select=self._controls,
-                    hint="play with the machine's own signals: steer to turn, a switch to drop")]
+                Row("Configure controls", f"{bound} from CAN" if bound else "", kind="action", select=self._controls,
+                    hint="how you hold it, the encoder, Doom, and the machine's own signals as controls")]
 
     def softkeys(self):
         return [SoftKey("Harness", self._play), SoftKey("Cargo", self._play_cargo),
@@ -160,35 +161,127 @@ class GamesScreen(Screen):
         self.rows.draw(ui, rect)
 
 
-class GameControlsScreen(Screen):
-    """Which of the machine's signals does what in the games (kept per profile)."""
+# How the handheld's own controls work in the games (Games > Configure controls).
+HOLD = "games.hold"                     # Harness / Cargo: which way the handheld is turned
+HOLD_ANTICLOCKWISE, HOLD_CLOCKWISE = "anticlockwise", "clockwise"
+PUSH = "games.push"                     # Harness / Cargo: what pushing the encoder does
+PUSH_SWAP, PUSH_DROP = "swap", "drop"
+ENCODER_REVERSE = "games.encoder_reverse"
+DOOM_TURN_STEPS = (10, 20, 40, 60, 80, 120)
 
-    title = "Controls from CAN"
+
+def encoder(ctx, n: int) -> int:
+    """An encoder step count as the games use it (System-wide direction, then the games' own)."""
+    return -n if ctx.settings.get(ENCODER_REVERSE) else n
+
+
+def held_clockwise(ctx) -> bool:
+    return ctx.settings.get(HOLD) == HOLD_CLOCKWISE
+
+
+class GameControlsScreen(Screen):
+    """Games > Configure controls: how the handheld's buttons work in the games, Doom's setup, and
+    which of the machine's signals does what (kept per profile)."""
+
+    title = "Configure controls"
 
     def __init__(self, app):
         super().__init__(app)
         self.rows = RowList(self._rows)
 
+    def softkeys(self):
+        return [SoftKey("Clear CAN", self._clear, enabled=bool(self._bound()))]
+
+    def _bound(self) -> list:
+        return (self.ctx.settings.get(gc.SETTING) or {}).get(_profile_id()) or []
+
     def _rows(self):
         s = self.ctx.settings
-        pid = _profile_id()
         p = profiles.active()
-        rows = [Row(f"Profile: {p.name if p else 'none'}", kind="header")]
-        for do in gc.ACTIONS:
-            b = gc.binding_for(s, pid, do)
-            rows.append(Row(gc.ACTION_LABELS[do], (b or {}).get("signal", "Off"),
-                            select=lambda do=do: self._bind(do), hint=_describe(b)))
-        rows.append(Row("Doom (held while the signal is past its threshold)", kind="header"))
-        for do in gc.DOOM_ACTIONS:
-            b = gc.binding_for(s, pid, do)
-            rows.append(Row(gc.ACTION_LABELS[do], (b or {}).get("signal", "Off"),
-                            select=lambda do=do: self._bind(do), hint=_describe(b)))
-        rows.append(Row("Doom also turns with \"Turn the piece\". Pick from signals on the bus now (Live Data). "
-                        "Fine-tune in settings.json, games.controls.", kind="info"))
+        clockwise = held_clockwise(self.ctx)
+        drop = s.get(PUSH) == PUSH_DROP
+        rows = [
+            Row("Handheld buttons", kind="header"),
+            Row("Hold it for Harness and Cargo", "turned clockwise" if clockwise else "turned anticlockwise",
+                select=lambda: s.set(HOLD, HOLD_ANTICLOCKWISE if clockwise else HOLD_CLOCKWISE),
+                adjust=lambda _: s.set(HOLD, HOLD_ANTICLOCKWISE if clockwise else HOLD_CLOCKWISE),
+                hint="a quarter turn either way; the d-pad and the picture follow"),
+            Row("Encoder push in Harness and Cargo", "Drop" if drop else "Swap with the side piece",
+                select=lambda: s.set(PUSH, PUSH_SWAP if drop else PUSH_DROP),
+                adjust=lambda _: s.set(PUSH, PUSH_SWAP if drop else PUSH_DROP),
+                hint="the d-pad drops too; the Swap button still swaps"),
+            Row("Reverse the encoder in games", select=lambda: s.set(ENCODER_REVERSE, not s.get(ENCODER_REVERSE)),
+                check=lambda: bool(s.get(ENCODER_REVERSE)),
+                hint="which way a click turns the piece, a Loom tile, or moves Arbitration's marker"),
+            Row(f"Controls from CAN  ·  {p.name if p else 'no profile'}", kind="header"),
+        ]
+        rows += [self._binding_row(do) for do in gc.ACTIONS]
+        rows.append(Row("Doom", kind="header"))
+        rows += [self._binding_row(do) for do in gc.DOOM_ACTIONS]
+        turn = float(s.get(doom_controls.TURN_SETTING) or doom_controls.TURN_COUNTS)
+        rows += [
+            Row("Turn speed from CAN", lambda: f"{abs(turn):g}", select=lambda: self._doom_turn(None),
+                adjust=self._doom_turn, hint="how far a step of \"Turn the piece\" turns you in Doom"),
+            Row("Reverse Doom's turning from CAN", select=lambda: s.set(doom_controls.TURN_SETTING, -turn),
+                check=lambda: turn < 0),
+            Row("Doom's keys: back to the handheld's", kind="action", select=self._reset_doom_keys,
+                hint="if they were changed in Doom's own menus"),
+            Row("Doom's buttons: " + " ".join(doom.CONTROLS[:2]), kind="info"),
+            Row("Pick a signal while the machine is connected and its value is on the bus (CAN > Live). The "
+                "games' actions are steps; Doom's are held for as long as the signal is past its threshold. "
+                "Fine-tune in settings.json, games.controls.", kind="info"),
+        ]
         return rows
 
+    def _binding_row(self, do) -> Row:
+        b = gc.binding_for(self.ctx.settings, _profile_id(), do)
+        hint = _describe(b)
+        if b:                                   # the signal's value now, to see it move
+            row = self._row_for(b["signal"])
+            if row is not None and isinstance(row.value, (int, float)):
+                hint = f"{hint}  ·  now {row.value:g} {row.sig.unit}".rstrip()
+        return Row(gc.ACTION_LABELS[do], (b or {}).get("signal", "Off"), select=lambda: self._bind(do), hint=hint)
+
+    def _row_for(self, name: str):
+        m = self.ctx.can_model
+        return next((m.rows[k] for k in m.order if m.rows[k].sig.name == name), None)
+
+    def _doom_turn(self, d):
+        s = self.ctx.settings
+        turn = float(s.get(doom_controls.TURN_SETTING) or doom_controls.TURN_COUNTS)
+        steps = DOOM_TURN_STEPS
+        mag = abs(turn)
+        if d is None:                           # Select: the next speed, round to the first
+            mag = next((v for v in steps if v > mag), steps[0])
+        else:
+            i = min(range(len(steps)), key=lambda i: abs(steps[i] - mag))
+            mag = steps[max(0, min(len(steps) - 1, i + d))]
+        s.set(doom_controls.TURN_SETTING, -mag if turn < 0 else mag)
+
+    def _reset_doom_keys(self):
+        def go():
+            for name in ("default.cfg", "chocolate-doom.cfg"):
+                try:
+                    os.remove(os.path.join(doom.data_dir(), name))
+                except FileNotFoundError:
+                    pass
+            self.ctx.toast("Doom gets the handheld's keys again next time it starts")
+        confirm(self.app, "Reset Doom's keys?", "Doom's key and screen settings go back to the handheld's own "
+                "the next time it starts. Saved games are kept.", "Reset", go, danger=False)
+
+    def _clear(self):
+        pid = _profile_id()
+
+        def go():
+            allp = dict(self.ctx.settings.get(gc.SETTING) or {})
+            allp.pop(pid, None)
+            self.ctx.settings.set(gc.SETTING, allp)
+            self.ctx.toast("Controls from CAN cleared for this profile")
+        confirm(self.app, "Clear controls from CAN?", f"Every signal picked as a game control for this profile "
+                f"({len(self._bound())}) is forgotten. Other profiles keep theirs.", "Clear", go)
+
     def _bind(self, do):
-        model = self.ctx.can_model()
+        model = self.ctx.can_model
         seen = {}
         for key in model.order:
             row = model.rows[key]
@@ -357,10 +450,12 @@ class SidewaysGame(Screen):
     best_key = BEST
     bars = False                            # Harness: bus bars down both sides of the board
     help: list[str] = []
+    DPAD = {inp.UP: gc.LEFT, inp.DOWN: gc.RIGHT, inp.LEFT: gc.DROP, inp.RIGHT: None}
+    DPAD_CLOCKWISE = {inp.DOWN: gc.LEFT, inp.UP: gc.RIGHT, inp.RIGHT: gc.DROP, inp.LEFT: None}
     CONTROLS_HELP = [
         "",
-        "Hold the handheld turned a quarter turn anticlockwise.",
-        "Encoder: turn the piece. Push it: swap with the side piece (once per piece).",
+        "Hold the handheld turned a quarter turn {way} (Games > Configure controls to change it).",
+        "Encoder: turn the piece. Push it: {push}.",
         "D-pad: left / right move, down drops. A piece that has landed can still be slid or turned "
         "for a moment.",
         "Touch: tap a column to send the piece there, tap the piece to turn it, or use the buttons "
@@ -404,7 +499,11 @@ class SidewaysGame(Screen):
     def _help(self):
         if not self.game.paused and not self.game.over:
             self._pause()
-        self.app.push(InfoDialog(self.app, f"{self.title}: how to play", self.help + self.CONTROLS_HELP))
+        way = "clockwise" if held_clockwise(self.ctx) else "anticlockwise"
+        push = "drop the piece" if self.ctx.settings.get(PUSH) == PUSH_DROP else \
+            "swap with the side piece (once per piece)"
+        controls = [line.format(way=way, push=push) for line in self.CONTROLS_HELP]
+        self.app.push(InfoDialog(self.app, f"{self.title}: how to play", self.help + controls))
 
     def _best(self) -> int:
         return int(self.ctx.settings.get(self.best_key) or 0)
@@ -421,16 +520,17 @@ class SidewaysGame(Screen):
             elif g.paused:
                 g.toggle_pause(now)
             else:
-                g.command(gc.SWAP, 1, now)
+                g.command(gc.DROP if self.ctx.settings.get(PUSH) == PUSH_DROP else gc.SWAP, 1, now)
         elif action == inp.ROTATE:
-            g.command(gc.TURN, n, now)
-        elif action == inp.UP:                  # held sideways: the d-pad's up points left
-            g.command(gc.LEFT, 1, now)
-        elif action == inp.DOWN:
-            g.command(gc.RIGHT, 1, now)
-        elif action == inp.LEFT:                # ... and its left points down
-            g.command(gc.DROP, 1, now)
-        elif action != inp.RIGHT:
+            g.command(gc.TURN, encoder(self.ctx, n), now)
+        elif action in (inp.UP, inp.DOWN, inp.LEFT, inp.RIGHT):
+            # held sideways the d-pad is turned too: turned anticlockwise its up points left and its
+            # left points down; turned clockwise its down points left and its right points down
+            cmd = (self.DPAD_CLOCKWISE if held_clockwise(self.ctx) else self.DPAD)[action]
+            if cmd is None:
+                return False
+            g.command(cmd, 1, now)
+        else:
             return False
         return True
 
@@ -456,10 +556,15 @@ class SidewaysGame(Screen):
         pu = UI(portrait, ui.theme)
         pu._cache = ui._cache                   # share rendered text between frames
         self._draw_portrait(pu, portrait.get_rect(), now)
-        ui.surface.blit(pygame.transform.rotate(portrait, -90), rect.topleft)    # top of the picture -> right
+        clockwise = held_clockwise(self.ctx)
+        # held anticlockwise the top of the picture goes to the screen's right; clockwise, its left
+        ui.surface.blit(pygame.transform.rotate(portrait, 90 if clockwise else -90), rect.topleft)
         ui.hit(rect, lambda: None)
         for pr, fn in pu.hits:                  # the picture's taps, turned the same way
-            ui.hit(pygame.Rect(rect.right - pr.bottom, rect.y + pr.x, pr.h, pr.w), fn)
+            if clockwise:
+                ui.hit(pygame.Rect(rect.x + pr.y, rect.bottom - pr.right, pr.h, pr.w), fn)
+            else:
+                ui.hit(pygame.Rect(rect.right - pr.bottom, rect.y + pr.x, pr.h, pr.w), fn)
 
     def _events(self, now: float):
         """What the game says just happened -> sounds and effects."""

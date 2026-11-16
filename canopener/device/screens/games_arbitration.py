@@ -12,7 +12,7 @@ from .. import game_controls as gc
 from .. import input as inp
 from ..ui import UI
 from .base import Screen, SoftKey
-from .games import ARBITRATION_BEST, _profile_id, result_card
+from .games import ARBITRATION_BEST, _profile_id, encoder, result_card
 
 SWEEP_S = 0.5               # how long the bits take to run across at the reveal
 SHOW_BITS_LEVELS = 2        # the first levels show the bits while you choose
@@ -80,7 +80,7 @@ class ArbitrationScreen(Screen):
         elif action in (inp.DOWN, inp.RIGHT):
             g.move(1)
         elif action == inp.ROTATE:
-            g.move(n)
+            g.move(encoder(self.ctx, n))
         else:
             return False
         return True

@@ -643,11 +643,15 @@ def test_the_games_menu_opens_all_four_and_the_can_controls(app):
         assert isinstance(app.top, screen)
         app.step([])
     app.open_mode("games")
-    next(r for r in app.top.rows.refresh() if r.label == "Controls from CAN").select()
+    button = next(r for r in app.top.rows.refresh() if r.label == "Configure controls")
+    assert button.kind == "action"
+    button.select()
     assert isinstance(app.top, games.GameControlsScreen)
     app.step([])
-    assert [r.label for r in app.top.rows.rows if r.selectable] == [
-        gc.ACTION_LABELS[a] for a in gc.ACTIONS + gc.DOOM_ACTIONS]
+    labels = [r.label for r in app.top.rows.rows if r.selectable]
+    assert all(gc.ACTION_LABELS[a] in labels for a in gc.ACTIONS + gc.DOOM_ACTIONS)
+    assert labels[:3] == ["Hold it for Harness and Cargo", "Encoder push in Harness and Cargo",
+                          "Reverse the encoder in games"]
 
 
 def test_a_falling_game_shows_what_happened_and_explains_itself(app):
@@ -1000,3 +1004,124 @@ def test_playing_doom_runs_the_can_controls_alongside(app, fake_doom, monkeypatc
     fake_doom.started.unlink()
     games.play_doom(app)                                        # Doom still plays; the reason is shown after
     assert fake_doom.started.exists() and "install.sh --device" in app.ctx.current_toast()
+
+
+# --- Games > Configure controls ---------------------------------------------------
+def controls_screen(app):
+    from canopener.device.screens.games import GameControlsScreen
+    app.push(GameControlsScreen(app))
+    app.step([])
+    return app.top
+
+
+def menu_row(screen, label):
+    return next(r for r in screen.rows.refresh() if r.label == label)
+
+
+def test_holding_it_clockwise_turns_the_picture_the_dpad_and_the_taps(app):
+    from canopener.device.screens import games
+    scr = controls_screen(app)
+    row = menu_row(scr, "Hold it for Harness and Cargo")
+    assert row.value_text() == "turned anticlockwise"
+    row.select()
+    assert app.ctx.settings.get(games.HOLD) == games.HOLD_CLOCKWISE
+    assert menu_row(scr, "Hold it for Harness and Cargo").value_text() == "turned clockwise"
+    app.push(games.HarnessScreen(app))
+    app.step([])
+    g = app.top.game
+    x = g.piece.x
+    press(app, pygame.K_DOWN)                       # turned clockwise, the d-pad's down points left
+    assert g.piece.x == x - 1
+    press(app, pygame.K_UP)
+    assert g.piece.x == x
+    press(app, pygame.K_LEFT)                       # its left now points up: nothing
+    assert g.piece is not None and g.piece.y == 0
+
+    def default(fn, value):
+        return getattr(fn, "__defaults__", None) == (value,)
+    left, right = hit_point(app, lambda fn: default(fn, gc.LEFT)), hit_point(app, lambda fn: default(fn, gc.RIGHT))
+    assert left[1] > right[1]                       # the board's left is down the screen now
+    drop = hit_point(app, lambda fn: default(fn, gc.DROP))
+    assert drop[0] > app.size[0] // 2               # and the buttons are along the right edge
+    tap(app, left)
+    assert g.piece.x == x - 1
+    press(app, pygame.K_RIGHT)                      # ... and its right points down: drop
+    assert g.grid[hz.ROWS - 1][x - 1] or g.lit
+
+
+def test_the_encoder_push_can_drop_and_the_encoder_can_be_reversed(app):
+    from canopener.device.screens import games
+    from canopener.device.screens.games_loom import LoomScreen
+    scr = controls_screen(app)
+    menu_row(scr, "Encoder push in Harness and Cargo").select()
+    menu_row(scr, "Reverse the encoder in games").select()
+    assert app.ctx.settings.get(games.PUSH) == games.PUSH_DROP and app.ctx.settings.get(games.ENCODER_REVERSE)
+    assert menu_row(scr, "Reverse the encoder in games").check()
+    app.push(games.CargoScreen(app))
+    app.step([])
+    g = app.top.game
+    g.piece = cg.Crate("bar", cg.SHAPES["bar"], x=3, y=0)
+    press(app, pygame.K_PAGEDOWN)                   # a click clockwise turns it anticlockwise now
+    assert g.piece.cells == cg.turn_cells(cg.SHAPES["bar"], -1)
+    press(app, pygame.K_RETURN)                     # push: drop, not swap
+    assert g.hold is None and any(g.grid[cg.ROWS - 1])
+    app.pop()
+    app.push(LoomScreen(app))
+    app.step([])
+    lg = app.top.game
+    x, y = lg.cursor
+    mask = lg.grid[y][x]
+    press(app, pygame.K_PAGEDOWN)
+    assert lg.grid[y][x] == hz.rotate(mask, -1)
+
+
+def test_doom_turn_speed_reset_keys_and_clearing_can_controls(app):
+    from canopener.device.screens import games
+    from canopener.device.screens.base import ConfirmDialog
+    s = app.ctx.settings
+    scr = controls_screen(app)
+    speed = menu_row(scr, "Turn speed from CAN")
+    assert speed.value_text() == "40"
+    speed.adjust(1)
+    assert s.get(doom_controls.TURN_SETTING) == 60
+    menu_row(scr, "Turn speed from CAN").select()
+    assert s.get(doom_controls.TURN_SETTING) == 80
+    menu_row(scr, "Reverse Doom's turning from CAN").select()
+    assert s.get(doom_controls.TURN_SETTING) == -80
+    menu_row(scr, "Turn speed from CAN").adjust(-1)
+    assert s.get(doom_controls.TURN_SETTING) == -60     # slower, still reversed
+    doom.write_config()
+    menu_row(scr, "Doom's keys: back to the handheld's").select()
+    assert isinstance(app.top, ConfirmDialog)
+    app.top._answer(True)
+    assert not os.path.exists(os.path.join(doom.data_dir(), "default.cfg"))
+    pid = games._profile_id()
+    gc.save_binding(s, pid, {"signal": "Lower switch", "do": gc.DROP, "above": 0.5}, gc.DROP)
+    gc.save_binding(s, "other", {"signal": "Lower switch", "do": gc.DROP, "above": 0.5}, gc.DROP)
+    app.step([])
+    press(app, pygame.K_F1)                         # Clear CAN
+    assert isinstance(app.top, ConfirmDialog) and "(1)" in app.top.text
+    app.top._answer(True)
+    assert gc.binding_for(s, pid, gc.DROP) is None and gc.binding_for(s, "other", gc.DROP)
+
+
+def test_picking_a_can_signal_for_a_control_works_when_connected(app):
+    import time as _time
+
+    from canopener.device.screens.base import ChoiceDialog
+    from canopener.device.screens.games import _profile_id
+    ctx = app.ctx
+    ctx.connect("sim")
+    assert ctx.wait_idle()
+    end = _time.time() + 10
+    while _time.time() < end and not any(isinstance(r.value, (int, float)) for r in ctx.can_model.rows.values()):
+        ctx.tick()
+        _time.sleep(0.05)
+    scr = controls_screen(app)
+    menu_row(scr, gc.ACTION_LABELS[gc.DROP]).select()       # (this used to fail: can_model is a property)
+    assert isinstance(app.top, ChoiceDialog)
+    name = app.top.options[1][1]
+    app.top._pick(1)
+    assert gc.binding_for(ctx.settings, _profile_id(), gc.DROP)["signal"] == name
+    app.step([])
+    assert "now " in menu_row(scr, gc.ACTION_LABELS[gc.DROP]).hint     # its value, to see it move

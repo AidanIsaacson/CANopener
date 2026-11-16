@@ -85,6 +85,7 @@ class UI:
         self.theme = theme
         self.hits: list[tuple[pygame.Rect, object]] = []
         self.drags: list[tuple[pygame.Rect, object]] = []
+        self.holds: list[tuple[pygame.Rect, object]] = []   # long press, then drag (``hold``)
         self._cache: dict = {}
 
     def begin(self, surface: pygame.Surface | None = None):
@@ -92,6 +93,7 @@ class UI:
             self.surface = surface
         self.hits.clear()
         self.drags.clear()
+        self.holds.clear()
         if len(self._cache) > 3000:
             self._cache.clear()
 
@@ -102,6 +104,18 @@ class UI:
 
     def drag(self, rect, scroller):
         self.drags.append((pygame.Rect(rect), scroller))
+
+    def hold(self, rect, target):
+        """A long press in ``rect`` picks something up to drag: ``target.begin(pos)`` once the
+        finger has stayed still long enough, ``target.move(pos)`` as it moves, ``target.end(pos)``
+        when it lifts. A long press that becomes a drag is never also a tap."""
+        self.holds.append((pygame.Rect(rect), target))
+
+    def hold_at(self, pos):
+        for rect, target in reversed(self.holds):
+            if rect.collidepoint(pos):
+                return target
+        return None
 
     def hit_at(self, pos):
         return self.hit_rect_at(pos)[1]

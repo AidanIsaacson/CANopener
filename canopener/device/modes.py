@@ -30,9 +30,23 @@ def modes() -> list[Mode]:
     return sorted(_modes.values(), key=lambda m: (m.order, m.title))
 
 
+ORDER = "device.tile_order"              # the home screen's tiles, as the user arranged them
+
+
 def shown(ctx) -> list[Mode]:
-    """The modes on the home screen right now (Games stays hidden until unlocked)."""
-    return [m for m in modes() if m.visible is None or m.visible(ctx)]
+    """The modes on the home screen right now (Games stays hidden until unlocked), in the order
+    the user dragged them into; tiles they haven't placed (new ones) follow in the usual order."""
+    ms = [m for m in modes() if m.visible is None or m.visible(ctx)]
+    saved = list((ctx.settings.get(ORDER) if ctx is not None else None) or [])
+    place = {mode_id: i for i, mode_id in enumerate(saved)}
+    return sorted(ms, key=lambda m: (0, place[m.id]) if m.id in place else (1, 0))
+
+
+def save_order(ctx, ids: list[str]):
+    """Keep the tiles in this order. Ids of modes that aren't shown now keep their place after
+    them, so hiding Games (or a plugin) and showing it again doesn't lose where it was."""
+    old = [i for i in (ctx.settings.get(ORDER) or []) if i not in ids]
+    ctx.settings.set(ORDER, list(ids) + old)
 
 
 def get(mode_id: str) -> Mode | None:

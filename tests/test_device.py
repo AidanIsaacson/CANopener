@@ -1377,3 +1377,126 @@ def test_installed_options_set_up_the_pi_after_asking(app_for, monkeypatch, tmp_
     ctx.hardware.set_state("can_a", hardware.YES)
     labels = [r.label for r in page._rows()]
     assert "    CAN stack A crystal" in labels and "    CAN stack A SPI speed" in labels
+
+
+# --- arranging the home tiles; the Live and Meter views kept ------------------------
+def touch(app, kind, pos):
+    ev = {"down": pygame.MOUSEBUTTONDOWN, "up": pygame.MOUSEBUTTONUP, "move": pygame.MOUSEMOTION}[kind]
+    extra = {"buttons": (1, 0, 0)} if kind == "move" else {"button": 1}
+    app.step([pygame.event.Event(ev, pos=pos, **extra)])
+
+
+def test_home_tiles_are_moved_with_a_long_press_and_drag(app_for):
+    from canopener.device import modes
+    from canopener.device.app import HOLD_S
+    from canopener.device.screens.home import HomeScreen
+    app = app_for(size=(1024, 600))
+    home = app.top
+    assert isinstance(home, HomeScreen)
+    before = [m.id for m in modes.shown(app.ctx)]
+    slots = [r for r, _ in app.ui.holds]
+    assert len(slots) == len(before) >= 4
+    clock = [1000.0]
+    app.now = lambda: clock[0]
+    touch(app, "down", slots[0].center)             # press and hold the first tile ...
+    clock[0] += HOLD_S + 0.05
+    app.step([])
+    assert home.drag is not None and home.drag.mode_id == before[0]
+    touch(app, "move", slots[2].center)             # ... carry it to the third place ...
+    assert [m.id for m in home._order(modes.shown(app.ctx))][2] == before[0]     # the others make room
+    app.step([])
+    touch(app, "up", slots[2].center)               # ... and let go: it stays there, and nothing opened
+    after = [m.id for m in modes.shown(app.ctx)]
+    assert after == before[1:3] + [before[0]] + before[3:] and app.top is home and home.drag is None
+    assert app.ctx.settings.get(modes.ORDER)[:len(after)] == after
+    assert home.grid.focus == 2
+    app.step([])
+    touch(app, "down", slots[0].center)             # moving before the long press: a scroll, not a drag
+    touch(app, "move", slots[3].center)
+    clock[0] += HOLD_S + 0.05
+    app.step([])
+    touch(app, "up", slots[3].center)
+    assert home.drag is None and [m.id for m in modes.shown(app.ctx)] == after and app.top is home
+    touch(app, "down", slots[1].center)             # a quick tap still opens the tile
+    touch(app, "up", slots[1].center)
+    assert app.top is not home
+    app.ctx.settings.set("device.games", True)      # a tile that appears later goes after the arranged ones
+    assert [m.id for m in modes.shown(app.ctx)] == after + ["games"]
+
+
+def live_page(app):
+    app.open_mode("can")
+    can = app.top
+    can._go(next(i for i, p in enumerate(can.pages) if p.title == "Live"))
+    return can.page
+
+
+def wait_meter_rows(app, n=2):
+    end = time.time() + 10
+    while time.time() < end and len(app.ctx.meter_live.order) < n:
+        app.step([])
+        time.sleep(0.03)
+    assert len(app.ctx.meter_live.order) >= n
+
+
+def test_the_enlarged_live_value_is_kept_across_screens_and_restarts(app_for):
+    from canopener.device.screens.live import VIEW
+    app = app_for(meters__sim=True)
+    live = live_page(app)
+    wait_meter_rows(app, 3)
+    m = app.ctx.meter_live
+    k0, k1, k2 = m.order[:3]
+    for k in (k0, k1, k2):
+        m.select(k, True)
+    live.toggle_big()
+    app.step([])
+    items = live.picked()
+    live._tap_tile(1, items)
+    live._tap_tile(1, items)                        # double tap: the second one enlarged
+    app.step([])
+    assert live.grid.zoom == 1
+    saved = app.ctx.settings.get(VIEW)
+    assert saved["grid"] and saved["zoom"] == ["meter", *k1] and len(saved["picks"]) == 3
+    app.home()                                      # another screen and back: still enlarged
+    app.step([])
+    live = live_page(app)
+    app.step([])
+    assert live.big and live.grid.zoom == 1
+    app2 = app_for(meters__sim=True)                # a restart: picks, grid and the enlarged value come back
+    live2 = live_page(app2)
+    assert live2.big
+    wait_meter_rows(app2, 3)
+    app2.step([])
+    app2.step([])
+    assert [k for _, k in live2.picked()] == [k0, k1, k2] and live2.grid.zoom == 1
+    press(app2, pygame.K_ESCAPE)                    # Back puts it back in the grid, and that's kept too
+    app2.step([])
+    assert app2.ctx.settings.get(VIEW)["zoom"] is None
+    live2.clear_picks()
+    app2.step([])
+    assert app2.ctx.settings.get(VIEW) == {"grid": False, "picks": [], "zoom": None}
+
+
+def test_a_live_value_slow_to_appear_is_waited_for_not_forgotten(app_for):
+    from canopener.device.screens.live import VIEW
+    app = app_for()
+    app.ctx.settings.set(VIEW, {"grid": True, "picks": [["can", "no.such.signal", 3]], "zoom": None})
+    live = live_page(app)
+    for _ in range(3):
+        app.step([])
+    assert live.big and live.saved.pending
+    assert app.ctx.settings.get(VIEW)["picks"] == [["can", "no.such.signal", 3]]
+
+
+def test_the_meters_enlarged_channel_is_kept(app_for):
+    from canopener.device.screens.meter import ZOOM, MeterScreen
+    app, meter = _meter_screen(app_for)
+    keys = list(app.ctx.meter_live.order)
+    meter._tap(1, keys)
+    meter._tap(1, keys)
+    assert app.ctx.settings.get(ZOOM) == list(keys[1])
+    app.push(MeterScreen(app))                      # a fresh screen (or after a restart): still enlarged
+    app.step([])
+    assert app.top.grid.zoom == 1
+    press(app, pygame.K_ESCAPE)
+    assert app.ctx.settings.get(ZOOM) is None

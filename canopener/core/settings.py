@@ -83,10 +83,16 @@ DEFAULTS: dict = {
     "device.ladder": "",                # IIO channel of a resistor-ladder button stack ("" = none)
     "device.ladder_levels": [0.0, 0.6, 1.2, 1.8, 2.4],     # volts per ladder button (soft keys 1-5)
     "device.games": False,              # Games on the home screen (System > About, seven times)
+    "device.tile_order": [],            # home tiles as dragged into place (mode ids; device/modes.py)
+    "device.live_view": {},             # CAN > Live: picks, grid, the enlarged value (device/screens/live.py)
+    "device.meter_zoom": None,          # Meter: the enlarged channel's row key
     "games.harness_best": 0,
     "games.cargo_best": 0,
     "games.loom_level": 1,              # Loom: the highest level opened so far
     "games.arbitration_best": 0,
+    "games.hold": "anticlockwise",      # Harness / Cargo: the handheld turned this way (Games > Configure controls)
+    "games.push": "swap",               # Harness / Cargo: the encoder push swaps, or "drop"
+    "games.encoder_reverse": False,     # games: a click the other way
     "games.doom_turn": 40,              # Doom from CAN: mouse counts per step of the turn binding (- reverses)
     "games.doom_asked": False,          # the "Install Doom?" question has been put (device/doom.py)
     "games.controls": {},               # profile id -> signal bindings (device/game_controls.py)

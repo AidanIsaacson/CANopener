@@ -12,7 +12,7 @@ from .. import input as inp
 from .. import loom as lm
 from ..ui import UI
 from .base import InfoDialog, Screen, SoftKey
-from .games import LOOM_LEVEL, _profile_id, draw_star, draw_wire, result_card
+from .games import LOOM_LEVEL, _profile_id, draw_star, draw_wire, encoder, result_card
 
 TURN_S = 0.12               # how long a tile takes to swing round
 HELP = [
@@ -67,7 +67,7 @@ class LoomScreen(Screen):
         if action in moves:
             g.move(*moves[action])
         elif action == inp.ROTATE:
-            g.turn(n, now)
+            g.turn(encoder(self.ctx, n), now)
         elif action == inp.SELECT:
             if g.solved:
                 self._next()
