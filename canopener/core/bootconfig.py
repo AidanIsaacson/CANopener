@@ -8,7 +8,7 @@ works out which lines the options call for (``plan``), and has the root helper
 whenever something is taken out, a restart finishes the job (``restart_needed``).
 
 The helper is the only thing that runs as root, through ``core.interfaces.run_privileged``
-(the sudoers rule from ``install.sh --sudoers``). It knows its own fixed table of lines and
+(the sudoers rule the Pi installer adds). It knows its own fixed table of lines and
 checks every argument against it, so nothing the app passes can put anything else into the boot
 config. ``LINES`` here is the app's copy, for showing what will change; a test keeps the two equal.
 """
@@ -24,7 +24,7 @@ CONFIGS = ("/boot/firmware/config.txt", "/boot/config.txt")
 BEGIN = "# >>> CANopener installed options (written by the app: System > Installed options) >>>"
 END = "# <<< CANopener installed options <<<"
 TOKENS_PREFIX = "# options:"
-SETUP = "~/CANopener/deploy/raspberry-pi/install.sh --sudoers"
+SETUP = "~/CANopener/deploy/raspberry-pi/install.sh"
 
 OSCILLATORS = [("20 MHz (prototype module)", 20000000), ("40 MHz (custom board)", 40000000),
                ("4 MHz", 4000000)]

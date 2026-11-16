@@ -126,7 +126,7 @@ def test_apply_runs_the_helper_and_reports_what_needs_a_restart(cfg, monkeypatch
     p = bootconfig.plan(hw, str(cfg))
     monkeypatch.setattr(bootconfig, "helper_installed", lambda: False)
     r = bootconfig.apply(p, s, run=lambda steps, **kw: (True, "ok"))
-    assert not r.ok and "install.sh --sudoers" in r.message
+    assert not r.ok and "raspberry-pi/install.sh" in r.message
     monkeypatch.setattr(bootconfig, "helper_installed", lambda: True)
     ran = []
 

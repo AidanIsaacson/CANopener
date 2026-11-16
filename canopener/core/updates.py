@@ -152,7 +152,7 @@ def installer_command(root: str | None = None) -> str:
     if os.path.abspath(sys.prefix) == os.path.join(os.path.abspath(root), ".venv") or not os.path.exists(
             "/etc/rpi-issue"):
         return f"{root}/deploy/linux/install.sh"
-    return f"{root}/deploy/raspberry-pi/install.sh --sudoers --autostart"
+    return f"{root}/deploy/raspberry-pi/install.sh --autostart"
 
 
 def under_systemd(cgroup_file: str = "/proc/self/cgroup") -> bool:

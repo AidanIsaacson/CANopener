@@ -10,9 +10,11 @@ on an older one, `git checkout v0.3.2` in its checkout.
   it adds to the Pi's boot settings, asks, writes them into one marked block of `config.txt` and
   loads the driver straight away where it can; the buttons and the ESP32, and taking a part out,
   need a restart, which it offers. Each CAN stack also gets its crystal and SPI speed (1 MHz for
-  breadboard wiring). `canopener-cli hardware --apply` does it over SSH. Needs
-  `install.sh --sudoers` once, which now also installs the root helper `canopener-boot-config`:
-  it only ever writes its own fixed lines into its own block.
+  breadboard wiring). `canopener-cli hardware --apply` does it over SSH. The root helper behind
+  it, `canopener-boot-config`, only ever writes its own fixed lines into its own block.
+- **The Pi installer now always sets up the passwordless CAN rule and that helper** (they were the
+  `--sudoers` option; leave them out with `--no-sudoers`). A Pi installed before this needs the
+  installer run once more, since an in-app update can't install anything as root.
 
 ## 0.4.0 (2026-11-13)
 

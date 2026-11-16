@@ -243,7 +243,7 @@ Use if found. "Set all from build stage" fills them in. Meter sources for the me
 and the Pi's ADC start from these; the Meters rows above stay for a bench Pi or a laptop.
 **Setting a part on the Pi's own pins also sets the Pi up for it** (`core/bootconfig.py`): the page
 shows the lines it will add to `/boot/firmware/config.txt`, asks first, writes them into one marked
-block through the root helper `canopener-boot-config` (installed by `install.sh --sudoers`), and
+block through the root helper `canopener-boot-config` (installed by the Pi installer), and
 loads the driver at once where it can (the CAN stacks, the ADC, the sync input). The buttons and the
 ESP32's UART need a restart, which it offers; so does taking a part out. Each CAN stack has its
 crystal (20 MHz on the prototype module, 40 MHz on the custom board) and SPI speed (1 MHz for
@@ -347,7 +347,7 @@ else rotates: the app draws sideways and turns touch coordinates to match.
 Install with the handheld options (step by step: [Handheld, first steps](install/handheld-stage0.md)):
 
 ```bash
-./deploy/raspberry-pi/install.sh --sudoers --autostart --device
+./deploy/raspberry-pi/install.sh --autostart --device
 ```
 
 `--device` adds you to the `input` (encoder) and `video` (brightness) groups and installs a udev

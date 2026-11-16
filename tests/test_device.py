@@ -1346,7 +1346,7 @@ def test_installed_options_set_up_the_pi_after_asking(app_for, monkeypatch, tmp_
     monkeypatch.setattr(bootconfig, "helper_installed", lambda: False)
     ctx.hardware.set_state("adc_pi", hardware.YES)
     page._boot_changes()
-    assert isinstance(app.top, InfoDialog) and "install.sh --sudoers" in " ".join(app.top.lines)
+    assert isinstance(app.top, InfoDialog) and "raspberry-pi/install.sh" in " ".join(app.top.lines)
     assert "dtoverlay=ads1115" in " ".join(app.top.lines)
     app.pop()
     assert "Set up the Pi for these parts" in [r.label for r in page._rows()]

@@ -191,8 +191,8 @@ start working straight away; the buttons and the ESP32 need a restart, which it 
 breadboard, set **CAN stack A SPI speed** to **1 MHz** (just below the part on the same page).
 From SSH: `canopener-cli hardware --stage 3 --apply`.
 
-This needs the installer's `--sudoers` step once ([Raspberry Pi guide](raspberry-pi.md)): it
-installs the small helper that's allowed to change the boot settings. The lines it writes are the
+The [Pi installer](raspberry-pi.md) sets up the small helper that's allowed to change the boot
+settings (a Pi installed before November 2026: run it once more). The lines it writes are the
 ones in [`config-hardware.txt`](../../deploy/raspberry-pi/config-hardware.txt), in a marked block at
 the end of `/boot/firmware/config.txt`; the rest of the file isn't touched.
 
