@@ -19,6 +19,7 @@ Pygame.
 import glob
 import os
 import struct
+import threading
 import time
 
 # Actions
@@ -239,6 +240,63 @@ class LadderButtons:
 
     def poll(self) -> list[tuple[str, str]]:
         return self.update(self.read_volts() if self.read_volts else None)
+
+
+SIDE_ACTIONS = (BACK, HOLD, LOG, TAG)    # the side buttons on the ADS1115's A3 ladder, in level order
+SIDE_CHANNEL = 3
+SYS_IIO = "/sys/bus/iio/devices"
+
+
+def iio_channel(names=("ads1115", "ads1015"), index: int = SIDE_CHANNEL, sys_iio: str = SYS_IIO) -> str | None:
+    """The raw file of input ``index`` on the first IIO device with one of these driver names
+    (``.../iio:device0/in_voltage3_raw``), or None."""
+    for d in sorted(glob.glob(os.path.join(sys_iio, "iio:device*"))):
+        try:
+            with open(os.path.join(d, "name")) as f:
+                name = f.read().strip()
+        except OSError:
+            continue
+        raw = os.path.join(d, f"in_voltage{index}_raw")
+        if name in names and os.path.exists(raw):
+            return raw
+    return None
+
+
+def side_ladder(levels, sys_iio: str = SYS_IIO) -> "LadderThread | None":
+    """The four side buttons (Back, Hold, Record, Timestamp) on the ADS1115's A3, read on their own
+    thread, or None when that input isn't there (yet: the app tries again)."""
+    raw = iio_channel(sys_iio=sys_iio)
+    if raw is None:
+        return None
+    return LadderThread(LadderButtons(list(levels)[:len(SIDE_ACTIONS)], list(SIDE_ACTIONS), iio_volts_reader(raw)))
+
+
+class LadderThread:
+    """A ``LadderButtons`` read on its own thread: an ADC conversion takes milliseconds, which the
+    screen's loop shouldn't wait for. ``poll()`` (from the UI) returns what happened since."""
+
+    def __init__(self, ladder: "LadderButtons", hz: float = 50.0):
+        self.ladder, self.period = ladder, 1.0 / hz
+        self._events: list = []
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="side-buttons", daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        while not self._stop.wait(self.period):
+            got = self.ladder.poll()
+            if got:
+                with self._lock:
+                    self._events += got
+
+    def poll(self) -> list[tuple[str, str]]:
+        with self._lock:
+            out, self._events = self._events, []
+        return out
+
+    def stop(self):
+        self._stop.set()
 
 
 def iio_volts_reader(raw_path: str):

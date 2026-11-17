@@ -41,16 +41,20 @@ def _can(cs: int, irq: int, osc: int, spi: int) -> list[str]:
 
 # The Waveshare 2-CH CAN FD HAT as shipped: 40 MHz, CAN_0 on SPI0 CE0 / GPIO25, CAN_1 on SPI1 CE0
 # (GPIO18) / GPIO24. spi1-1cs claims only that one chip select.
-CAN_HAT = ("dtparam=spi=on", "dtoverlay=mcp251xfd,spi0-0,oscillator=40000000,interrupt=25",
+# spi0-1cs leaves SPI0's unused CE1 (GPIO7) free: with the HAT, the encoder's A line moves there
+# (ENCODER_PINS), off GPIO24, which is the HAT's CAN_1 interrupt.
+CAN_HAT = ("dtparam=spi=on", "dtoverlay=spi0-1cs", "dtoverlay=mcp251xfd,spi0-0,oscillator=40000000,interrupt=25",
            "dtoverlay=spi1-1cs", "dtoverlay=mcp251xfd,spi1-0,oscillator=40000000,interrupt=24")
+ENCODER_PINS = (24, 7)          # the encoder's A line: 24 as designed, 7 with the Waveshare HAT
 
 
-def lines(option: str, osc: int = 20000000, spi: int = 0, pi5: bool = True) -> list[str]:
+def lines(option: str, osc: int = 20000000, spi: int = 0, pi5: bool = True, enc: int = 24) -> list[str]:
     """The config.txt lines for one option (in the order they are written)."""
     if option == "controls":
         out = [f'dtoverlay=gpio-key,gpio={g},active_low=1,gpio_pull=up,keycode={k},label="{n}"'
                for g, k, n in GPIO_KEYS[:9]]
-        return out + ["gpio=24,4=ip,pu", "dtoverlay=rotary-encoder,pin_a=24,pin_b=4,relative_axis=1,steps-per-period=1",
+        return out + [f"gpio={enc},4=ip,pu",
+                      f"dtoverlay=rotary-encoder,pin_a={enc},pin_b=4,relative_axis=1,steps-per-period=1",
                       'dtoverlay=gpio-key,gpio=26,active_low=1,gpio_pull=up,keycode=28,label="SELECT"']
     if option == "can_a":
         return _can(0, 25, osc, spi)
@@ -77,14 +81,20 @@ class Bad(Exception):
     pass
 
 
-def parse_token(token: str) -> tuple[str, int, int]:
-    """'can_a:osc=40000000:spi=1000000' -> ('can_a', 40000000, 1000000). Raises Bad."""
+def parse_token(token: str) -> tuple[str, int, int, int]:
+    """'can_a:osc=40000000:spi=1000000' -> ('can_a', 40000000, 1000000, 24); 'controls:enc=7' ->
+    ('controls', 20000000, 0, 7). Raises Bad."""
     name, *params = token.split(":")
     if name not in PARTS:
         raise Bad(f"unknown option {name!r} (known: {', '.join(PARTS)})")
-    osc, spi = 20000000, 0
+    osc, spi, enc = 20000000, 0, 24
     for p in params:
         key, _, value = p.partition("=")
+        if name == "controls" and key == "enc" and value.isdigit():
+            enc = int(value)
+            if enc not in ENCODER_PINS:
+                raise Bad(f"encoder A pin must be one of {ENCODER_PINS}")
+            continue
         if name not in ("can_a", "can_b") or key not in ("osc", "spi") or not value.isdigit():
             raise Bad(f"bad setting {p!r} for {name}")
         if key == "osc":
@@ -95,7 +105,7 @@ def parse_token(token: str) -> tuple[str, int, int]:
             spi = int(value)
             if spi not in SPI_SPEEDS:
                 raise Bad(f"SPI speed must be one of {SPI_SPEEDS}")
-    return name, osc, spi
+    return name, osc, spi, enc
 
 
 def is_pi5() -> bool:
@@ -141,9 +151,9 @@ def render(tokens: list[str], outside: list[str], pi5: bool) -> list[str]:
     have = {r.strip() for r in outside if r.strip() and not r.strip().startswith("#")}
     out, seen = [BEGIN, TOKENS_PREFIX + " " + " ".join(tokens), "[all]"], set()
     for tok in tokens:
-        name, osc, spi = parse_token(tok)
+        name, osc, spi, enc = parse_token(tok)
         out.append(f"# {name}")
-        for line in lines(name, osc, spi, pi5):
+        for line in lines(name, osc, spi, pi5, enc):
             if line in seen or line in have:
                 continue
             seen.add(line)
@@ -236,7 +246,7 @@ def _present(name: str) -> bool:
 
 
 def cmd_live(token: str, dry: bool) -> int:
-    name, osc, spi = parse_token(token)
+    name, osc, spi, _enc = parse_token(token)
     if name not in LIVE:
         print(f"{name}: takes effect after a restart")
         return 3

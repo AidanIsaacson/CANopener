@@ -21,7 +21,8 @@ dtoverlay=mcp251xfd,spi0-0,oscillator=20000000,interrupt=25
 #dtoverlay=pps-gpio,gpiopin=21
 
 # --- Stage 3: ADS1115 on I2C1 (GPIO2/3), address 0x48 -> IIO device "ads1115" [verify] ---
-# Only through the divider + clamp front end (ELECTRONICS.md 5.7), never bare probes.
+# Only through the divider + clamp front end (ELECTRONICS.md 5.7), never bare probes. With the side
+# buttons (option side_buttons), A3 is their resistor ladder instead of a probe input.
 #dtparam=i2c_arm=on
 #dtoverlay=ads1115,addr=0x48,cha_enable,chb_enable,chc_enable,chd_enable
 
@@ -31,9 +32,11 @@ dtoverlay=mcp251xfd,spi0-0,oscillator=20000000,interrupt=25
 # --- Instead of stacks A and B: Waveshare 2-CH CAN FD HAT, as shipped (option can_hat) [verify] ---
 # Two isolated MCP2518FD channels, 40 MHz, own 8-26 V input. CAN_0: SPI0 CE0, INT GPIO25.
 # CAN_1: SPI1 (MISO 19, MOSI 20, SCLK 21, CE0 GPIO18), INT GPIO24. That second channel takes the
-# pins of the encoder's A line (GPIO24), the SYNC input (GPIO21) and the buzzer (GPIO18): the app
-# leaves the controls and sync out of the boot settings while the HAT is switched on.
+# SYNC input's pin (GPIO21) and the buzzer's (GPIO18), so the app leaves sync out while the HAT is
+# on, and the encoder's A line moves from GPIO24 to GPIO7 (SPI0's CE1, which the HAT doesn't use:
+# spi0-1cs frees it; config-controls.txt has the line to change).
 #dtparam=spi=on
+#dtoverlay=spi0-1cs
 #dtoverlay=mcp251xfd,spi0-0,oscillator=40000000,interrupt=25
 #dtoverlay=spi1-1cs
 #dtoverlay=mcp251xfd,spi1-0,oscillator=40000000,interrupt=24

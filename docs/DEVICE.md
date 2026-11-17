@@ -380,8 +380,8 @@ needs free ([ELECTRONICS.md](ELECTRONICS.md) 5.1): I2C1 (GPIO2/3) for the ADS111
 MCP2518FD CAN controllers (CE0 + INT GPIO25, CE1 + INT GPIO20), GPIO21 for the SYNC pulse from the
 meter Pico, the UART (GPIO14/15) for the ESP32, and GPIO18 for a PWM buzzer. I2S audio is given up
 for GPIO20/21; GPIO19 is the only spare. (The Waveshare 2-CH CAN FD HAT's second channel uses
-GPIO18-21 and 24, so with that option on, the buttons, encoder and sync input are left out: see
-[ELECTRONICS.md](ELECTRONICS.md) section 19.) Their overlay lines are in
+GPIO18-21 and 24: with it, the encoder's A line moves to GPIO7 and there's no sync input or
+buzzer, [below](#with-the-waveshare-hat-and-the-side-buttons).) Their overlay lines are in
 [`deploy/raspberry-pi/config-hardware.txt`](../deploy/raspberry-pi/config-hardware.txt), and
 System > Installed options writes them for you.
 
@@ -390,7 +390,7 @@ System > Installed options writes them for you.
 | Top button 1-4 | 5, 6, 12, 13 | F1-F4 | Soft keys 1-4 |
 | Top button 5 | 16 | F5 | Back (or soft key 5, start/stop log, timestamp: System > Controls > Button 5 does) |
 | D-pad up / down / left / right | 17, 27, 22, 23 | arrows | Move / change page |
-| Encoder A / B | 24, 4 | REL_X | Move (rotate) |
+| Encoder A / B | 24 (7 with the HAT), 4 | REL_X | Move (rotate) |
 | Encoder push | 26 | Enter | Select (hold: Back) |
 
 That's twelve pins. The overlay lines are in
@@ -409,8 +409,36 @@ Change what any key does in `~/.config/canopener/settings.json`, e.g.
 `"device.keys": {"f6": "log", "f7": "tag"}` for two more buttons as dedicated Log / Timestamp
 keys (System > Controls > Key map shows the current map).
 
-**Dedicated function buttons** (the side of the housing) need no setting when they send these
-keys, which the app already expects:
+### With the Waveshare HAT, and the side buttons
+
+The Waveshare 2-CH CAN FD HAT's second channel takes GPIO18-21 and 24. With it fitted:
+
+* **Encoder A moves from GPIO24 to GPIO7** (pin 26). GPIO7 is SPI0's second chip select, which the
+  HAT doesn't use; its boot lines include `dtoverlay=spi0-1cs` to free it. **System > Installed
+  options** writes the right lines when both the HAT and the buttons are marked installed
+  (run the Pi installer once more first, so the boot-settings helper knows the new layout).
+  Everything else in the table above stays where it is.
+* **No buzzer and no sync input**: GPIO18 and 21 are the HAT's. Sound comes from the speaker.
+
+That leaves no free GPIO for the four **side buttons** (Back, Hold, Record, Timestamp), so they
+share one input: a **resistor ladder into the ADS1115's A3**. Each button pulls the input to its
+own voltage; the app reads it on its own thread. Switch it on in **System > Installed options >
+Side buttons**; A3 is then no longer a meter input.
+
+```
+3.3 V ──[10 kΩ]──┬──────────── ADS1115 A3   (no probe divider on this input)
+                 ├─[Back]──────────────── GND        0 V
+                 ├─[Hold]──────[2.2 kΩ]── GND        0.60 V
+                 ├─[Record]────[5.6 kΩ]── GND        1.18 V
+                 └─[Timestamp]─[15 kΩ]─── GND        1.98 V
+                                   nothing pressed:  3.3 V
+```
+
+One button at a time (a ladder can't see two pressed together). Different resistors? Put each
+button's voltage in `device.side_levels` in settings.json, Back first.
+
+The same four functions on keys instead (a USB keypad on the bench, or buttons on spare GPIOs on
+a build without the HAT) need no setting either:
 
 | Button | Sends (Linux key code) | Does |
 |---|---|---|
@@ -420,10 +448,7 @@ keys, which the app already expects:
 | Timestamp | F10 (68) | Tag a timestamp in the running log, from any screen |
 
 With a dedicated Back button, set **System > Controls > Button 5 does** to **Soft key 5**, so the
-fifth top button is one more context-dependent key. (Button 5 can also be Hold.) Which GPIOs the
-side buttons use isn't settled yet: with the Waveshare HAT fitted, its second channel takes
-GPIO18-21 and 24, so the free pins run short (see [ELECTRONICS.md](ELECTRONICS.md) section 19);
-a resistor ladder on an ADS1115 channel, described above, needs none.
+fifth top button is one more context-dependent key. (Button 5 can also be Hold.)
 
 ## Displays
 

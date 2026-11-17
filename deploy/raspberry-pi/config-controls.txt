@@ -22,7 +22,13 @@ dtoverlay=gpio-key,gpio=22,active_low=1,gpio_pull=up,keycode=105,label="LEFT"
 dtoverlay=gpio-key,gpio=23,active_low=1,gpio_pull=up,keycode=106,label="RIGHT"
 
 # Rotary encoder (A / B) and its push button (Enter = Select; hold it for Back)
+# With the Waveshare 2-CH CAN FD HAT, GPIO24 is its CAN_1 interrupt: the A line goes on GPIO7
+# instead (pin 26), and the HAT's lines include dtoverlay=spi0-1cs to free it. Change the next two
+# lines to gpio=7,4=ip,pu and pin_a=7 (System > Installed options does it for you).
 gpio=24,4=ip,pu
 dtoverlay=rotary-encoder,pin_a=24,pin_b=4,relative_axis=1,steps-per-period=1
 dtoverlay=gpio-key,gpio=26,active_low=1,gpio_pull=up,keycode=28,label="SELECT"
 # One detent moving two rows? Use steps-per-period=2 (or 4) to match the encoder.
+
+# Side buttons (Back, Hold, Record, Timestamp) need no lines here: they're a resistor ladder into
+# the ADS1115's A3 (System > Installed options > Side buttons; wiring in docs/DEVICE.md).

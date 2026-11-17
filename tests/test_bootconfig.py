@@ -147,19 +147,29 @@ def test_apply_runs_the_helper_and_reports_what_needs_a_restart(cfg, monkeypatch
 def test_waveshare_hat_lines_and_what_it_pushes_out(tmp_path, cfg):
     h = _helper()
     hat = bootconfig.lines("can_hat")
-    assert hat == ["dtparam=spi=on", "dtoverlay=mcp251xfd,spi0-0,oscillator=40000000,interrupt=25",
+    assert hat == ["dtparam=spi=on", "dtoverlay=spi0-1cs",
+                   "dtoverlay=mcp251xfd,spi0-0,oscillator=40000000,interrupt=25",
                    "dtoverlay=spi1-1cs", "dtoverlay=mcp251xfd,spi1-0,oscillator=40000000,interrupt=24"]
     text = open(os.path.join(ROOT, "deploy", "raspberry-pi", "config-hardware.txt")).read()
     assert all("#" + line in text for line in hat)
-    # GPIO24 is the encoder's A line and GPIO21 the sync input: the HAT can't share them
+    # GPIO21 is the sync input: the HAT can't share it. GPIO24 was the encoder's A line: with the
+    # HAT it moves to GPIO7 (SPI0's CE1, freed by spi0-1cs)
     assert any("pin_a=24" in line for line in bootconfig.lines("controls"))
+    assert any("pin_a=7" in line for line in bootconfig.lines("controls", enc=7))
     assert bootconfig.lines("sync") == ["dtoverlay=pps-gpio,gpiopin=21"]
     s = Settings(str(tmp_path / "settings.json"))
     hw = hardware.Hardware(s, hardware.Probe(str(tmp_path)))
     for oid in ("controls", "can_a", "sync", "adc_pi", "can_hat"):
         hw.set_state(oid, hardware.YES)
-    assert bootconfig.wanted(hw) == ["can_hat", "adc_pi"]
+    assert bootconfig.wanted(hw) == ["controls:enc=7", "can_hat", "adc_pi"]
     assert h.main(["--config", str(cfg), "set", *bootconfig.wanted(hw)]) == 0
-    assert "spi1-0,oscillator=40000000,interrupt=24" in cfg.read_text() and "rotary-encoder" not in cfg.read_text()
+    written = cfg.read_text()
+    assert "spi1-0,oscillator=40000000,interrupt=24" in written and "pin_a=7,pin_b=4" in written
+    assert "pin_a=24" not in written and "gpio=24" not in written and "spi0-1cs" in written
+    assert h.main(["--config", str(cfg), "set", "controls:enc=9"]) == 2             # only 24 or 7
+    hw.set_state("can_hat", hardware.NO)
+    assert bootconfig.wanted(hw)[0] == "controls"                                   # back on GPIO24
+    plan = bootconfig.Plan(["controls:enc=7"], add=["controls:enc=7"])
+    assert any("pin_a=7" in line for line in plan.describe())
     assert h.main(["--config", str(cfg), "set", "can_hat:osc=20000000"]) == 2      # no settings on the HAT
     assert h.main(["--dry-run", "live", "can_hat"]) == 0

@@ -1,6 +1,6 @@
 """Draw docs/images/prototype-wiring.svg: how the prototype's modules hang off the Pi 5 (the block
-diagram) and the breadboard's power rails. Keep it in step with docs/install/handheld-prototype.md
-and docs/ELECTRONICS.md section 5.1.
+diagram, with the Waveshare 2-CH CAN FD HAT) and the breadboard's power rails. Keep it in step
+with docs/install/handheld-prototype.md and docs/ELECTRONICS.md section 5.1.
 
     python3 scripts/prototype_wiring_diagram.py      # rewrites docs/images/prototype-wiring.svg
 """
@@ -46,12 +46,12 @@ def draw() -> str:
     add(f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" '
         'font-family="DejaVu Sans, Arial, Helvetica, sans-serif">')
     add(f'<rect width="{W}" height="{H}" fill="#ffffff"/>')
-    text(W / 2, 32, "CANopener handheld prototype: wiring", 20, "bold", "middle")
-    text(W / 2, 54, "Pins per docs/ELECTRONICS.md 5.1. Wire colours are for the diagram only.", 12,
-         anchor="middle", fill="#444", italic=True)
+    text(W / 2, 32, "CANopener handheld prototype: wiring (with the Waveshare CAN HAT)", 20, "bold", "middle")
+    text(W / 2, 54, "Pins per docs/ELECTRONICS.md 5.1 and docs/install/handheld-prototype.md. "
+         "Wire colours are for the diagram only.", 12, anchor="middle", fill="#444", italic=True)
 
     # legend
-    items = [("5v", "5 V"), ("3v3", "3.3 V"), ("gnd", "ground"), ("spi", "SPI + CAN INT"), ("i2c", "I2C"),
+    items = [("5v", "5 V"), ("3v3", "3.3 V"), ("gnd", "ground"), ("spi", "CAN"), ("i2c", "I2C"),
              ("ctl", "buttons / encoder"), ("sync", "SYNC pulse"), ("usb", "USB / ribbon")]
     x = 60
     for key, label in items:
@@ -68,39 +68,41 @@ def draw() -> str:
     text(550, 155 + o, "5V · GND (pins 4, 6)", 12)
     # Pi
     box(390, 190 + o, 220, 260, "Raspberry Pi 5", ["40-pin header"], fill=COL["pi"], stroke=COL["accent"])
-    for i, ln in enumerate(["SPI0 CE0 · GPIO25", "I2C1 · GPIO2/3", "gpio-key · rotary-encoder",
-                            "pps-gpio · GPIO21", "USB × 2 to the Picos"]):
+    for i, ln in enumerate(["SPI0 + SPI1 · the HAT", "I2C1 · GPIO2/3", "gpio-key · rotary-encoder",
+                            "encoder A on GPIO7", "USB × 2 to the Picos"]):
         text(500, 300 + o + i * 20, ln, 12.5, anchor="middle", fill=COL["dim"])
-    # CAN module
-    box(40, 160 + o, 230, 110, "MCP2518FD module", ["ATA6563 transceiver", "20 MHz crystal · 120 Ω jumper"])
-    wire(f"M270 {200 + o} H390", "spi")
-    wire(f"M270 {245 + o} H390", "5v")
-    text(330, 191 + o, "SPI0 CE0 + INT", 12, anchor="middle")
-    text(330, 236 + o, "fused 5V · GND", 12, anchor="middle")
+    # CAN HAT
+    box(40, 150 + o, 230, 130, "2-CH CAN FD HAT",
+        ["Waveshare · all 40 pins · isolated", "CAN_0: SPI0 CE0 · INT GPIO25", "CAN_1: SPI1 CE0 · INT GPIO24",
+         "jumpers: 3.3 V logic · 120 Ω off"])
+    wire(f"M270 {200 + o} H390", "spi", 8)
+    text(330, 191 + o, "header", 12, anchor="middle")
+    text(330, 222 + o, "GPIO 8-11, 18-21,", 11.5, anchor="middle", fill=COL["dim"])
+    text(330, 237 + o, "24, 25 + power", 11.5, anchor="middle", fill=COL["dim"])
     # DB9
-    box(40, 330 + o, 230, 60, "DB9 to the machine", ["pin 7 H · pin 2 L · pin 3 G"])
-    wire(f"M110 {270 + o} V{330 + o}", "ink")
-    wire(f"M155 {270 + o} V{330 + o}", "dim")
-    wire(f"M200 {270 + o} V{330 + o}", "gnd")
-    text(102, 306 + o, "H", 12, anchor="end")
-    text(163, 306 + o, "L", 12)
-    text(208, 306 + o, "G", 12)
+    box(40, 330 + o, 230, 84, "DB9 to the machine", ["CAN_0: 7 H · 2 L", "CAN_1: 8 H · 4 L · both G: 3"])
+    for xx, col, lab in ((70, "ink", "H0"), (110, "dim", "L0"), (150, "ink", "H1"), (190, "dim", "L1"),
+                         (230, "gnd", "G")):
+        wire(f"M{xx} {280 + o} V{330 + o}", col, 3)
+        text(xx + 5, 310 + o, lab, 11, fill=COL["dim"])
     # ADS1115
-    box(40, 440 + o, 230, 110, "ADS1115 · 0x48", ["4 × 1 MΩ / 49.9 kΩ + clamp", "in front of A0-A3"])
-    wire(f"M270 {480 + o} H330 V{410 + o} H390", "i2c")
-    text(338, 470 + o, "I2C1", 12)
-    text(338, 486 + o, "3V3 · GND", 12)
-    text(155, 576 + o, "probes 1-4 + COM come in here", 12, anchor="middle", fill=COL["dim"])
+    box(40, 450 + o, 230, 110, "ADS1115 · 0x48", ["A0-A2: 1 MΩ / 49.9 kΩ + clamp", "A3: side-button ladder"])
+    wire(f"M270 {490 + o} H330 V{410 + o} H390", "i2c")
+    text(338, 480 + o, "I2C1", 12)
+    text(338, 496 + o, "3V3 · GND", 12)
+    text(155, 586 + o, "probes 1-3 + COM come in here", 12, anchor="middle", fill=COL["dim"])
+    # side buttons
+    box(300, 505 + o, 190, 80, "4 side buttons", ["Back · Hold · Record · Mark", "one resistor ladder"])
+    wire(f"M300 {545 + o} H270", "ctl")
+    text(285, 537 + o, "A3", 12, anchor="middle")
     # controls
-    box(730, 160 + o, 230, 110, "5 buttons + encoder", ["switches to GND", "Pi pull-ups, no resistors"])
+    box(730, 160 + o, 230, 110, "5 buttons + encoder", ["d-pad · push · A/B", "switches to GND, Pi pull-ups"])
     wire(f"M730 {215 + o} H610", "ctl")
-    text(670, 206 + o, "8 GPIO + GND", 12, anchor="middle")
+    text(670, 206 + o, "12 GPIO + GND", 12, anchor="middle")
     # Pico 2
-    box(730, 320 + o, 230, 90, "Pico 2 · meter", ["firmware/meter-pico"])
+    box(730, 320 + o, 230, 90, "Pico 2 · meter", ["firmware/meter-pico", "SYNC: no Pi pin with the HAT"])
     wire(f"M730 {345 + o} H610", "usb")
-    wire(f"M730 {390 + o} H610", "sync")
     text(670, 337 + o, "USB", 12, anchor="middle")
-    text(670, 382 + o, "SYNC → GPIO21", 12, anchor="middle")
     # logic Pico
     box(730, 470 + o, 230, 90, "Pico · logic analyser", ["sigrok-pico"])
     wire(f"M730 {515 + o} H660 V{430 + o} H610", "usb")
@@ -120,13 +122,13 @@ def draw() -> str:
     wire(f"M266 {r5 + 10} L314 {r5 - 10}", "ink", 2)
     text(290, r5 + 32, "PTC 0.5 A hold (MF-MSMF050-2)", 12, anchor="middle", fill=COL["dim"])
     wire(f"M320 {r5} H900", "5v", 3)
-    text(900, r5 - 12, "fused 5 V rail: CAN module 5V", 13, anchor="end")
+    text(900, r5 - 12, "fused 5 V rail: spare (the HAT takes 5 V through the header)", 13, anchor="end")
     text(40, r3 - 12, "Pi pin 1 (3V3)", 13)
     wire(f"M40 {r3} H900", "3v3", 3)
-    text(900, r3 - 12, "3.3 V rail: ADS1115, encoder +, CAN 3V3 if needed", 13, anchor="end")
+    text(900, r3 - 12, "3.3 V rail: ADS1115, encoder +, side-button pull-up", 13, anchor="end")
     text(40, rg - 12, "Pi pin 6 or 20 (GND)", 13)
     wire(f"M40 {rg} H900", "gnd", 3)
-    text(900, rg + 22, "ground rail: every module, the buttons, the encoder", 13, anchor="end")
+    text(900, rg + 22, "ground rail: every module, the buttons, the ladder, the encoder", 13, anchor="end")
     cap(450, r5, rg, "10 µF")
     cap(540, r5, rg, "100 nF")
     cap(660, r3, rg, "10 µF")

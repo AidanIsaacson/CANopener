@@ -115,7 +115,7 @@ Start with whatever you have. Any subset works, and touch covers the rest. Sugge
 |---|---|---|---|
 | Button 1 | 5 | 29 | Soft key 1 |
 | Button 5 | 16 | 36 | Back |
-| Encoder A | 24 | 18 | Move (turn) |
+| Encoder A | 24 (7 with the Waveshare HAT) | 18 (26 with the HAT) | Move (turn) |
 | Encoder B | 4 | 7 | Move (turn) |
 | Encoder push | 26 | 37 | Select (hold: Back) |
 | GND | | 30, 34, 39 (also 6, 9, 14, 20, 25) | One side of every switch |

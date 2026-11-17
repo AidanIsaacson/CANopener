@@ -36,16 +36,20 @@ LIVE = ("can_a", "can_b", "can_hat", "sync", "adc_pi")
 CAN = ("can_a", "can_b")
 # The Waveshare 2-CH CAN FD HAT as shipped: 40 MHz, CAN_0 on SPI0 CE0 / GPIO25, CAN_1 on SPI1 CE0
 # (GPIO18) / GPIO24. spi1-1cs claims only that one chip select.
-CAN_HAT = ("dtparam=spi=on", "dtoverlay=mcp251xfd,spi0-0,oscillator=40000000,interrupt=25",
+# spi0-1cs leaves SPI0's unused CE1 (GPIO7) free: with the HAT, the encoder's A line moves there
+# (ENCODER_PINS), off GPIO24, which is the HAT's CAN_1 interrupt.
+CAN_HAT = ("dtparam=spi=on", "dtoverlay=spi0-1cs", "dtoverlay=mcp251xfd,spi0-0,oscillator=40000000,interrupt=25",
            "dtoverlay=spi1-1cs", "dtoverlay=mcp251xfd,spi1-0,oscillator=40000000,interrupt=24")
+ENCODER_PINS = (24, 7)          # the encoder's A line: 24 as designed, 7 with the Waveshare HAT
 
 
-def lines(option: str, osc: int = 20000000, spi: int = 0, pi5: bool = True) -> list[str]:
+def lines(option: str, osc: int = 20000000, spi: int = 0, pi5: bool = True, enc: int = 24) -> list[str]:
     """The boot-config lines for one option (the helper's table, mirrored)."""
     if option == "controls":
         out = [f'dtoverlay=gpio-key,gpio={g},active_low=1,gpio_pull=up,keycode={k},label="{n}"'
                for g, k, n in GPIO_KEYS[:9]]
-        return out + ["gpio=24,4=ip,pu", "dtoverlay=rotary-encoder,pin_a=24,pin_b=4,relative_axis=1,steps-per-period=1",
+        return out + [f"gpio={enc},4=ip,pu",
+                      f"dtoverlay=rotary-encoder,pin_a={enc},pin_b=4,relative_axis=1,steps-per-period=1",
                       'dtoverlay=gpio-key,gpio=26,active_low=1,gpio_pull=up,keycode=28,label="SELECT"']
     if option in CAN:
         cs, irq = (0, 25) if option == "can_a" else (1, 20)
@@ -73,16 +77,18 @@ def token(option: str, settings) -> str:
     return f"{option}:osc={osc}" + (f":spi={spi}" if spi else "")
 
 
-def _parse(tok: str) -> tuple[str, int, int]:
+def _parse(tok: str) -> tuple[str, int, int, int]:
     name, *params = tok.split(":")
-    osc, spi = 20000000, 0
+    osc, spi, enc = 20000000, 0, 24
     for p in params:
         key, _, value = p.partition("=")
         if key == "osc" and value.isdigit():
             osc = int(value)
         elif key == "spi" and value.isdigit():
             spi = int(value)
-    return name, osc, spi
+        elif key == "enc" and value.isdigit():
+            enc = int(value)
+    return name, osc, spi, enc
 
 
 def config_path() -> str:
@@ -116,9 +122,10 @@ def current(path: str | None = None) -> list[str]:
 
 def wanted(hw: "hardware.Hardware") -> list[str]:
     """Tokens for every part on the Pi's pins that's set to Installed or Use if found (a part
-    whose pins another one has taken is left out)."""
-    return [token(o, hw.settings) for o in PARTS
-            if hw.state(o) in (hardware.YES, hardware.AUTO) and not hw.clash(o)]
+    whose pins another one has taken is left out). With the Waveshare HAT, the encoder's A line
+    is on GPIO7 (``controls:enc=7``): GPIO24 is the HAT's."""
+    on = [o for o in PARTS if hw.state(o) in (hardware.YES, hardware.AUTO) and not hw.clash(o)]
+    return [token(o, hw.settings) + (":enc=7" if o == "controls" and "can_hat" in on else "") for o in on]
 
 
 @dataclass
@@ -136,9 +143,9 @@ class Plan:
         """What will change, in lines a person can check."""
         out = []
         for tok in self.add:
-            name, osc, spi = _parse(tok)
+            name, osc, spi, enc = _parse(tok)
             out.append(f"{hardware.BY_ID[name].name}: adds")
-            out += [f"  {line}" for line in lines(name, osc, spi, pi5)]
+            out += [f"  {line}" for line in lines(name, osc, spi, pi5, enc)]
         for name in self.remove:
             out.append(f"{hardware.BY_ID[name].name}: removes its lines")
         live = [_parse(t)[0] for t in self.add if _parse(t)[0] in LIVE]

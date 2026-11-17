@@ -81,6 +81,13 @@ OPTIONS: list[Option] = [
            "(gpio-key) and the rotary encoder (rotary-encoder). Wire some or all; touch still works.",
            "deploy/raspberry-pi/config-controls.txt in /boot/firmware/config.txt, then reboot; the user in the "
            "input group (install.sh --device) for the encoder.", detect="input"),
+    Option("side_buttons", "Side buttons (on the ADC)", "-", "Four buttons on the side, Back, Hold, Record and "
+           "Timestamp, on one resistor ladder into the ADS1115's input A3 (10 kohm pull-up to 3.3 V; each button "
+           "to ground through 0, 2.2 k, 5.6 k and 15 kohm). They need no GPIO. A3 isn't a meter input while this "
+           "is on.",
+           "Is the ADC on the Pi working (System > Installed options)? With nothing pressed A3 should read "
+           "about 3.3 V; each button its own lower voltage (device.side_levels in settings.json).",
+           requires=("adc_pi",), detect="iio", arg=("ads1115", "ads1015")),
     Option("can_a", "CAN stack A", "1", "MCP2518FD + TCAN1051V on SPI0 CE0, the DB9.",
            "dtoverlay=mcp251xfd,spi0-0,oscillator=20000000,interrupt=25 in config.txt; then "
            "`dmesg | grep mcp251xfd`. No interface usually means wiring or the crystal.",
@@ -90,9 +97,9 @@ OPTIONS: list[Option] = [
            "Instead of CAN stacks A and B.",
            "Seated on all 40 pins, and the solder jumpers on the back still as shipped (CAN_0: CE0 / D25, "
            "CAN_1: SPI1_CE0 / D24)? `dmesg | grep mcp251xfd` should show two controllers. Its second channel "
-           "takes GPIO18-21 and 24: the encoder (GPIO24), the sync input (GPIO21) and a GPIO18 buzzer can't "
-           "share those pins.",
-           detect="spi_nets", arg=("spi0.0", "spi1.0"), clashes=("can_a", "can_b", "controls", "sync")),
+           "takes GPIO18-21 and 24: with it on, the encoder's A line is on GPIO7 instead of 24, and the sync "
+           "input (GPIO21) and a GPIO18 buzzer have no pin.",
+           detect="spi_nets", arg=("spi0.0", "spi1.0"), clashes=("can_a", "can_b", "sync")),
     Option("logic_pico", "Logic Pico", "2a", "Original Pico running stock sigrok-pico: the logic analyzer.",
            "Plugged in by USB? Flashed with sigrok-pico? Set hardware.logic_pico.port if it isn't recognised.",
            detect="serial", arg=LOGIC_PICO_NAMES),

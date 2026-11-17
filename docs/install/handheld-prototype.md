@@ -31,31 +31,42 @@ two ever disagree.
 ## Pi 5 header map
 
 Pin 1 is the square pad, at the end of the header farthest from the USB ports. Odd pins are the row
-nearer the middle of the board. Pins marked *kept free* belong to later stages: don't use them for
-anything else.
+nearer the middle of the board.
+
+The prototype now has the **Waveshare 2-CH CAN FD HAT** instead of the MCP2518FD module
+([section 3b](#3b-the-waveshare-hat-instead-of-the-module)). The HAT sits on all 40 pins, so the
+buttons, the encoder and the ADS1115 take their pins through it (a stacking header under it, or
+its pass-through) [verify how yours is fitted]. Pins marked *HAT* are its own: wire nothing else to
+them.
 
 | Use | GPIO | Pin | Pin | GPIO | Use |
 |---|---|---|---|---|---|
 | 3.3 V rail | 3V3 | 1 | 2 | 5V | Fuse, then the 5 V rail |
 | ADS1115 SDA | 2 | 3 | 4 | 5V | Display power |
 | ADS1115 SCL | 3 | 5 | 6 | GND | Display ground |
-| Encoder B | 4 | 7 | 8 | 14 | *Kept free* (ESP32, stage 6) |
-| ADS1115 GND, probe COM | GND | 9 | 10 | 15 | *Kept free* (ESP32, stage 6) |
-| D-pad up (later) | 17 | 11 | 12 | 18 | Buzzer (optional) |
-| D-pad down (later) | 27 | 13 | 14 | GND | Ground |
-| D-pad left (later) | 22 | 15 | 16 | 23 | D-pad right (later) |
-| Spare 3.3 V | 3V3 | 17 | 18 | 24 | Encoder A |
-| CAN SDI | 10 (MOSI) | 19 | 20 | GND | Ground rail, CAN module GND |
-| CAN SDO | 9 (MISO) | 21 | 22 | 25 | CAN INT |
-| CAN SCK | 11 (SCLK) | 23 | 24 | 8 (CE0) | CAN nCS |
-| Ground | GND | 25 | 26 | 7 (CE1) | *Kept free* (CAN stack B) |
+| Encoder B | 4 | 7 | 8 | 14 | Free (was kept for an ESP32) |
+| ADS1115 GND, probe COM | GND | 9 | 10 | 15 | Free (was kept for an ESP32) |
+| D-pad up | 17 | 11 | 12 | 18 | *HAT:* CAN_1 chip select |
+| D-pad down | 27 | 13 | 14 | GND | Ground |
+| D-pad left | 22 | 15 | 16 | 23 | D-pad right |
+| Spare 3.3 V | 3V3 | 17 | 18 | 24 | *HAT:* CAN_1 interrupt |
+| *HAT:* SPI0 MOSI | 10 | 19 | 20 | GND | Ground |
+| *HAT:* SPI0 MISO | 9 | 21 | 22 | 25 | *HAT:* CAN_0 interrupt |
+| *HAT:* SPI0 SCLK | 11 | 23 | 24 | 8 | *HAT:* CAN_0 chip select |
+| Ground | GND | 25 | 26 | 7 | **Encoder A** (GPIO24 without the HAT) |
 | Don't use | ID_SD | 27 | 28 | ID_SC | Don't use |
 | Button 1 (F1) | 5 | 29 | 30 | GND | Buttons' ground |
 | Button 2 (F2) | 6 | 31 | 32 | 12 | Button 3 (F3) |
 | Button 4 (F4) | 13 | 33 | 34 | GND | Ground |
-| Spare | 19 | 35 | 36 | 16 | Button 5 (F5, Back) |
-| Encoder push | 26 | 37 | 38 | 20 | *Kept free* (CAN stack B INT) |
-| Encoder ground, SYNC ground | GND | 39 | 40 | 21 | SYNC in from the Pico 2 |
+| *HAT:* SPI1 MISO | 19 | 35 | 36 | 16 | Button 5 (F5) |
+| Encoder push | 26 | 37 | 38 | 20 | *HAT:* SPI1 MOSI |
+| Encoder ground | GND | 39 | 40 | 21 | *HAT:* SPI1 SCLK |
+
+The four **side buttons** (Back, Hold, Record, Timestamp) take no GPIO: they're a resistor ladder
+into the ADS1115's A3 ([section 5](#5-the-ads1115-and-the-probe-inputs-stage-3)). With the HAT
+there's no pin for the SYNC input or a buzzer (GPIO21 and 18 are the HAT's SPI1). Without the HAT
+(the module in section 3), encoder A is on GPIO24 (pin 18), SYNC on GPIO21 (pin 40), and GPIO7,
+14, 15 and 20 are kept for CAN stack B and an ESP32 ([ELECTRONICS.md](../ELECTRONICS.md) 5.1).
 
 ## 1. Power rails
 
@@ -127,6 +138,28 @@ Also confirm the header labels by continuity: both GND pins beep to the **G** sc
   Twist H and L together.
 * **Termination jumper:** off for listening on a machine; on for the bench bus with the CANable.
 
+## 3b. The Waveshare HAT (instead of the module)
+
+The Waveshare 2-CH CAN FD HAT replaces the module and, later, CAN stack B: two isolated
+MCP2518FD channels on the header, nothing to wire to the Pi. Mark it installed in **System >
+Installed options > Waveshare 2-CH CAN FD HAT** and the app sets the Pi up for it, with the
+encoder's A line moved to GPIO7.
+
+| HAT terminal | DB9 pin | Notes |
+|---|---|---|
+| CAN_0 H / L | 7 / 2 | `can0`: CAN 1 on the handheld |
+| CAN_1 H / L | 8 / 4 | `can1`: CAN 2 |
+| CAN_0 G and CAN_1 G | 3 | Both grounds to the machine's ground |
+
+* **Logic-level jumper on 3.3 V** (the Pi's), **termination jumpers off** on a machine (it's
+  terminated already).
+* Check each H and L lands on the DB9 pin above, with continuity, before plugging into a machine.
+  A pair on the wrong pins doesn't damage anything, but that port can't join the bus: Connect
+  says it "couldn't join the bus" (`dmesg`: *failed to enter mode ... stays in Configuration
+  Mode*). If it connects with the cable unplugged and not with it plugged in, it's the wiring.
+* With both ports in use, Connect makes the busier bus the main one
+  ([DEVICE.md](../DEVICE.md)).
+
 ## 4. The Picos (stages 2a and 2b)
 
 Both plug into the Pi's USB for data and power. The only extra wire is the SYNC pulse: the meter
@@ -136,7 +169,7 @@ Pico makes it, and the Pi and the logic Pico both time-stamp it.
 |---|---|---|
 | Pico 2 (meter), USB | Pi USB | Flash [firmware/meter-pico](../../firmware/meter-pico/README.md) |
 | Pico (logic), USB | Pi USB | Flash sigrok-pico ([firmware/logic-pico](../../firmware/logic-pico/README.md)) |
-| Pico 2 GP15 (pin 20) | Pi pin 40 (GPIO21) | 10 pulses a second |
+| Pico 2 GP15 (pin 20) | Pi pin 40 (GPIO21) | 10 pulses a second. Not with the HAT: GPIO21 is its SPI1 |
 | Pico 2 GP15 (pin 20) | Pico GP2 (pin 4) | sigrok channel D2 [verify: sigrok's D numbers are GPIO numbers] |
 | Pico 2 GND (pin 18) | Pi pin 39 and Pico GND (pin 3) | USB shares ground already; this keeps the return beside SYNC |
 
@@ -158,7 +191,7 @@ through a divider and a clamp.
 | SDA | Pin 3 (GPIO2) | |
 | ADDR | Ground | Address 0x48 |
 | ALRT | Nothing | |
-| A0-A3 | Probes 1-4, each through the circuit below | |
+| A0-A3 | Probes 1-4, each through the circuit below | With the side buttons, A3 is their ladder instead (below) |
 
 ```
 probe tip ---[ R1 1 MΩ ]---+-------------+-----------+---> ADS1115 A0 (A1, A2, A3)
@@ -178,6 +211,12 @@ probe COM (ground) --------+-------------+-----------+
 
 Probe COM is the Pi's ground. When the probes or the CAN lead are on a machine, run the Pi from a
 battery or power bank, not a wall supply ([ELECTRONICS.md section 10](../ELECTRONICS.md#10-power-and-grounding)).
+
+**The side buttons on A3.** With the HAT there's no GPIO left for the four side buttons, so A3
+reads a resistor ladder instead of a probe: leave its divider and clamp off, and wire it as in
+[DEVICE.md](../DEVICE.md#with-the-waveshare-hat-and-the-side-buttons) (a 10 kΩ pull-up from the
+3.3 V rail; Back, Hold, Record and Timestamp to ground through 0, 2.2 k, 5.6 k and 15 kΩ). Then
+**System > Installed options > Side buttons**. Probes 1-3 stay on A0-A2.
 
 ## Turn it on
 

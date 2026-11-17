@@ -88,6 +88,8 @@ class DeviceApp:
             levels = list(s.get("device.ladder_levels"))
             acts = (list(inp.SOFT[:4]) + [inp.BUTTON5])[:len(levels)]
             self.ladder = inp.LadderButtons(levels[:len(acts)], acts, inp.iio_volts_reader(s.get("device.ladder")))
+        self.side = None                    # the side buttons on the ADC's A3 (Installed options > Side buttons)
+        self._side_tried = 0.0
         self.clock = pygame.time.Clock()
         self.running = True
         self.switch_to: str | None = None   # another front-end to start once this one has closed
@@ -383,6 +385,26 @@ class DeviceApp:
                 if kind == "down":
                     self.chirp()
                     self.action(self.keymap.button5 if a == inp.BUTTON5 else a)
+        self._poll_side()
+
+    def _poll_side(self):
+        """The side buttons, when they're installed: found again every few seconds until the ADC is up."""
+        if not self.ctx.hardware.available("side_buttons"):
+            if self.side is not None:
+                self.side.stop()
+                self.side = None
+            return
+        if self.side is None:
+            if time.monotonic() - self._side_tried < 5.0:
+                return
+            self._side_tried = time.monotonic()
+            self.side = inp.side_ladder(self.ctx.settings.get("device.side_levels"))
+            if self.side is None:
+                return
+        for kind, a in self.side.poll():
+            if kind == "down":
+                self.chirp()
+                self.action(a)
         a = self.press.poll()
         if a is not None:
             self.action(a)

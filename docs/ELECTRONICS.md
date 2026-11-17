@@ -117,7 +117,7 @@ Same header on the 3B+ and Pi 5. Control pins come from the repo (`docs/DEVICE.m
 | 23 | 11 (SCLK) | MCP2518FD A/B SCK | [V] |
 | 24 | 8 (CE0) | MCP2518FD A nCS | [V] |
 | 22 | 25 | MCP2518FD A INT | [V] repo overlay |
-| 26 | 7 (CE1) | MCP2518FD B nCS | [P] |
+| 26 | 7 (CE1) | MCP2518FD B nCS. With the Waveshare HAT: encoder A (`spi0-1cs` frees it) | [P] |
 | 38 | 20 | MCP2518FD B INT | [P] D7 |
 | 40 | 21 | SYNC **input** from meter Pico (`pps-gpio`) | [P] D7 |
 | 8, 10 | 14 (TXD), 15 (RXD) | ESP32 RX0 / TX0 | [P] D8 |
@@ -126,9 +126,10 @@ Same header on the 3B+ and Pi 5. Control pins come from the repo (`docs/DEVICE.m
 | 29, 31, 32, 33 | 5, 6, 12, 13 | Buttons 1-4 | [V] repo |
 | 36 | 16 | Button 5 | [V] repo |
 | 11, 13, 15, 16 | 17, 27, 22, 23 | D-pad up, down, left, right | [V] repo |
-| 18, 7 | 24, 4 | Encoder A, B | [V] repo |
+| 18, 7 | 24, 4 | Encoder A, B (with the Waveshare HAT, A is on GPIO7: GPIO24 is the HAT's CAN_1 INT) | [V] repo |
 | 37 | 26 | Encoder push | [V] repo |
 | 27, 28 | 0, 1 | HAT ID EEPROM. Do not use | |
+| - | ADS1115 A3 | With the Waveshare HAT: the four side buttons (Back, Hold, Record, Timestamp) as a resistor ladder, no GPIO left for them (DEVICE.md) | repo |
 
 `deploy/raspberry-pi/config-controls.txt` keeps these clear of the controls (updated for D7/D8 in rev 0.6); the overlay lines for each stage are in `deploy/raspberry-pi/config-hardware.txt`.
 
@@ -655,11 +656,12 @@ build stage" fills them in from a stage number; single parts can then be changed
 | `usb_can` USB CAN adapter | 0 | | a CAN interface on USB (or slcand's, with an slcan CANable plugged in). Informational: it never hides a USB adapter |
 | `controls` Buttons and encoder | 0b | | input devices named `button@N` / `rotary@N` [verify the names on the Pi] |
 | `can_a` CAN stack A | 1 | | the CAN interface on SPI device `spi0.0`, whatever it's named |
-| `can_hat` Waveshare 2-CH CAN FD HAT | - | | CAN interfaces on both `spi0.0` and `spi1.0`. Not part of a stage: it replaces stacks A and B, and while it's on, `can_a`, `can_b`, `controls` and `sync` aren't used (its second channel is on GPIO18-21 and 24) |
+| `can_hat` Waveshare 2-CH CAN FD HAT | - | | CAN interfaces on both `spi0.0` and `spi1.0`. Not part of a stage: it replaces stacks A and B, and while it's on, `can_a`, `can_b` and `sync` aren't used (its second channel is on GPIO18-21 and 24); the buttons stay, with the encoder's A line on GPIO7 |
 | `logic_pico` Logic Pico | 2a | | USB serial name (`/dev/serial/by-id`), or a set port |
 | `meter_pico` Meter Pico | 2b | | USB serial name, or a set port |
 | `sync` Sync pulse input | 2b | meter_pico | a pps device named `pps-gpio` |
 | `adc_pi` ADC on the Pi | 3 | | IIO device `ads1115` / `ads1015` |
+| `side_buttons` Side buttons | - | adc_pi | the same IIO device; its input A3 is the buttons' resistor ladder, not a meter input |
 | `can_b` CAN stack B | 5 | | the CAN interface on `spi0.1` |
 | `esp32` ESP32 wireless | 6 | | `/dev/ttyAMA0` exists |
 | `probe_frontend` Probe front end | 7 | meter_pico | meter hello: MCP4728 answered |

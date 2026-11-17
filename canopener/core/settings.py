@@ -87,6 +87,7 @@ DEFAULTS: dict = {
     "device.encoder": "auto",           # evdev device for the rotary encoder: auto / none / /dev/input/eventN
     "device.ladder": "",                # IIO channel of a resistor-ladder button stack ("" = none)
     "device.ladder_levels": [0.0, 0.6, 1.2, 1.8, 2.4],     # volts per ladder button (soft keys 1-5)
+    "device.side_levels": [0.0, 0.60, 1.18, 1.98],      # the side buttons on A3: Back, Hold, Record, Timestamp
     "device.games": False,              # Games on the home screen (System > About, seven times)
     "device.tile_order": [],            # home tiles as dragged into place (mode ids; device/modes.py)
     "device.live_view": {},             # CAN > Live: picks, grid, the enlarged value (device/screens/live.py)

@@ -5,6 +5,16 @@ on an older one, `git checkout v0.3.2` in its checkout.
 
 ## Unreleased
 
+- **Buttons with the Waveshare HAT.** The HAT no longer pushes out the buttons and encoder: with
+  both marked installed, **System > Installed options** moves the encoder's A line to GPIO7
+  (SPI0's spare chip select, freed with `spi0-1cs`), off the HAT's GPIO24. Run the Pi installer
+  once more first, so the boot-settings helper knows the new layout. The sync input and a buzzer
+  still have no pin while the HAT is on.
+- **Side buttons on the ADC.** **System > Installed options > Side buttons**: Back, Hold, Record and
+  Timestamp on one resistor ladder into the ADS1115's A3 (no GPIO is left for them with the HAT),
+  read on their own thread; A3 then isn't a meter input. Wiring in DEVICE.md; the prototype guide
+  and wiring diagram now show the HAT build.
+
 - **Two buses: the busier one is the main bus.** With both of the handheld's CAN ports in use (two
   buses on the machine's 9-pin connector), Connect listens to both first, listen-only, and makes
   the busier one the main bus, saying which and how busy each was. Picking a port by hand (the

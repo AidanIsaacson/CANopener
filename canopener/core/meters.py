@@ -380,9 +380,11 @@ class IioSource(MeasurementSource):
 
     id = "iio"
 
-    def __init__(self, device: str, ratio: float = 1.0, rate: float = 10.0, sys_iio: str = SYS_IIO):
+    def __init__(self, device: str, ratio: float = 1.0, rate: float = 10.0, sys_iio: str = SYS_IIO,
+                 skip: tuple = ()):
         super().__init__()
         self.device = device
+        self.skip = {str(i) for i in skip}      # inputs used for something else (the side buttons on A3)
         self.ratio = ratio or 1.0
         self.rate = rate
         self.sys_iio = sys_iio
@@ -404,7 +406,7 @@ class IioSource(MeasurementSource):
         inputs = []
         for raw in sorted(glob.glob(os.path.join(folder, "in_voltage*_raw"))):
             idx = os.path.basename(raw)[len("in_voltage"):-len("_raw")]
-            if not idx.isdigit():           # differential pairs (in_voltage0-voltage1_raw)
+            if not idx.isdigit() or idx in self.skip:      # differential pairs; inputs used for buttons
                 continue
             scale = os.path.join(folder, f"in_voltage{idx}_scale")
             if not os.path.exists(scale):
@@ -554,5 +556,6 @@ def sources_from_settings(settings, hardware=None, pulse_clock=None) -> list[Mea
     if settings.get("meters.serial") and settings.get("meters.serial") not in ports:
         out.append(SerialLineSource(settings.get("meters.serial")))
     if iio:
-        out.append(IioSource(iio, ratio))
+        buttons = hardware is not None and hardware.available("side_buttons")
+        out.append(IioSource(iio, ratio, skip=(3,) if buttons else ()))
     return out

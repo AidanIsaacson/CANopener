@@ -305,9 +305,10 @@ def test_waveshare_hat_needs_both_channels_and_takes_the_shared_pins(tmp_path):
     hw._cache.clear()
     assert hw.status("can_hat").text == "Found: can0, can1"
     # the parts on its pins are left out, and say why
-    for oid in ("can_a", "can_b", "controls", "sync"):
+    for oid in ("can_a", "can_b", "sync"):
         st = hw.status(oid)
         assert not hw.available(oid) and st.level == hardware.BAD and "Waveshare" in st.text, oid
+    assert not hw.clash("controls")                 # the buttons stay: the encoder's A line moves to GPIO7
     assert hw.available("adc_pi") or hw.state("adc_pi") == hardware.YES
     hw.set_state("can_hat", hardware.NO)
     assert hw.available("can_a")
@@ -326,3 +327,48 @@ def test_can_ports_are_named_by_connector_not_by_linux_name(tmp_path):
     hw.set_state("can_hat", hardware.NO)
     hw.set_state("can_a", hardware.YES)
     assert [(p.label, p.iface, p.option) for p in hw.can_ports()] == [("CAN 1", "can1", "can_a")]
+
+
+def test_side_buttons_need_the_adc_and_find_its_a3_input(tmp_path):
+    """Back, Hold, Record and Timestamp on a resistor ladder into the ADS1115's A3: no GPIO, an
+    Installed option that needs the ADC, and A3 is then no meter input."""
+    from canopener.core import meters
+    from canopener.device import input as inp
+    hw = _hw(tmp_path)
+    opt = hardware.BY_ID["side_buttons"]
+    assert opt.requires == ("adc_pi",) and opt.stage not in hardware.STAGES
+    hw.set_state("side_buttons", hardware.YES)
+    assert not hw.available("side_buttons")                 # the ADC isn't installed
+    hw.set_state("adc_pi", hardware.YES)
+    iio = tmp_path / "iio"
+    dev = iio / "iio:device0"
+    dev.mkdir(parents=True)
+    (dev / "name").write_text("ads1115\n")
+    for i in range(4):
+        (dev / f"in_voltage{i}_raw").write_text("0\n")
+    (dev / "in_voltage3_scale").write_text("0.125\n")   # millivolts per count
+    assert inp.iio_channel(sys_iio=str(iio)) == str(dev / "in_voltage3_raw")
+    assert inp.iio_channel(names=("other",), sys_iio=str(iio)) is None
+    src = meters.IioSource(str(dev), skip=(3,))
+    assert src._find() and [c.id for c in src.channels()] == ["iio.a0", "iio.a1", "iio.a2"]
+    levels = [0.0, 0.60, 1.18, 1.98]
+    lad = inp.LadderButtons(levels, list(inp.SIDE_ACTIONS), inp.iio_volts_reader(str(dev / "in_voltage3_raw")))
+    (dev / "in_voltage3_raw").write_text("26400\n")        # 3.3 V: nothing pressed
+    assert lad.poll() == [] and lad.poll() == []
+    (dev / "in_voltage3_raw").write_text("4800\n")         # 0.60 V: Hold
+    assert lad.poll() == [] and lad.poll() == [("down", inp.HOLD)]
+    (dev / "in_voltage3_raw").write_text("15840\n")        # 1.98 V: Timestamp
+    lad.poll()
+    assert lad.poll() == [("up", inp.HOLD), ("down", inp.TAG)]
+    side = inp.side_ladder(levels, sys_iio=str(iio))
+    try:
+        import time
+        for _ in range(50):
+            got = side.poll()
+            if got:
+                break
+            time.sleep(0.02)
+        assert got == [("down", inp.TAG)]
+    finally:
+        side.stop()
+    assert inp.side_ladder(levels, sys_iio=str(tmp_path / "none")) is None
