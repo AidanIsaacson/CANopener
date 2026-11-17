@@ -5,6 +5,17 @@ on an older one, `git checkout v0.3.2` in its checkout.
 
 ## Unreleased
 
+- **Two buses: the busier one is the main bus.** With both of the handheld's CAN ports in use (two
+  buses on the machine's 9-pin connector), Connect listens to both first, listen-only, and makes
+  the busier one the main bus, saying which and how busy each was. Picking a port by hand (the
+  interface, or **Make CAN 2 the main bus**) turns this off; **CAN > Connect > Main bus: the
+  busier port (Auto)** turns it back on.
+- **Hold, and keys for side buttons.** A Hold action freezes the live values on the screen (on
+  the Meter page it's the page's own Hold) while the bus, meters and log carry on; HOLD shows in
+  the status strip. Dedicated buttons sending Esc (Back), Pause (Hold), F9 (start / stop log) and
+  F10 (timestamp) work with no setting. Button 5 can now be Hold, and with a dedicated Back
+  button it can be soft key 5.
+
 - **Profile builder: pick what moved, live.** After each step it shows up to eight values with
   their live readings and a dot that lights when one changes. Work the control a few more times:
   the one that follows lights up and counts up, and a clear winner is ticked for you. Nothing is

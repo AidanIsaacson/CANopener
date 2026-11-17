@@ -76,7 +76,7 @@ class ConnectPage(Screen):
             hint = "python-can adapter" if pythoncan.is_spec(cur) else "" if cur in names else "not present"
             rows.append(Row("Interface", lambda: next((lb for lb, n in opts if n == s.get("can.iface")),
                                                       s.get("can.iface")),
-                            select=lambda: pick("Interface", "can.iface", opts), hint=hint))
+                            select=lambda: self._pick_iface(opts, busy), hint=hint))
             if len(ports) > 1:
                 for p in ports:
                     rows.append(Row(f"    {p.label} port in use", check=lambda p=p: ctx.can_port_on(p.id),
@@ -90,6 +90,9 @@ class ConnectPage(Screen):
                             check=lambda: s.get("can.listen_only")))
             other = ctx.other_port()
             if other is not None:
+                rows.append(Row("Main bus: the busier port (Auto)", check=lambda: s.get("can.main_auto"),
+                                select=lambda: self._toggle("can.main_auto"),
+                                hint="listens to both ports first; picking a port above sets it by hand"))
                 rows.append(Row(f"Second bus ({other.label})", kind="header"))
                 rows.append(Row(f"Watch {other.label} too", check=lambda: s.get("can.second") == "watch",
                                 select=self._second,
@@ -149,6 +152,20 @@ class ConnectPage(Screen):
             ctx.toast("Disconnect first")
             return
         s.set("can.second", "off" if s.get("can.second") == "watch" else "watch")
+
+    def _pick_iface(self, opts, busy):
+        """Picking the interface by hand also takes the main bus off Auto: it's been specified."""
+        s = self.ctx.settings
+        if busy:
+            self.ctx.toast("Disconnect first")
+            return
+
+        def picked(v):
+            s.set("can.iface", v)
+            if s.get("can.main_auto") and self.ctx.other_port(v) is not None:
+                s.set("can.main_auto", False)
+                self.ctx.toast("Main bus set by hand (Auto off)")
+        choose(self.app, "Interface", opts, s.get("can.iface"), picked)
 
     def _swap(self):
         if self.ctx.finding or self.ctx.busy:

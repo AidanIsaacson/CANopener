@@ -37,6 +37,7 @@ DEFAULTS: dict = {
     "can.connect_on_start": False,
     "can.second": "off",                # the other on-board port: "off", or "watch" (listen-only, recorded too)
     "can.second.bitrate": 0,            # its own bitrate (0 = auto): buses on one machine often differ
+    "can.main_auto": True,              # two ports in use: the busier one is the main bus (off once one is picked)
     "can.ports_off": [],                # on-board CAN ports not in use ("can2"): left out of the interface list
     "hardware.can_a.oscillator": 20000000,      # CAN stack crystals and SPI speeds (core.bootconfig): 20 MHz on
     "hardware.can_a.spi_hz": 0,                  # the prototype module, 40 MHz on the custom board; SPI 0 = full speed

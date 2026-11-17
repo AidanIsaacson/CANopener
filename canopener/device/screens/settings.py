@@ -25,7 +25,8 @@ ROTATIONS = [("0° (as mounted)", 0), ("90°", 90), ("180° (upside down)", 180)
 DIAGONALS = [(f'{d:g}"', d) for d in (5.0, 7.0, 8.0, 10.1, 13.3)]
 EDGES = [("Top", "top"), ("Bottom", "bottom")]
 BUTTONS = [("4", 4), ("5", 5)]
-BUTTON5 = [("Back", "back"), ("Soft key 5", "soft"), ("Start / stop log", "log"), ("Timestamp", "tag")]
+BUTTON5 = [("Back", "back"), ("Soft key 5 (use with a dedicated Back button)", "soft"), ("Start / stop log", "log"),
+           ("Timestamp", "tag"), ("Hold", "hold")]
 UNITS = [("Metric (kPa, °C, km/h)", units.METRIC), ("Imperial (psi, °F, mph)", units.IMPERIAL)]
 LONG_PRESS = [(f"{s:g} s", s) for s in (0.5, 0.7, 1.0, 1.5)]
 WINDOWS = [(s, s) for s in ("800x480", "1024x600", "1280x720", "1280x800")]

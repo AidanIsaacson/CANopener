@@ -1559,8 +1559,8 @@ def test_two_can_ports_a_quiet_main_bus_and_a_watched_second_bus(ctx, tmp_path, 
     ctx.hardware.set_state("can_hat", hardware.YES)
     s = ctx.settings
     for k, v in (("can.source", "socketcan"), ("can.iface", "can0"), ("can.bitrate", 500000),
-                 ("can.second", "watch"), ("can.second.bitrate", 250000)):
-        s.set(k, v)
+                 ("can.second", "watch"), ("can.second.bitrate", 250000), ("can.main_auto", False)):
+        s.set(k, v)                                         # (the main bus picked by hand: CAN 1, though quiet)
     assert ctx.other_port().label == "CAN 2" and ctx.second_to_watch().iface == "can1"
     brought_up, opened = [], []
 
@@ -1720,3 +1720,74 @@ def test_recording_without_a_bus_says_it_is_meters_only(app_for):
     assert ctx.start_log()
     assert "meters only" in ctx.current_toast()
     ctx.stop_log()
+
+
+def test_with_two_ports_on_auto_the_busier_one_is_the_main_bus(ctx, tmp_path, monkeypatch):
+    """Two buses on the machine's 9-pin connector: Connect listens to both (listen-only) and makes
+    the busier one the main bus, unless a port was picked by hand."""
+    from canopener.can.backends import VirtualBackend, VirtualBus
+    from canopener.core import connection, hardware
+    from canopener.core.session import Session
+    from canopener.device import context
+    root = tmp_path / "root"
+    for dev, name in (("spi0.0", "can0"), ("spi1.0", "can1")):
+        os.makedirs(root / "sys/bus/spi/devices" / dev / "net" / name)
+    ctx.hardware.probe = hardware.Probe(str(root))
+    ctx.hardware.set_state("can_hat", hardware.YES)
+    s = ctx.settings
+    for k, v in (("can.source", "socketcan"), ("can.iface", "can0"), ("can.bitrate", 0), ("can.second", "watch"),
+                 ("can.second.bitrate", 0)):
+        s.set(k, v)
+    assert s.get("can.main_auto")
+    heard = {"can0": (40, 500000, ""), "can1": (1900, 250000, "")}
+    listened, opened = [], []
+    monkeypatch.setattr(context, "measure_port", lambda iface, br: listened.append((iface, br)) or heard[iface])
+
+    def fake_open(kind, channel="can0", *, listen_only=False, **kw):
+        sess = Session(VirtualBackend(VirtualBus()))
+        sess.start()
+        opened.append((channel, listen_only, kw.get("bitrate")))
+        return connection.Connection(connection.SOCKETCAN, sess, None)
+    monkeypatch.setattr(context, "open_connection", fake_open)
+    monkeypatch.setattr(context.interfaces, "list_interfaces", lambda details=True: [
+        context.interfaces.CanInterface("can0", "up"), context.interfaces.CanInterface("can1", "up")])
+    monkeypatch.setattr(context.interfaces, "needs_setup", lambda *a: False)
+    monkeypatch.setattr(context.interfaces, "bring_up", lambda *a: (True, "ok"))
+    ctx.connect()
+    assert ctx.wait_idle() and ctx.wait_idle()
+    assert listened == [("can0", 0), ("can1", 0)]
+    assert s.get("can.iface") == "can1" and (s.get("can.bitrate"), s.get("can.second.bitrate")) == (0, 0)
+    assert opened == [("can1", False, 250000), ("can0", True, 500000)]      # what the listening found
+    assert ctx.port_label() == "CAN 2" and ctx.second_port.label == "CAN 1"
+    assert any("CAN 2 is the busier bus" in t for t, _ in ctx.toasts)
+    ctx.disconnect()
+    assert not context.busier(100, 110) and context.busier(0, 5) and not context.busier(0, 2)
+    ctx.swap_ports()                                        # picked by hand: Auto is off from then on
+    assert not s.get("can.main_auto") and s.get("can.iface") == "can0"
+    listened.clear()
+    ctx.connect()
+    assert ctx.wait_idle() and not listened and opened[-2][0] == "can0"
+    ctx.disconnect()
+
+
+def test_hold_button_freezes_the_screen_and_the_meter_uses_its_own_hold(app_for):
+    """A dedicated Hold button (Pause key): the live values stop on the screen while the bus and
+    the log carry on; on the Meter page it's that page's Hold. Button 5 can be Hold too."""
+    app = app_for(**{"meters__sim": True})
+    ctx = app.ctx
+    assert inp.KeyMap().action("pause") == inp.HOLD and inp.KeyMap(button5="hold").action("f5") == inp.HOLD
+    app.open_mode("can")
+    app.action(inp.HOLD)
+    assert ctx.held and "frozen" in ctx.current_toast()
+    before = ctx._last_sample
+    ctx.tick(time.time() + 5)
+    assert ctx._last_sample == before                       # nothing sampled while held
+    app.step([])                                            # the status strip draws HOLD
+    app.action(inp.HOLD)
+    assert not ctx.held and "live again" in ctx.current_toast()
+    app.open_mode("meter")
+    meter = app.top
+    app.action(inp.HOLD)
+    assert meter.hold is not None and not ctx.held
+    app.action(inp.HOLD)
+    assert meter.hold is None

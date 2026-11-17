@@ -28,12 +28,13 @@ SOFT = ("soft1", "soft2", "soft3", "soft4", "soft5")
 BUTTON5 = "button5"         # the 5th top button: what it does is a setting (device.button5)
 ROTATE = "rotate"           # encoder: comes with a +1 / -1 step count
 LOG, TAG = "log", "tag"     # start/stop the data log, tag a timestamp: work from any screen
+HOLD = "hold"               # freeze the values on the screen (the bus and the log keep going)
 QUIT = "quit"
 ROTATE_CW, ROTATE_CCW = "rotate+", "rotate-"
 
 ACTION_NAMES = {
     UP: "Up", DOWN: "Down", LEFT: "Left", RIGHT: "Right", SELECT: "Select", BACK: "Back",
-    HOME: "Home", LOG: "Start / stop log", TAG: "Timestamp", BUTTON5: "Button 5",
+    HOME: "Home", LOG: "Start / stop log", TAG: "Timestamp", HOLD: "Hold (freeze the screen)", BUTTON5: "Button 5",
     ROTATE_CW: "Encoder clockwise", ROTATE_CCW: "Encoder anticlockwise",
     **{s: f"Soft key {i + 1}" for i, s in enumerate(SOFT)},
 }
@@ -46,9 +47,9 @@ DEFAULT_KEYS = {
     "return": SELECT, "enter": SELECT,
     "escape": BACK, "backspace": BACK, "home": HOME,
     "page up": ROTATE_CCW, "page down": ROTATE_CW,
-    "f9": LOG, "f10": TAG,
+    "f9": LOG, "f10": TAG, "pause": HOLD,
 }
-BUTTON5_CHOICES = {"back": BACK, "soft": SOFT[4], "log": LOG, "tag": TAG}
+BUTTON5_CHOICES = {"back": BACK, "soft": SOFT[4], "log": LOG, "tag": TAG, "hold": HOLD}
 
 
 class KeyMap:

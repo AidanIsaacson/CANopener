@@ -61,6 +61,38 @@ def source_label(kind: str) -> str:
     return dict(SOURCES).get(kind, kind)
 
 
+BUSIER_LISTEN = 1.5         # seconds each port is listened to when picking the busier one
+
+
+def busier(main_frames: int, other_frames: int) -> bool:
+    """Should the other port be the main bus? Only when it's clearly busier (a near tie keeps the
+    port that was chosen)."""
+    return other_frames >= 3 and other_frames > main_frames * 1.2
+
+
+def measure_port(iface: str, bitrate: int, secs: float = BUSIER_LISTEN) -> tuple[int, int, str]:
+    """(frames heard, bitrate, why nothing) on one port, listen-only: never a frame sent, so
+    listening at a wrong bitrate can't disturb the machine. Auto (0) finds the bitrate first."""
+    from ..can.backends import SocketCanBackend
+    why = ""
+    if not bitrate:
+        bitrate, log = interfaces.detect_bitrate(iface)
+        if not bitrate:
+            return 0, 0, (log[-1] if log else "no traffic")
+    ok, msg = interfaces.bring_up(iface, bitrate, True)
+    if not ok:
+        return 0, bitrate, msg.split("\n")[0]
+    b = SocketCanBackend(iface)
+    try:
+        b.open()
+        good, _errors = interfaces.count_traffic(b, secs)
+    except OSError as e:
+        return 0, bitrate, str(e)
+    finally:
+        b.close()
+    return good, bitrate, why
+
+
 class DeviceContext:
     def __init__(self, settings: Settings | None = None, *, start_meters: bool = True):
         self.settings = settings or Settings()
@@ -116,6 +148,7 @@ class DeviceContext:
         self.speaker = None                 # (tone, volume 0-1) -> bool: the UI's own player (Pygame's mixer)
         self._jobs: queue.Queue = queue.Queue()
         self._last_sample = 0.0
+        self.held = False                   # Hold: live values frozen on the screen (the bus and log go on)
         self._link_checked = 0.0
         self._bus_level = link.OFF
         self._bus_was_ok = False
@@ -261,9 +294,37 @@ class DeviceContext:
         s.set("can.iface", other.iface)
         s.set("can.bitrate", second_br)
         s.set("can.second.bitrate", main_br)
-        self.toast(f"{other.label} is now the main bus")
+        s.set("can.main_auto", False)       # chosen by hand: Connect doesn't pick the busier one any more
+        self.toast(f"{other.label} is now the main bus (set by hand)")
         if was_connected:
             self.connect()
+
+    def _find_busier(self, name: str, other):
+        """Listen to both ports (listen-only, each at its bitrate, or Auto finds it) and make the
+        busier one the main bus, then connect. The ports keep their own bitrate settings."""
+        s = self.settings
+        br_main, br_other = int(s.get("can.bitrate") or 0), int(s.get("can.second.bitrate") or 0)
+        here = self.port_label(name)
+
+        def work():
+            return measure_port(name, br_main), measure_port(other.iface, br_other)
+
+        def done(found):
+            (got_a, rate_a, why_a), (got_b, rate_b, why_b) = found
+            swap = busier(got_a, got_b)
+            fps = lambda n: f"{n / BUSIER_LISTEN:.0f}"  # noqa: E731
+            if swap:
+                s.set("can.iface", other.iface)
+                s.set("can.bitrate", br_other)
+                s.set("can.second.bitrate", br_main)
+                self.toast(f"{other.label} is the busier bus ({fps(got_b)} frames a second, {here} {fps(got_a)}): "
+                           f"it's the main bus. CAN > Connect > Main bus sets it by hand")
+            elif got_a or got_b:
+                self.toast(f"{here} is the busier bus ({fps(got_a)} frames a second, {other.label} {fps(got_b)})")
+            else:
+                self.toast(f"No traffic on either port ({why_a or why_b or 'nothing heard'}). Key on?")
+            self.connect(SOCKETCAN, _found=(rate_b, rate_a) if swap else (rate_a, rate_b))
+        self.run_job(f"Listening to {here} and {other.label} for the busier bus", work, done)
 
     def can_iface_choices(self, names: list[str]) -> list[tuple[str, str]]:
         """(label, interface) for the interface list: on-board ports by their connector name,
@@ -398,7 +459,10 @@ class DeviceContext:
     # ------------------------------------------------------------------
     # connection
     # ------------------------------------------------------------------
-    def connect(self, kind: str | None = None):
+    def connect(self, kind: str | None = None, _found: tuple | None = None):
+        """Connect with the settings. With two on-board ports in use and the main bus on Auto
+        (``can.main_auto``), both are listened to first and the busier one becomes the main bus
+        (``_find_busier``, which comes back here with the bitrates it found)."""
         if self.busy:
             return
         kind = kind or self.settings.get("can.source")
@@ -409,6 +473,14 @@ class DeviceContext:
         if python_can and not bitrate:
             self.toast("Pick a bitrate for a python-can adapter (Auto works with can0-style interfaces)")
             return
+        if kind == SOCKETCAN and _found is None and not python_can and self.settings.get("can.main_auto") \
+                and not name.startswith("vcan"):
+            other = self.other_port(name)
+            if other is not None and other.iface:
+                self._find_busier(name, other)
+                return
+        if _found is not None and not bitrate:
+            bitrate = _found[0]                 # what the listening found (the setting stays Auto)
         if kind == SOCKETCAN and not bitrate and not name.startswith("vcan"):
             info = next((i for i in interfaces.list_interfaces(details=False) if i.name == name), None)
             if info is None or info.state != "up":
@@ -432,7 +504,7 @@ class DeviceContext:
             self.apply_profile("sim-canopen")
 
         watch = self.second_to_watch(name) if kind == SOCKETCAN else None
-        br2 = int(self.settings.get("can.second.bitrate") or 0)
+        br2 = int(self.settings.get("can.second.bitrate") or 0) or (_found[1] if _found else 0)
 
         def open_second(conn):
             """The other port, listen-only at its own bitrate. A failure here never costs the main bus."""
@@ -976,6 +1048,13 @@ class DeviceContext:
         self.cue("rec_start")
         return True
 
+    def toggle_hold(self):
+        """Freeze the live values on the screen (Live, the grid's traces), or let them go again.
+        Only the screen stops: the bus, the meters and a running log carry on."""
+        self.held = not self.held
+        self.toast("Hold: values frozen on the screen (still recording)" if self.held and self.recording
+                   else "Hold: values frozen on the screen" if self.held else "Hold off: live again")
+
     def stop_log(self):
         if not self.recording:
             return
@@ -1141,7 +1220,7 @@ class DeviceContext:
     def tick(self, now: float | None = None):
         now = time.time() if now is None else now
         self._drain_jobs()
-        if now - self._last_sample >= SAMPLE_EVERY:
+        if now - self._last_sample >= SAMPLE_EVERY and not self.held:
             self._last_sample = now
             s = self.session
             if s is not None:

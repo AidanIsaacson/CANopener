@@ -261,6 +261,8 @@ class DeviceApp:
                                      active=self.ctx.recording))
             elif b5 == inp.TAG:
                 slots.append(SoftKey("Timestamp", self.ctx.tag))
+            elif b5 == inp.HOLD:
+                slots.append(SoftKey("Hold", lambda: self.action(inp.HOLD), active=self.ctx.held))
         return slots
 
     def chirp(self):
@@ -278,6 +280,12 @@ class DeviceApp:
             self.ctx.toggle_log()
         elif action == inp.TAG:
             self.ctx.tag()
+        elif action == inp.HOLD:
+            hold = getattr(self.top, "toggle_hold", None)      # a page with its own Hold (the Meter)
+            if hold is not None:
+                hold()
+            else:
+                self.ctx.toggle_hold()
         elif action in inp.SOFT:
             slots = self.softkey_slots()
             i = inp.SOFT.index(action)
@@ -455,6 +463,10 @@ class DeviceApp:
             r = u.text(label, (right, rect.centery), "body", "rec", align="right")
             pygame.draw.circle(u.surface, u.color("rec"), (r.left - t.pad, rect.centery), t.pad * .7)
             right = r.left - t.pad * 2.5
+        if ctx.held:
+            r = u.text("HOLD", (right, rect.centery), "body", "warn", align="right")
+            u.hit(r, ctx.toggle_hold)
+            right = r.left - t.pad * 2
         two = ctx.second is not None
         pw = min(round(t.touch * 3.4), (right - x) // (3 if two else 2))
         srcs = ctx.hub.sources()
