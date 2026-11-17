@@ -288,3 +288,41 @@ def test_firmware_sync_period_matches_the_pi():
               for t in n.targets if isinstance(t, ast.Name) and isinstance(n.value, ast.Constant)}
     assert consts["SYNC_PERIOD_MS"] == round(sync.PERIOD_S * 1000)
     assert consts["SYNC"] == 15                       # docs/ELECTRONICS.md 5.6
+
+
+def test_waveshare_hat_needs_both_channels_and_takes_the_shared_pins(tmp_path):
+    hw = _hw(tmp_path)
+    root = str(tmp_path / "root")
+    assert hardware.BY_ID["can_hat"].stage not in hardware.STAGES        # never switched on by a build stage
+    hw.set_stage("8")
+    assert hw.state("can_hat") == hardware.NO
+    for dev, name in (("spi0.0", "can0"),):
+        os.makedirs(os.path.join(root, "sys/bus/spi/devices", dev, "net", name))
+    hw.set_state("can_hat", hardware.YES)
+    st = hw.status("can_hat")
+    assert st.level == hardware.BAD and not st.detection.found           # one channel isn't the board
+    os.makedirs(os.path.join(root, "sys/bus/spi/devices/spi1.0/net/can1"))
+    hw._cache.clear()
+    assert hw.status("can_hat").text == "Found: can0, can1"
+    # the parts on its pins are left out, and say why
+    for oid in ("can_a", "can_b", "controls", "sync"):
+        st = hw.status(oid)
+        assert not hw.available(oid) and st.level == hardware.BAD and "Waveshare" in st.text, oid
+    assert hw.available("adc_pi") or hw.state("adc_pi") == hardware.YES
+    hw.set_state("can_hat", hardware.NO)
+    assert hw.available("can_a")
+
+
+def test_can_ports_are_named_by_connector_not_by_linux_name(tmp_path):
+    hw = _hw(tmp_path)
+    root = str(tmp_path / "root")
+    assert hw.can_ports() == []                                          # nothing on board: USB adapters aren't ports
+    hw.set_state("can_hat", hardware.YES)
+    # a USB adapter took can0, so the HAT's channels came up as can1 / can2
+    os.makedirs(os.path.join(root, "sys/bus/spi/devices/spi0.0/net/can1"))
+    os.makedirs(os.path.join(root, "sys/bus/spi/devices/spi1.0/net/can2"))
+    hw._cache.clear()
+    assert [(p.id, p.label, p.iface) for p in hw.can_ports()] == [("can1", "CAN 1", "can1"), ("can2", "CAN 2", "can2")]
+    hw.set_state("can_hat", hardware.NO)
+    hw.set_state("can_a", hardware.YES)
+    assert [(p.label, p.iface, p.option) for p in hw.can_ports()] == [("CAN 1", "can1", "can_a")]

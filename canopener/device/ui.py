@@ -28,7 +28,7 @@ COLORS = {
 }
 ON = {"accent": "on_accent", "bad": "on_bad"}       # text colour on a filled button of that colour
 EDGES = {"panel": "edge", "panel2": "edge", "accent": "edge_accent", "bad": "edge_bad", "panel_hi": "edge"}
-LEVEL = {"ok": "ok", "wait": "wait", "bad": "bad", "off": "off", "sim": "sim", "idle": "idle"}
+LEVEL = {"ok": "ok", "wait": "wait", "bad": "bad", "off": "off", "sim": "sim", "idle": "idle", "low": "warn"}
 
 
 FONT_ROLE = {"small": "text", "body": "text", "big": "heading", "title": "heading", "huge": "numbers"}

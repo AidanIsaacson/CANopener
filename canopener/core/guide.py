@@ -29,6 +29,7 @@ REST_SECONDS = 3.0          # hands off before each step
 DO_SECONDS = 4.0            # do it and hold it
 QUIET_SECONDS = 6.0         # the hands-off stretch at the very start
 OFFER = 3                   # candidates shown per step
+THIN_RATE = 10.0            # frames a second below which the bus is too quiet to learn from
 WAITING, QUIET, REST, DO, LOOK, RESULT, DONE = "waiting", "quiet", "rest", "do", "look", "result", "done"
 
 
@@ -262,6 +263,22 @@ def build_script(answers: dict) -> tuple[str, list[Step]]:
     return title, steps
 
 
+def thin_bus(frames: list, seconds: float) -> str:
+    """A warning when the hands-off stretch heard too little to learn from ("" when it's busy enough).
+
+    Most machines broadcast their state many times a second with the key on. A bus that's nearly
+    silent usually means the key is off, this connector isn't the machine's main bus, or the
+    controllers only answer a service tool that asks (the builder only listens, so it can't see that)."""
+    rate = len(frames) / seconds if seconds > 0 else 0.0
+    if rate >= THIN_RATE:
+        return ""
+    ids = len({(f.can_id, f.extended) for f in frames})
+    heard = f"about {rate:.0f} frame(s) a second from {ids} ID(s)" if frames else "nothing at all"
+    return (f"The bus is very quiet: {heard}. Little here can follow the controls. Check the key is on, or try "
+            "the machine's other connector. Some machines only answer a service tool that asks, and this only "
+            "listens.")
+
+
 @dataclass
 class Offer:
     cand: observed.Candidate
@@ -289,6 +306,7 @@ class Guide:
     marks: list = field(default_factory=list)       # [(time, label)] for the log's timestamps
     message: str = ""
     frames_seen: int = 0
+    bus_note: str = ""                              # set when the bus is too quiet to learn from
 
     def __post_init__(self):
         self._lock = threading.Lock()
@@ -405,6 +423,7 @@ class Guide:
     def _learn(self, now: float):
         """The hands-off stretch: whatever differs between its two halves changes by itself."""
         frames = self._take()
+        self.bus_note = thin_bus(frames, self.quiet)
         start, mid, end = self._t[0], self._t[0] + self.quiet / 2, self._t[0] + self.quiet
         if frames:
             r = changes.analyze(frames, [changes.Phase("a", start, mid), changes.Phase("b", mid, end + 1)])
@@ -435,5 +454,6 @@ class Guide:
         else:
             named = [c for c in observed.candidates(r, include_known=True) if c.field.known]
             self.message = (f"Only values already named changed ({named[0].field.known})." if named
-                            else "Nothing followed. Try again, a little slower, or skip.")
+                            else "Nothing followed. " + ("The bus is very quiet (see above)." if self.bus_note
+                                                         else "Try again, a little slower, or skip."))
         self.state = RESULT

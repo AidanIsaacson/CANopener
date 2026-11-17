@@ -166,7 +166,9 @@ def test_bit_fields_and_states_decode_from_a_real_looking_frame():
     assert etc2["Transmission requested range"].decode(d) == "D2"
     assert etc2["Transmission current range"].decode(d) == "D"
     na = bytes([0xFF] * 8)                                      # nothing fitted: every field reads "not available"
-    assert all(s.decode(na) is None for sigs in SIGNALS_BY_PGN.values() for s in sigs)
+    # (TSC1's control mode is the exception: all four values of its two bits are modes)
+    assert all(s.decode(na) is None for sigs in SIGNALS_BY_PGN.values() for s in sigs if s.na_check)
+    assert [s.name for sigs in SIGNALS_BY_PGN.values() for s in sigs if not s.na_check] == ["Override control mode"]
 
 
 def test_later_diagnostic_messages():

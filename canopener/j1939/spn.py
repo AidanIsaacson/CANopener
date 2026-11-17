@@ -161,6 +161,13 @@ SPN_NAMES = {
     3357: "Actual maximum available engine torque", 3543: "Engine operating state", 3697: "DPF lamp command",
     3698: "High exhaust system temperature lamp", 3699: "DPF passive regeneration status",
     3721: "Time since last DPF active regeneration",
+    # Parameters added with the standard messages found in real captures (2026-11)
+    87: "Cruise control high set limit speed", 88: "Cruise control low set limit speed",
+    119: "Hydraulic retarder pressure", 120: "Hydraulic retarder oil temperature",
+    695: "Override control mode", 986: "Requested fan speed",
+    1039: "Trip fuel (gaseous)", 1040: "Total fuel used (gaseous)",
+    1387: "Auxiliary pressure 1", 1388: "Auxiliary pressure 2",
+    1487: "Instrument lighting level", 3515: "DEF temperature 2",
 }
 
 SPN_OVERRIDES: dict[int, str] = {}

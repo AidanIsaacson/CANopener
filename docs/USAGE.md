@@ -306,6 +306,7 @@ a box). Remap them under **Log → Keyboard shortcuts…**.
 | `adapter_trace.txt` | Recorded through a Bluetooth OBD adapter: everything sent to it and every line it answered, as it printed them. |
 | `kline_probe.txt` | Only after a deep probe: every question it tried on the machine and each answer. |
 | `capture.log` | Every raw frame. Reopen it with **Open…** in the Log panel, then **View data**. |
+| `capture-can2.log` | The second bus's raw frames, when the handheld was watching one ([DEVICE.md](DEVICE.md)). Same clock as `capture.log`. |
 | `markers.csv`, `capture.json` | The timestamps, and everything in machine-readable form. |
 
 <img src="images/trim-dialog.png" width="330" align="right" alt="The trim offer on Save: minutes to keep before and after the timestamps, and how much is kept">

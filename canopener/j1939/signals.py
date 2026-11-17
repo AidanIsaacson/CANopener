@@ -174,6 +174,16 @@ SIGNALS: list[Signal] = [
     S("Desired operating speed", 0xFEDF, 1, 2, 0.125, 0, "rpm", 515, 0),
     S("Estimated parasitic losses", 0xFEDF, 4, 1, 1, -125, "%", 2978, 0),
     S("Exhaust gas mass flow", 0xFEDF, 5, 2, 0.2, 0, "kg/h", 3236),
+    # TSC1 (0) - torque / speed control: what another controller is asking the engine (or retarder) for
+    Signal("Override control mode", 0x0000, 0, 1, 1, 0, "", 695, 0, na_check=False, bit=0, bits=2,
+           enum=((0, "No override"), (1, "Speed control"), (2, "Torque control"), (3, "Speed / torque limit"))),
+    S("Requested speed / speed limit", 0x0000, 1, 2, 0.125, 0, "rpm", 898, 0),
+    S("Requested torque / torque limit", 0x0000, 3, 1, 1, -125, "%", 518, 0),
+    # TFAC (61466) - throttle actuator command
+    S("Throttle actuator 1 command", 0xF01A, 0, 2, 0.0025, 0, "%", 3464),
+    # TCI2 (65178), TCI3 (65177) - turbocharger compressor intake
+    S("Turbo 1 compressor intake temp", 0xFE9A, 0, 2, *_TEMP16, 1172),
+    S("Turbo 1 compressor intake pressure", 0xFE99, 0, 2, *_KPA128, 1176),
     # EGF1 (61450) - engine gas flow
     S("EGR mass flow", 0xF00A, 0, 2, 0.05, 0, "kg/h", 2659),
     S("Intake air mass flow", 0xF00A, 2, 2, 0.05, 0, "kg/h", 132),
@@ -197,9 +207,10 @@ SIGNALS: list[Signal] = [
     S("Turbocharger oil temp", 0xFEEE, 4, 2, *_TEMP16, 176),
     S("Intercooler temp", 0xFEEE, 6, 1, 1, -40, "°C", 52, 0),
     S("Intercooler thermostat opening", 0xFEEE, 7, 1, 0.4, 0, "%", 1134),
-    S("Engine ECU temp", 0xFE84, 2, 2, *_TEMP16, 1136),
-    S("EGR differential pressure", 0xFE84, 4, 2, *_KPA128, 411),
-    S("EGR temp", 0xFE84, 6, 2, *_TEMP16, 412),
+    S("Oil temp 2", 0xFEA4, 0, 2, *_TEMP16, 1135),
+    S("Engine ECU temp", 0xFEA4, 2, 2, *_TEMP16, 1136),
+    S("EGR differential pressure", 0xFEA4, 4, 2, *_KPA128, 411),
+    S("EGR temp", 0xFEA4, 6, 2, *_TEMP16, 412),
     S("Coolant temp (high resolution)", 0xFE69, 0, 2, *_TEMP16, 1637),
     S("Intake manifold temp (high resolution)", 0xFE69, 2, 2, *_TEMP16, 1636),
     S("Hydraulic oil temp", 0xFE68, 0, 1, 1, -40, "°C", 1638, 0),
@@ -251,6 +262,8 @@ SIGNALS: list[Signal] = [
     S("Throttle position", 0xFEF2, 6, 1, 0.4, 0, "%", 51),
     S("Trip fuel", 0xFEE9, 0, 4, 0.5, 0, "L", 182),
     S("Total fuel used", 0xFEE9, 4, 4, 0.5, 0, "L", 250),
+    S("Trip fuel (gaseous)", 0xFEAF, 0, 4, 0.5, 0, "kg", 1039),
+    S("Total fuel used (gaseous)", 0xFEAF, 4, 4, 0.5, 0, "kg", 1040),
     S("Washer fluid level", 0xFEFC, 0, 1, 0.4, 0, "%", 80),
     S("Fuel level", 0xFEFC, 1, 1, 0.4, 0, "%", 96),
     S("Fuel filter diff. pressure", 0xFEFC, 2, 1, 2, 0, "kPa", 95, 0),
@@ -270,6 +283,10 @@ SIGNALS: list[Signal] = [
          (6, "Decelerate / coast"), (7, "Resume"), (8, "Accelerate"), (9, "Accelerator override"),
          (10, "Preset speed 1"), (11, "Preset speed 2"), (12, "Preset speed 3"), (13, "Preset speed 4"),
          (14, "Preset speed 5"), (15, "Preset speed 6"), (16, "Preset speed 7"), (17, "Preset speed 8"))),
+    # CCSS (65261) - speed limits the vehicle is set up with
+    S("Maximum vehicle speed limit", 0xFEED, 0, 1, 1, 0, "km/h", 74, 0),
+    S("Cruise control high set limit", 0xFEED, 1, 1, 1, 0, "km/h", 87, 0),
+    S("Cruise control low set limit", 0xFEED, 2, 1, 1, 0, "km/h", 88, 0),
     S("Trip distance", 0xFEE0, 0, 4, 0.125, 0, "km", 244),
     S("Total vehicle distance", 0xFEE0, 4, 4, 0.125, 0, "km", 245),
     S("Total vehicle distance (high resolution)", 0xFEC1, 0, 4, 0.005, 0, "km", 917, 2),
@@ -288,6 +305,7 @@ SIGNALS: list[Signal] = [
     S("Transmission current gear", 0xF005, 3, 1, 1, -125, "", 523, 0),
     S("Transmission requested range", 0xF005, 4, 2, 1, 0, "", 162, kind=TEXT),
     S("Transmission current range", 0xF005, 6, 2, 1, 0, "", 163, kind=TEXT),
+    S("Transmission requested gear", 0x0100, 2, 1, 1, -125, "", 525, 0),      # TC1 (256)
     S("Clutch pressure", 0xFEF8, 0, 1, 16, 0, "kPa", 123, 0),
     S("Transmission oil level", 0xFEF8, 1, 1, 0.4, 0, "%", 124),
     S("Transmission filter diff. pressure", 0xFEF8, 2, 1, 2, 0, "kPa", 126, 0),
@@ -302,11 +320,24 @@ SIGNALS: list[Signal] = [
     _sw("ABS fully operational", 0xF001, 5, 0, 1243, _NO_YES),
     _sw("EBS red warning", 0xF001, 5, 2, 1439),
     _sw("ABS / EBS amber warning", 0xF001, 5, 4, 1438),
+    # RF (65275) - retarder fluids
+    S("Hydraulic retarder pressure", 0xFEFB, 0, 1, 16, 0, "kPa", 119, 0),
+    S("Hydraulic retarder oil temp", 0xFEFB, 1, 1, 1, -40, "°C", 120, 0),
     # PTO (65264), HPG (61448) - power take-off and hydraulics
     S("PTO oil temp", 0xFEF0, 0, 1, 1, -40, "°C", 90, 0),
     S("PTO speed", 0xFEF0, 1, 2, 0.125, 0, "rpm", 186, 0),
     S("PTO set speed", 0xFEF0, 3, 2, 0.125, 0, "rpm", 187, 0),
     S("Hydraulic pressure", 0xF008, 0, 2, 2, 0, "kPa", 1762, 0),
+    # CM1 (57344), CL (53248) - what the cab asks for
+    S("Requested fan speed", 0xE000, 0, 1, 0.4, 0, "%", 986),
+    _sw("Regeneration inhibit switch", 0xE000, 5, 0, 3695),
+    _sw("Regeneration force switch", 0xE000, 5, 2, 3696),
+    S("Instrument lighting level", 0xD000, 0, 1, 0.4, 0, "%", 1487),
+    # AAI (65164) - auxiliary analog inputs
+    S("Auxiliary temp 1", 0xFE8C, 0, 1, 1, -40, "°C", 441, 0),
+    S("Auxiliary temp 2", 0xFE8C, 1, 1, 1, -40, "°C", 442, 0),
+    S("Auxiliary pressure 1", 0xFE8C, 2, 1, 16, 0, "kPa", 1387, 0),
+    S("Auxiliary pressure 2", 0xFE8C, 3, 1, 16, 0, "kPa", 1388, 0),
     # Aftertreatment: AT1T1I (65110), AT1S (64891), DPFC1 (64892), NOx (61454 / 61455), gas temps
     S("DEF tank level", 0xFE56, 0, 1, 0.4, 0, "%", 1761),
     S("DEF tank temp", 0xFE56, 1, 1, 1, -40, "°C", 3031, 0),
@@ -321,6 +352,12 @@ SIGNALS: list[Signal] = [
          (2, "Regeneration needed: moderate level"), (3, "Regeneration needed: highest level"))),
     _sw("DPF regeneration inhibited", 0xFD7C, 2, 0, 3702, _NO_YES),
     _en("High exhaust temperature lamp", 0xFD7C, 6, 2, 3, 3698, ((0, "Off"), (1, "On"))),
+    S("DEF temp 2", 0xFD9B, 0, 1, 1, -40, "°C", 3515, 0),                       # A1DEFI1 (64923)
+    S("DEF concentration", 0xFD9B, 1, 1, 0.25, 0, "%", 3516, 2),
+    S("DOC inlet temp", 0xFD20, 0, 2, *_TEMP16, 4765, 0),                       # A1DOC1 (64800)
+    S("DOC outlet temp", 0xFD20, 2, 2, *_TEMP16, 4766, 0),
+    S("SCR inlet temp", 0xFD3E, 0, 2, *_TEMP16, 4360, 0),                       # A1SCREGT1 (64830)
+    S("SCR outlet temp", 0xFD3E, 3, 2, *_TEMP16, 4363, 0),
     S("NOx before SCR", 0xF00E, 0, 2, 0.05, -200, "ppm", 3216, 0),
     S("NOx after SCR", 0xF00F, 0, 2, 0.05, -200, "ppm", 3226, 0),
     S("Exhaust temp 1 (before DOC)", 0xFDB4, 0, 2, *_TEMP16, 3241, 0),
@@ -340,8 +377,11 @@ del S, _sw, _en
 
 _GROUPS = {
     0xF004: "Engine", 0xF003: "Engine", 0xFEE5: "Engine", 0xFEDF: "Engine", 0xF00A: "Engine", 0xFEDC: "Engine",
-    0xFD92: "Engine", 0xFEE4: "Engine", 0xFE92: "Engine",
-    0xFEEE: "Temperatures", 0xFE68: "Temperatures", 0xFE84: "Temperatures", 0xFE69: "Temperatures",
+    0xFD92: "Engine", 0xFEE4: "Engine", 0xFE92: "Engine", 0x0000: "Engine", 0xF01A: "Engine",
+    0xFE99: "Intake / exhaust", 0xFE9A: "Intake / exhaust", 0xFEAF: "Fuel", 0xFEED: "Drivetrain", 0x0100: "Drivetrain",
+    0xFEFB: "Brakes", 0xE000: "Cab", 0xD000: "Cab", 0xFE8C: "Other",
+    0xFD9B: "Aftertreatment", 0xFD20: "Aftertreatment", 0xFD3E: "Aftertreatment",
+    0xFEEE: "Temperatures", 0xFE68: "Temperatures", 0xFEA4: "Temperatures", 0xFE69: "Temperatures",
     0xFEEF: "Fluids", 0xFEDB: "Fuel", 0xFEF2: "Fuel", 0xFEFC: "Fuel", 0xFEE9: "Fuel", 0xFEFF: "Fuel",
     0xFEF6: "Intake / exhaust", 0xFEF5: "Intake / exhaust", 0xFEDD: "Intake / exhaust", 0xFEBD: "Cooling fan",
     0xFEF7: "Electrical", 0xFED5: "Electrical",

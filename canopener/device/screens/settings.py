@@ -326,7 +326,7 @@ class SettingsScreen(Screen):
             return lambda v: (hw.set_state(oid, v), self._boot_changes())
         for opt in hardware.OPTIONS:
             st = hw.status(opt.id)
-            rows.append(Row(f"{opt.name} (stage {opt.stage})",
+            rows.append(Row(f"{opt.name} (stage {opt.stage})" if opt.stage in hardware.STAGES else opt.name,
                             lambda opt=opt: label_of(hardware.STATES, hw.state(opt.id)),
                             select=lambda opt=opt: choose(self.app, opt.name, hardware.STATES, hw.state(opt.id),
                                                           setter(opt.id)),

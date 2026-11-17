@@ -16,7 +16,7 @@ import pygame
 from ...core import measure
 from .. import input as inp
 from ..ui import GridView
-from .base import Screen, SoftKey
+from .base import Row, RowList, Screen, SoftKey
 from .live import draw_value_tile
 
 ZOOM = "device.meter_zoom"          # the enlarged channel's row key, kept between screens and restarts
@@ -29,7 +29,41 @@ def status(ctx) -> str:
     bad = [s for s in srcs if s.status.level == measure.BAD]
     if bad:
         return f"{bad[0].name}: {bad[0].status.text}"
-    return f"{len(ctx.hub.channels())} channel(s)"
+    on, every = len(ctx.hub.channels()), len(ctx.hub.all_channels())
+    return f"{on} channel(s)" + (f", {every - on} switched off" if every > on else "")
+
+
+class InputsScreen(Screen):
+    """Which inputs are in use: one with nothing on it can be switched off, so it isn't shown,
+    charted or recorded. Meter setup (which meter, calibration) is one row down."""
+    title = "Inputs"
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.rows = RowList(self._rows)
+
+    def _rows(self):
+        ctx = self.ctx
+        names = {src.id: src.name for src in ctx.hub.sources()}
+        rows = [Row("Inputs in use", kind="header")]
+        for ch in ctx.hub.all_channels():
+            rows.append(Row(ch.name, check=lambda ch=ch: not ctx.hub.is_off(ch.id),
+                            select=lambda ch=ch: ctx.set_meter_channel(ch.id, ctx.hub.is_off(ch.id)),
+                            hint=f"{names.get(ch.source, ch.source)}: off = not shown, charted or recorded"))
+        rows.append(Row("Meters", kind="header"))
+        rows.append(Row("Meter setup", kind="menu", select=self._setup,
+                        hint="which meter, the Pi's ADC, calibration"))
+        return rows
+
+    def _setup(self):
+        from .settings import SettingsScreen
+        self.app.push(SettingsScreen(self.app, section="Meters"))
+
+    def on_action(self, action, n=1):
+        return self.rows.on_action(action, n)
+
+    def draw(self, ui, rect):
+        self.rows.draw(ui, rect)
 
 
 class MeterScreen(Screen):
@@ -45,7 +79,7 @@ class MeterScreen(Screen):
         if not ctx.hub.sources():
             return [SoftKey("Simulated", self.use_sim), SoftKey("Setup", self.setup)]
         return [SoftKey("Hold", self.toggle_hold, active=self.hold is not None),
-                SoftKey("Setup", self.setup),
+                SoftKey("Inputs", self.inputs),
                 SoftKey("Reset min/max", ctx.meter_live.reset_minmax),         # where Live has it
                 SoftKey("Stop log" if ctx.recording else "Start log", ctx.toggle_log, active=ctx.recording)]
 
@@ -53,6 +87,9 @@ class MeterScreen(Screen):
         self.ctx.settings.set("meters.sim", True)
         self.ctx.apply_meters()
         self.ctx.toast("Simulated meter on (System > Meters to turn it off)")
+
+    def inputs(self):
+        self.app.push(InputsScreen(self.app))
 
     def setup(self):
         from .settings import SettingsScreen

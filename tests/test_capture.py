@@ -144,6 +144,16 @@ def test_crash_recovery(bus_and_session, tmp_path):
     assert json.load(open(os.path.join(folder, "capture.json")))["state"] == "saved"
 
 
+def test_add_marker_is_written_at_once(bus_and_session, tmp_path):
+    _, _, session = bus_and_session
+    c = Capture()
+    c.start(session, str(tmp_path))
+    assert c.add_marker("Seat switch", c.started + 0.5) == 0
+    saved = json.load(open(os.path.join(c.folder, "capture.json")))["markers"]
+    assert saved[0]["label"] == "Seat switch" and saved[0]["t"] == c.started + 0.5 and not saved[0]["planned"]
+    c.stop()
+
+
 def test_discard(bus_and_session, tmp_path):
     _, _, session = bus_and_session
     c = Capture(plan=PLAN)
@@ -211,3 +221,27 @@ def test_trim_needs_a_tagged_timestamp_and_a_stopped_capture(tmp_path):
     c.state = cap.RECORDING
     with pytest.raises(RuntimeError):
         c.trim()
+
+
+def test_a_second_bus_is_recorded_beside_the_first(bus_and_session, tmp_path):
+    _, _, session = bus_and_session
+    bus2 = VirtualBus()
+    sim2 = MachineSimulator(VirtualBackend(bus2), seed=3)
+    sim2.start()
+    second = Session(VirtualBackend(bus2))
+    second.start()
+    try:
+        c = Capture("two buses")
+        c.start(session, str(tmp_path), {"source": "socketcan", "second": {"port": "CAN 2", "bitrate": 500000}},
+                second=second)
+        time.sleep(1.5)
+        c.stop()
+    finally:
+        second.stop()
+        sim2.stop()
+    folder = c.save()
+    assert cap.SECOND_LOG in os.listdir(folder)
+    lines = open(os.path.join(folder, cap.SECOND_LOG)).read().splitlines()
+    meta = json.load(open(os.path.join(folder, "capture.json")))["meta"]
+    assert len(lines) > 20 and meta["second"]["frames"] == len(lines) and meta["second"]["port"] == "CAN 2"
+    assert cap.SECOND_LOG in open(os.path.join(folder, "README.md")).read()

@@ -158,3 +158,21 @@ def test_every_kind_of_machine_has_a_sound_script():
     g.tick(200.0)
     g.tick(300.0)
     assert g.state == guide.RESULT and "No frames arrived" in g.message
+
+
+def test_a_quiet_bus_is_called_out_after_the_hands_off_stretch():
+    g = _guide()
+    g.begin(1000.0)
+    for n in range(4):                                      # one frame a second: nearly silent
+        g.feed(CanFrame(0x4FC, bytes([0, n, 0, 0, 0, 0, 0, 0]), False, 1000.5 + n))
+    g.tick(1004.1)
+    assert g.state == guide.REST and "very quiet" in g.bus_note and "1 ID(s)" in g.bus_note
+    assert guide.thin_bus([], 4.0).startswith("The bus is very quiet: nothing at all")
+
+
+def test_a_busy_bus_gets_no_quiet_note():
+    g = _guide()
+    m = Machine(g)
+    g.begin(m.t)
+    m.run(4.1)
+    assert g.state == guide.REST and g.bus_note == ""

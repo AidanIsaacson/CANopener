@@ -117,6 +117,7 @@ class MeasurementHub:
         self._history_len = history
         self._listeners: list = []
         self._raw_listeners: list = []
+        self._off: set[str] = set()
         self.sample_count = 0
 
     # --- sources ---
@@ -141,14 +142,35 @@ class MeasurementHub:
         for src in self.sources():
             src.stop()
 
-    def channels(self) -> list[Channel]:
+    def all_channels(self) -> list[Channel]:
+        """Every channel the sources have, switched off or not (for the page that switches them)."""
         return [ch for src in self.sources() for ch in src.channels()]
+
+    def channels(self) -> list[Channel]:
+        """The channels in use: what the live views, captures and calibration work with."""
+        off = self._off
+        return [ch for ch in self.all_channels() if ch.id not in off]
+
+    # --- channels switched off ---
+    def set_off(self, channel_ids):
+        """Channels to leave out (an input with nothing on it): their readings are dropped as they
+        arrive, so they aren't shown, charted or recorded. The source keeps running."""
+        with self.lock:
+            self._off = set(channel_ids or ())
+            for cid in self._off:
+                self._latest.pop(cid, None)
+                self._history.pop(cid, None)
+
+    def is_off(self, channel_id: str) -> bool:
+        return channel_id in self._off
 
     def channel(self, channel_id: str) -> Channel | None:
         return next((c for c in self.channels() if c.id == channel_id), None)
 
     # --- samples ---
     def push(self, sample: Sample):
+        if sample.channel in self._off:
+            return
         raw = sample
         cal = self.calibration
         if cal is not None and sample.value is not None:
@@ -431,7 +453,7 @@ class MeasurementLiveData(LiveData):
             self._names[src.id] = src.name
             for ch in src.channels():
                 s = latest.get(ch.id)
-                if s is None:
+                if s is None or hub.is_off(ch.id):
                     continue
                 sig = self._sigs.get(ch.id)
                 if sig is None or sig.channel != ch:
@@ -450,6 +472,18 @@ class MeasurementLiveData(LiveData):
                     else:
                         row._update(s.t, s.value)
         return len(self.order) != n
+
+    def drop(self, channel_ids):
+        """Take these channels' rows out (they were switched off); picked values elsewhere stay."""
+        ids = set(channel_ids)
+        gone = [k for k, r in self.rows.items() if r.sig.channel.id in ids]
+        for k in gone:
+            del self.rows[k]
+            self.flags.pop(k, None)
+        self.order[:] = [k for k in self.order if k not in gone]
+        self.selected[:] = [k for k in self.selected if k not in gone]
+        for cid in ids:
+            self._sigs.pop(cid, None)
 
     def load_history(self, series: dict[str, ChannelSeries]):
         """For a saved capture: every reading in its measurements.csv."""

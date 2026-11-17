@@ -67,6 +67,7 @@ class Option:
     requires: tuple = ()        # option ids this needs (the ohms channel needs the meter Pico)
     detect: str = ""            # detection kind, see Probe.detect
     arg: object = None          # its argument (interface name, IIO names, USB name patterns ...)
+    clashes: tuple = ()         # option ids that use the same pins: while this one is on, they aren't used
 
 
 OPTIONS: list[Option] = [
@@ -84,6 +85,14 @@ OPTIONS: list[Option] = [
            "dtoverlay=mcp251xfd,spi0-0,oscillator=20000000,interrupt=25 in config.txt; then "
            "`dmesg | grep mcp251xfd`. No interface usually means wiring or the crystal.",
            detect="spi_net", arg="spi0.0"),
+    Option("can_hat", "Waveshare 2-CH CAN FD HAT", "-", "Two isolated MCP2518FD channels (40 MHz) with their own "
+           "8-26 V input, as shipped: CAN_0 on SPI0 CE0 (INT GPIO25), CAN_1 on SPI1 CE0 (GPIO18-21, INT GPIO24). "
+           "Instead of CAN stacks A and B.",
+           "Seated on all 40 pins, and the solder jumpers on the back still as shipped (CAN_0: CE0 / D25, "
+           "CAN_1: SPI1_CE0 / D24)? `dmesg | grep mcp251xfd` should show two controllers. Its second channel "
+           "takes GPIO18-21 and 24: the encoder (GPIO24), the sync input (GPIO21) and a GPIO18 buzzer can't "
+           "share those pins.",
+           detect="spi_nets", arg=("spi0.0", "spi1.0"), clashes=("can_a", "can_b", "controls", "sync")),
     Option("logic_pico", "Logic Pico", "2a", "Original Pico running stock sigrok-pico: the logic analyzer.",
            "Plugged in by USB? Flashed with sigrok-pico? Set hardware.logic_pico.port if it isn't recognised.",
            detect="serial", arg=LOGIC_PICO_NAMES),
@@ -154,6 +163,14 @@ class Probe:
         if not ifaces:
             return Detection(False, detail=f"no CAN interface on {spi_dev}")
         return Detection(True, os.path.basename(ifaces[0]), f"on {spi_dev}")
+
+    def spi_nets(self, spi_devs) -> Detection:
+        """A board with several controllers: found when every one has its CAN interface."""
+        each = [self.spi_net(d) for d in spi_devs]
+        missing = [d for d, det in zip(spi_devs, each) if not det.found]
+        if missing:
+            return Detection(False, detail="no CAN interface on " + ", ".join(missing))
+        return Detection(True, ", ".join(det.where for det in each), "on " + ", ".join(spi_devs))
 
     def usb_can(self, _arg=None) -> Detection:
         """A CAN interface on a USB adapter: its device sits on USB (gs_usb, PEAK, Kvaser ...), or
@@ -229,6 +246,8 @@ class Probe:
         port = (settings.get(f"hardware.{opt.id}.port") if settings is not None else "") or ""
         if opt.detect == "spi_net":
             return self.spi_net(opt.arg)
+        if opt.detect == "spi_nets":
+            return self.spi_nets(opt.arg)
         if opt.detect == "usb_can":
             return self.usb_can()
         if opt.detect == "input":
@@ -254,6 +273,21 @@ def _read(path: str) -> str:
             return f.read().strip()
     except OSError:
         return ""
+
+
+@dataclass(frozen=True)
+class CanPort:
+    """One CAN connector on the unit itself, named by where it is, not by what Linux called it
+    (can0 / can1 swap with a USB adapter plugged in, or with the order the drivers load)."""
+
+    id: str             # "can1" / "can2": what settings store (can.ports_off)
+    label: str          # "CAN 1" / "CAN 2"
+    iface: str          # its Linux interface now ("" = not there)
+    option: str         # the installed option it belongs to
+
+
+# (option, SPI device) of each on-board port, in connector order
+CAN_PORTS = {"can_hat": ("spi0.0", "spi1.0"), "can_a": ("spi0.0",), "can_b": ("spi0.1",)}
 
 
 @dataclass
@@ -314,15 +348,26 @@ class Hardware:
         st = self.state(opt_id)
         return st == YES or (st == AUTO and self.detect(opt_id).found is True)
 
+    def clash(self, opt_id: str) -> list[str]:
+        """Names of the options switched on that take this one's pins (so this one isn't used)."""
+        return [o.name for o in OPTIONS if opt_id in o.clashes and self.state(o.id) != NO]
+
     def available(self, opt_id: str) -> bool:
-        """Offer this option's features: it and everything it needs are installed."""
+        """Offer this option's features: it and everything it needs are installed, and nothing
+        else has its pins."""
         opt = BY_ID[opt_id]
-        return self.installed(opt_id) and all(self.available(r) for r in opt.requires)
+        return (self.installed(opt_id) and not self.clash(opt_id)
+                and all(self.available(r) for r in opt.requires))
 
     def status(self, opt_id: str) -> OptionStatus:
         opt, st = BY_ID[opt_id], self.state(opt_id)
         if st == NO:
             return OptionStatus(opt, st, Detection(None), False, OFF, "Not installed")
+        clash = self.clash(opt_id)
+        if clash:
+            return OptionStatus(opt, st, Detection(None), False, BAD, "Not used: shares pins with " + ", ".join(clash),
+                                "Set one of the two to Not installed. Until then this one is left out of the "
+                                "Pi's boot settings.")
         det = self.detect(opt_id)
         avail = self.available(opt_id)
         missing = [BY_ID[r].name for r in opt.requires if not self.available(r)]
@@ -336,6 +381,18 @@ class Hardware:
         if st == AUTO:
             return OptionStatus(opt, st, det, False, OFF, "Not found", det.detail)
         return OptionStatus(opt, st, det, avail, BAD, "Missing", opt.hint)
+
+    def can_ports(self) -> list[CanPort]:
+        """The unit's own CAN connectors (not USB adapters), in order: the HAT's two, or stacks A / B."""
+        devs = []
+        for opt_id in ("can_hat", "can_a", "can_b"):
+            if self.available(opt_id):
+                devs += [(opt_id, d) for d in CAN_PORTS[opt_id]]
+        out = []
+        for n, (opt_id, dev) in enumerate(devs, 1):
+            det = self.probe.spi_net(dev)
+            out.append(CanPort(f"can{n}", f"CAN {n}", det.where if det.found else "", opt_id))
+        return out
 
     def report(self) -> list[OptionStatus]:
         return [self.status(o.id) for o in OPTIONS]

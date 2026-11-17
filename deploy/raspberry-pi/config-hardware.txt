@@ -28,6 +28,16 @@ dtoverlay=mcp251xfd,spi0-0,oscillator=20000000,interrupt=25
 # --- Stage 5: CAN stack B (MCP2518FD on SPI0 CE1, INT on GPIO20) -> can1 ---
 #dtoverlay=mcp251xfd,spi0-1,oscillator=20000000,interrupt=20
 
+# --- Instead of stacks A and B: Waveshare 2-CH CAN FD HAT, as shipped (option can_hat) [verify] ---
+# Two isolated MCP2518FD channels, 40 MHz, own 8-26 V input. CAN_0: SPI0 CE0, INT GPIO25.
+# CAN_1: SPI1 (MISO 19, MOSI 20, SCLK 21, CE0 GPIO18), INT GPIO24. That second channel takes the
+# pins of the encoder's A line (GPIO24), the SYNC input (GPIO21) and the buzzer (GPIO18): the app
+# leaves the controls and sync out of the boot settings while the HAT is switched on.
+#dtparam=spi=on
+#dtoverlay=mcp251xfd,spi0-0,oscillator=40000000,interrupt=25
+#dtoverlay=spi1-1cs
+#dtoverlay=mcp251xfd,spi1-0,oscillator=40000000,interrupt=24
+
 # --- Stage 6: ESP32 on the GPIO14/15 UART -> /dev/ttyAMA0 ---
 # Turn the serial console off first (raspi-config > Interface Options > Serial Port:
 # login shell No, serial hardware Yes).

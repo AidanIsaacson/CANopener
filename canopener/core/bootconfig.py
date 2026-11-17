@@ -31,9 +31,13 @@ OSCILLATORS = [("20 MHz (prototype module)", 20000000), ("40 MHz (custom board)"
 SPI_SPEEDS = [("Full speed (8.5 MHz)", 0), ("4 MHz", 4000000), ("1 MHz (breadboard wiring)", 1000000)]
 GPIO_KEYS = [(5, 59, "F1"), (6, 60, "F2"), (12, 61, "F3"), (13, 62, "F4"), (16, 63, "F5"), (17, 103, "UP"),
              (27, 108, "DOWN"), (22, 105, "LEFT"), (23, 106, "RIGHT"), (26, 28, "SELECT")]
-PARTS = ("controls", "can_a", "can_b", "sync", "adc_pi", "esp32")
-LIVE = ("can_a", "can_b", "sync", "adc_pi")
+PARTS = ("controls", "can_a", "can_b", "can_hat", "sync", "adc_pi", "esp32")
+LIVE = ("can_a", "can_b", "can_hat", "sync", "adc_pi")
 CAN = ("can_a", "can_b")
+# The Waveshare 2-CH CAN FD HAT as shipped: 40 MHz, CAN_0 on SPI0 CE0 / GPIO25, CAN_1 on SPI1 CE0
+# (GPIO18) / GPIO24. spi1-1cs claims only that one chip select.
+CAN_HAT = ("dtparam=spi=on", "dtoverlay=mcp251xfd,spi0-0,oscillator=40000000,interrupt=25",
+           "dtoverlay=spi1-1cs", "dtoverlay=mcp251xfd,spi1-0,oscillator=40000000,interrupt=24")
 
 
 def lines(option: str, osc: int = 20000000, spi: int = 0, pi5: bool = True) -> list[str]:
@@ -47,6 +51,8 @@ def lines(option: str, osc: int = 20000000, spi: int = 0, pi5: bool = True) -> l
         cs, irq = (0, 25) if option == "can_a" else (1, 20)
         extra = f",speed={spi}" if spi else ""
         return ["dtparam=spi=on", f"dtoverlay=mcp251xfd,spi0-{cs},oscillator={osc},interrupt={irq}{extra}"]
+    if option == "can_hat":
+        return list(CAN_HAT)
     if option == "sync":
         return ["dtoverlay=pps-gpio,gpiopin=21"]
     if option == "adc_pi":
@@ -109,8 +115,10 @@ def current(path: str | None = None) -> list[str]:
 
 
 def wanted(hw: "hardware.Hardware") -> list[str]:
-    """Tokens for every part on the Pi's pins that's set to Installed or Use if found."""
-    return [token(o, hw.settings) for o in PARTS if hw.state(o) in (hardware.YES, hardware.AUTO)]
+    """Tokens for every part on the Pi's pins that's set to Installed or Use if found (a part
+    whose pins another one has taken is left out)."""
+    return [token(o, hw.settings) for o in PARTS
+            if hw.state(o) in (hardware.YES, hardware.AUTO) and not hw.clash(o)]
 
 
 @dataclass

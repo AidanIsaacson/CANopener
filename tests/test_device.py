@@ -112,6 +112,38 @@ def test_context_sim_codes_live_and_a_log_with_meters(ctx):
     assert ctx.session is None
 
 
+def test_meter_inputs_and_can_ports_can_be_switched_off(ctx, tmp_path):
+    from canopener.core import hardware
+    deadline = time.time() + 5
+    while len(ctx.hub.latest_all()) < 4 and time.time() < deadline:
+        time.sleep(0.05)
+    ctx.meter_live.sample(ctx.hub)
+    chans = [c.id for c in ctx.hub.channels()]
+    assert len(chans) == 4 and len(ctx.meter_live.rows) == 4
+    ctx.set_meter_channel(chans[1], False)
+    ctx.set_meter_channel(chans[3], False)
+    time.sleep(0.2)
+    ctx.meter_live.sample(ctx.hub)
+    assert [c.id for c in ctx.hub.channels()] == [chans[0], chans[2]] and len(ctx.meter_live.rows) == 2
+    assert ctx.settings.get("meters.off") == [chans[1], chans[3]]
+    ctx.apply_meters()                                  # a restart of the sources keeps them off
+    assert ctx.hub.is_off(chans[1]) and not ctx.hub.is_off(chans[0])
+    ctx.set_meter_channel(chans[1], True)
+    assert ctx.settings.get("meters.off") == [chans[3]]
+    # the HAT's two ports: CAN 2 off leaves it out of the list and moves the connection off it
+    root = tmp_path / "root"
+    for dev, name in (("spi0.0", "can0"), ("spi1.0", "can1")):
+        os.makedirs(root / "sys/bus/spi/devices" / dev / "net" / name)
+    ctx.hardware.probe = hardware.Probe(str(root))
+    ctx.hardware.set_state("can_hat", hardware.YES)
+    ctx.settings.set("can.iface", "can1")
+    assert ctx.can_iface_choices(["can0", "can1", "can5"]) == [("CAN 1 (can0)", "can0"), ("CAN 2 (can1)", "can1"),
+                                                             ("can5", "can5")]
+    ctx.set_can_port("can2", False)
+    assert ctx.settings.get("can.iface") == "can0" and not ctx.can_port_on("can2")
+    assert ctx.can_iface_choices(["can0", "can1", "can5"]) == [("CAN 1 (can0)", "can0"), ("can5", "can5")]
+
+
 def test_context_logs_meters_without_a_bus_and_refuses_with_nothing(ctx):
     assert ctx.start_log()
     time.sleep(0.2)
@@ -1500,3 +1532,83 @@ def test_the_meters_enlarged_channel_is_kept(app_for):
     assert app.top.grid.zoom == 1
     press(app, pygame.K_ESCAPE)
     assert app.ctx.settings.get(ZOOM) is None
+
+
+def test_two_can_ports_a_quiet_main_bus_and_a_watched_second_bus(ctx, tmp_path, monkeypatch):
+    """The HAT's two ports: CAN 1 (main) is silent, CAN 2 is watched listen-only at its own bitrate
+    and has the traffic. The lamps say so, the log records both, and the ports can swap."""
+    from canopener.can.backends import VirtualBackend, VirtualBus
+    from canopener.core import connection, hardware, interfaces, link
+    from canopener.device import context
+    from canopener.sim import MachineSimulator
+    root = tmp_path / "root"
+    for dev, name in (("spi0.0", "can0"), ("spi1.0", "can1")):
+        os.makedirs(root / "sys/bus/spi/devices" / dev / "net" / name)
+    ctx.hardware.probe = hardware.Probe(str(root))
+    ctx.hardware.set_state("can_hat", hardware.YES)
+    s = ctx.settings
+    for k, v in (("can.source", "socketcan"), ("can.iface", "can0"), ("can.bitrate", 500000),
+                 ("can.second", "watch"), ("can.second.bitrate", 250000)):
+        s.set(k, v)
+    assert ctx.other_port().label == "CAN 2" and ctx.second_to_watch().iface == "can1"
+    brought_up, opened = [], []
+
+    def fake_open(kind, channel="can0", *, listen_only=False, **kw):
+        from canopener.core.session import Session
+        bus = VirtualBus()
+        sim = None
+        if channel == "can1":                               # the truck bus is on the second port
+            sim = MachineSimulator(VirtualBackend(bus), seed=1)
+            sim.start()
+        backend = VirtualBackend(bus)
+        backend.channel = channel
+        sess = Session(backend)
+        sess.start()
+        opened.append((channel, listen_only, kw.get("bitrate")))
+        return connection.Connection(connection.SOCKETCAN, sess, sim)
+
+    monkeypatch.setattr(context, "open_connection", fake_open)
+    monkeypatch.setattr(interfaces, "list_interfaces", lambda details=True: [
+        interfaces.CanInterface("can0", "up"), interfaces.CanInterface("can1", "down")])
+    monkeypatch.setattr(interfaces, "needs_setup", lambda *a: False)
+    monkeypatch.setattr(interfaces, "bring_up", lambda *a: brought_up.append(a) or (True, "ok"))
+    ctx.connect()
+    assert ctx.wait_idle() and ctx.live and ctx.second is not None
+    assert opened == [("can0", False, 500000), ("can1", True, 250000)]
+    assert brought_up == [("can1", 250000, True)]            # its own bitrate, never transmitting
+    assert ctx.capture_meta()["second"] == {"port": "CAN 2", "interface": "can1", "bitrate": 250000,
+                                            "listen_only": True}
+    assert ctx.start_log()
+    monkeypatch.setattr(context, "TRAFFIC_CHECK_SECS", 2.5)
+    for _ in range(14):                                     # the lamps, as the app's loop would drive them
+        time.sleep(0.25)
+        ctx.tick()
+    assert ctx.bus.level == link.WAIT and ctx.bus2.level == link.OK and ctx.second_rate() > 10
+    assert "CAN 2 has the traffic" in ctx.traffic_hint and "J1939" in ctx.second_speaks()
+    ctx.stop_log()
+    assert ctx.capture.meta["second"]["frames"] > 20
+    ctx.swap_ports()                                        # CAN 2 becomes the main bus; bitrates swap
+    assert ctx.wait_idle()
+    assert (s.get("can.iface"), s.get("can.bitrate"), s.get("can.second.bitrate")) == ("can1", 250000, 500000)
+    assert opened[-2:] == [("can1", False, 250000), ("can0", True, 500000)] and ctx.second_port.label == "CAN 1"
+    ctx.disconnect()
+    assert ctx.second is None and ctx.bus2.level == link.OFF
+
+
+def test_a_second_bus_that_wont_open_doesnt_cost_the_main_one(ctx, tmp_path, monkeypatch):
+    from canopener.core import hardware, interfaces
+    root = tmp_path / "root"
+    for dev, name in (("spi0.0", "vcan8"), ("spi1.0", "can1")):
+        os.makedirs(root / "sys/bus/spi/devices" / dev / "net" / name)
+    ctx.hardware.probe = hardware.Probe(str(root))
+    ctx.hardware.set_state("can_hat", hardware.YES)
+    for k, v in (("can.source", "socketcan"), ("can.iface", "vcan8"), ("can.second", "watch"),
+                 ("can.second.bitrate", 250000)):
+        ctx.settings.set(k, v)
+    monkeypatch.setattr(interfaces, "bring_up", lambda *a: (False, "no such device"))
+    from canopener.device import context
+    real = context.open_connection
+    monkeypatch.setattr(context, "open_connection", lambda kind, *a, **kw: real("sim"))
+    ctx.connect()
+    assert ctx.wait_idle() and ctx.live and ctx.second is None
+    assert any("CAN 2 not watched" in text for text, _ in ctx.toasts)

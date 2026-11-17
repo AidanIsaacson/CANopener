@@ -35,6 +35,9 @@ DEFAULTS: dict = {
     "can.bitrate": 250000,              # 0 = auto (the signal finder picks it)
     "can.listen_only": False,
     "can.connect_on_start": False,
+    "can.second": "off",                # the other on-board port: "off", or "watch" (listen-only, recorded too)
+    "can.second.bitrate": 0,            # its own bitrate (0 = auto): buses on one machine often differ
+    "can.ports_off": [],                # on-board CAN ports not in use ("can2"): left out of the interface list
     "hardware.can_a.oscillator": 20000000,      # CAN stack crystals and SPI speeds (core.bootconfig): 20 MHz on
     "hardware.can_a.spi_hz": 0,                  # the prototype module, 40 MHz on the custom board; SPI 0 = full speed
     "hardware.can_b.oscillator": 20000000,
@@ -60,6 +63,7 @@ DEFAULTS: dict = {
     "meters.serial": "",                # serial port of a JSON-lines meter (Pico / ESP32 bridge)
     "meters.iio": "",                   # IIO ADC device name (e.g. ads1115) read as probe voltages
     "meters.iio_ratio": 1.0,            # input divider: volts at the probe per volt at the ADC
+    "meters.off": [],                   # channel ids switched off (an input with nothing on it): not shown or recorded
     "meters.cal": {},                   # channel id -> {offset, gain, ref, when} (core.calibration)
     "meters.cal_ref": 12.0,             # the supply voltage last typed in for a Quick calibration
     # installed options (core.hardware): which on-deck parts this unit has fitted

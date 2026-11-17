@@ -263,3 +263,30 @@ def test_capture_needs_something_to_record(tmp_path):
     except ValueError:
         return
     raise AssertionError("expected ValueError")
+
+
+def test_a_channel_switched_off_is_not_kept_shown_or_passed_on():
+    hub = MeasurementHub()
+    src = FakeMeter([Channel("fake.a", "A", "V", "fake"), Channel("fake.b", "B", "V", "fake")])
+    hub.add_source(src)
+    got = []
+    hub.add_listener(got.append)
+    live = measure.MeasurementLiveData()
+    src.emit("fake.a", 1.0, 10.0)
+    src.emit("fake.b", 2.0, 10.0)
+    live.sample(hub)
+    assert len(live.rows) == 2
+    hub.set_off(["fake.b"])
+    live.drop(["fake.b"])
+    src.emit("fake.a", 1.5, 11.0)
+    src.emit("fake.b", 2.5, 11.0)
+    live.sample(hub)
+    assert [c.id for c in hub.channels()] == ["fake.a"] and len(hub.all_channels()) == 2
+    assert hub.latest("fake.b") is None and hub.history("fake.b") == []
+    assert [s.channel for s in got] == ["fake.a", "fake.b", "fake.a"]       # the last fake.b never arrived
+    assert [r.sig.channel.id for r in live.rows.values()] == ["fake.a"]
+    hub.set_off([])
+    src.emit("fake.b", 3.0, 12.0)
+    live.sample(hub)
+    assert hub.latest("fake.b").value == 3.0 and len(live.rows) == 2
+    assert DEFAULTS["meters.off"] == [] and DEFAULTS["can.ports_off"] == []

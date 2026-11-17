@@ -3,6 +3,46 @@
 What changed in each version, newest first. Versions are git tags (`v0.3.3`): to put a unit back
 on an older one, `git checkout v0.3.2` in its checkout.
 
+## Unreleased
+
+## 0.4.2 (2026-11-16)
+
+- **Profile builder: says when the bus is too quiet.** After the hands-off stretch it warns if
+  the bus carries under about 10 frames a second (key off, the wrong connector, or controllers
+  that only answer a service tool that asks), instead of quietly finding nothing. Each step is
+  also written to the log as a timestamp when it starts, so leaving without Save keeps them.
+
+- **Waveshare 2-CH CAN FD HAT.** A new entry under **System > Installed options** sets the Pi up
+  for the HAT as it ships: two CAN channels (`can0`, `can1`), so two buses can be watched at once.
+  Its second channel uses the pins planned for the encoder, the sync input and the buzzer, so the
+  buttons and sync are left out while it's switched on. Run the Pi installer once more first: it
+  updates the helper that writes the boot settings.
+
+- **Meter inputs can be switched off.** **Meter > Inputs** lists every input; one that's off
+  isn't shown on the Meter screen, in live data or charts, and isn't recorded. Meter setup is on
+  the same page.
+- **CAN ports by name, and a port can be switched off.** With two CAN ports on the unit (the
+  Waveshare HAT, or CAN stacks A and B), **CAN > Connect** lists them as **CAN 1** / **CAN 2**
+  wherever Linux put them, and a port you aren't using can be switched off so it leaves the list.
+- **A second bus, watched alongside.** With two ports, **CAN > Connect > Watch CAN 2 too** opens
+  the other port at the same time: listen-only, at its own bitrate (or Auto), with its own lamp
+  in the status strip. The data log records it to `capture-can2.log` on the same clock. Codes
+  and live data still come from the main bus; **Make CAN 2 the main bus** swaps the two ports,
+  bitrates included.
+- **"Little traffic" warning.** The bus lamp turns amber and says **little traffic** under about
+  10 frames a second, and a few seconds after connecting the handheld says so once, with what to
+  try: key on, the other connector, or the other port (it names the port when that's where the
+  traffic is). Some buses really are that quiet, so it's a warning, not a fault.
+- **More standard J1939 messages decode.** Found by going through every capture on the upload
+  server for standard messages the built-in tables had no name for. 46 now have names, and these
+  also show live values: the speed / torque another controller asks the engine for (TSC1), throttle
+  actuator command, gaseous fuel used (LPG / CNG engines), DEF temperature and concentration, DOC
+  and SCR temperatures, turbo intake temperature and pressure, the vehicle speed limit, requested
+  fan speed and the regeneration switches, instrument lighting level, auxiliary temperatures and
+  pressures, retarder oil temperature, and the requested gear.
+- **Fixed: Engine Temperature 2 was filed under the wrong message number**, so ECU temperature and
+  the EGR values never showed. They do now.
+
 ## 0.4.1 (2026-11-16)
 
 - **Games, reworked and two more.** Harness and Cargo play better: pieces come from a shuffled

@@ -142,3 +142,24 @@ def test_apply_runs_the_helper_and_reports_what_needs_a_restart(cfg, monkeypatch
     assert r.ok and r.restart and not r.loaded                      # couldn't load now: a restart will
     r = bootconfig.apply(p, s, run=lambda steps, **kw: (False, "a password is required"))
     assert not r.ok and "a password is required" in r.message
+
+
+def test_waveshare_hat_lines_and_what_it_pushes_out(tmp_path, cfg):
+    h = _helper()
+    hat = bootconfig.lines("can_hat")
+    assert hat == ["dtparam=spi=on", "dtoverlay=mcp251xfd,spi0-0,oscillator=40000000,interrupt=25",
+                   "dtoverlay=spi1-1cs", "dtoverlay=mcp251xfd,spi1-0,oscillator=40000000,interrupt=24"]
+    text = open(os.path.join(ROOT, "deploy", "raspberry-pi", "config-hardware.txt")).read()
+    assert all("#" + line in text for line in hat)
+    # GPIO24 is the encoder's A line and GPIO21 the sync input: the HAT can't share them
+    assert any("pin_a=24" in line for line in bootconfig.lines("controls"))
+    assert bootconfig.lines("sync") == ["dtoverlay=pps-gpio,gpiopin=21"]
+    s = Settings(str(tmp_path / "settings.json"))
+    hw = hardware.Hardware(s, hardware.Probe(str(tmp_path)))
+    for oid in ("controls", "can_a", "sync", "adc_pi", "can_hat"):
+        hw.set_state(oid, hardware.YES)
+    assert bootconfig.wanted(hw) == ["can_hat", "adc_pi"]
+    assert h.main(["--config", str(cfg), "set", *bootconfig.wanted(hw)]) == 0
+    assert "spi1-0,oscillator=40000000,interrupt=24" in cfg.read_text() and "rotary-encoder" not in cfg.read_text()
+    assert h.main(["--config", str(cfg), "set", "can_hat:osc=20000000"]) == 2      # no settings on the HAT
+    assert h.main(["--dry-run", "live", "can_hat"]) == 0

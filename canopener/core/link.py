@@ -22,6 +22,8 @@ from . import interfaces
 from .connection import ELM, ELM_SIM, REPLAY, SOCKETCAN
 
 OK, WAIT, BAD, OFF, SIM = "ok", "wait", "bad", "off", "sim"      # lamp colours: green / amber / red / grey / blue
+LOW = "low"             # traffic, but very little of it: worth a look (amber-orange, no chime)
+LOW_RATE = 10.0         # frames a second below which a bus counts as "little traffic" (core.guide.THIN_RATE)
 IDLE = "idle"           # quiet but fine: a gatewayed OBD-II port with nobody asking (indigo, no chime)
 QUIET_SECS = 2.0            # no good frame for this long = no traffic
 
@@ -87,14 +89,42 @@ def bluetooth_status(label: str, backend=None) -> Status:
     return Status(OK, f"Bluetooth: {label or backend.channel}", ", ".join(parts) + ".")
 
 
+class RateMeter:
+    """Frames a second a session has received, over the last few seconds. ``update`` returns None
+    until it has watched long enough to say."""
+
+    def __init__(self, window: float = 3.0):
+        self.window = window
+        self._session = None
+        self._marks: list[tuple[float, int]] = []
+        self.rate: float | None = None
+
+    def update(self, session, now: float) -> float | None:
+        if session is not self._session:
+            self._session, self._marks, self.rate = session, [], None
+        if session is None:
+            return None
+        self._marks.append((now, session.rx_count))
+        while len(self._marks) > 2 and now - self._marks[1][0] >= self.window:
+            self._marks.pop(0)
+        t0, n0 = self._marks[0]
+        if now - t0 >= self.window * 0.6:
+            self.rate = (session.rx_count - n0) / (now - t0)
+        return self.rate
+
+
 def bus_status(session, now: float | None = None, quiet: float = QUIET_SECS, last_answer: float = 0.0,
-               polling: bool = False) -> Status:
+               polling: bool = False, rate: float | None = None) -> Status:
     """Is the connected adapter hearing the machine? ``session`` may be None (not connected).
 
     For an OBD-II car pass ``last_answer`` (when a module last answered a request, 0 = never) and
     ``polling`` (the app is asking right now). Behind a security gateway the diagnostic port is
     silent unless a tester asks, so a quiet bus after modules have answered is normal (IDLE), not
-    a lost connection. Silence while polling still is one."""
+    a lost connection. Silence while polling still is one.
+
+    ``rate`` (frames a second, from a ``RateMeter``) turns "traffic" into LOW when there is very
+    little of it: the key is off, it's the wrong connector, or a bus whose controllers mostly wait
+    to be asked. Some buses are like that, so it's a warning, not a fault."""
     if session is None:
         return Status(OFF, "Bus: not connected", "Not connected to a bus.")
     if session.offline:
@@ -104,6 +134,10 @@ def bus_status(session, now: float | None = None, quiet: float = QUIET_SECS, las
     if h.link_error:
         return Status(BAD, "Bus: link error", f"The adapter reported: {h.link_error}. Unplugged?")
     if session.last_rx_t and now - session.last_rx_t <= quiet:
+        if rate is not None and rate < LOW_RATE and not getattr(session.backend, "answers_only", False):
+            return Status(LOW, "Bus: little traffic",
+                          f"Only about {rate:.0f} frame(s) a second. Some buses are this quiet, and so is a "
+                          "machine with the key off. Otherwise: is this the right connector, or the right CAN port?")
         return Status(OK, "Bus: traffic", "Good CAN traffic from the machine.")
     if getattr(session.backend, "answers_only", False):
         if h.last_error and now - h.last_error_t <= quiet:

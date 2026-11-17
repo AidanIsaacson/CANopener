@@ -9,7 +9,7 @@
 #   canopener-boot-config set [TOKEN ...]      rewrite that block for exactly these options
 #   canopener-boot-config live TOKEN           load that option's drivers now (dtparam / dtoverlay)
 #
-# TOKEN is an option id from PARTS (can_a, adc_pi ...); the CAN stacks also take
+# TOKEN is an option id from PARTS (can_a, can_hat, adc_pi ...); CAN stacks A and B also take
 # :osc=<crystal Hz> and :spi=<max SPI Hz>, each checked against a fixed list. The block sits at
 # the end of /boot/firmware/config.txt between two marker lines; nothing outside it is changed,
 # and the file is copied to config.txt.canopener-bak before every write.
@@ -39,6 +39,12 @@ def _can(cs: int, irq: int, osc: int, spi: int) -> list[str]:
     return ["dtparam=spi=on", f"dtoverlay=mcp251xfd,spi0-{cs},oscillator={osc},interrupt={irq}{extra}"]
 
 
+# The Waveshare 2-CH CAN FD HAT as shipped: 40 MHz, CAN_0 on SPI0 CE0 / GPIO25, CAN_1 on SPI1 CE0
+# (GPIO18) / GPIO24. spi1-1cs claims only that one chip select.
+CAN_HAT = ("dtparam=spi=on", "dtoverlay=mcp251xfd,spi0-0,oscillator=40000000,interrupt=25",
+           "dtoverlay=spi1-1cs", "dtoverlay=mcp251xfd,spi1-0,oscillator=40000000,interrupt=24")
+
+
 def lines(option: str, osc: int = 20000000, spi: int = 0, pi5: bool = True) -> list[str]:
     """The config.txt lines for one option (in the order they are written)."""
     if option == "controls":
@@ -50,6 +56,8 @@ def lines(option: str, osc: int = 20000000, spi: int = 0, pi5: bool = True) -> l
         return _can(0, 25, osc, spi)
     if option == "can_b":
         return _can(1, 20, osc, spi)
+    if option == "can_hat":
+        return list(CAN_HAT)
     if option == "sync":
         return ["dtoverlay=pps-gpio,gpiopin=21"]
     if option == "adc_pi":
@@ -61,8 +69,8 @@ def lines(option: str, osc: int = 20000000, spi: int = 0, pi5: bool = True) -> l
     raise KeyError(option)
 
 
-PARTS = ("controls", "can_a", "can_b", "sync", "adc_pi", "esp32")
-LIVE = ("can_a", "can_b", "sync", "adc_pi")      # the rest only take effect after a restart
+PARTS = ("controls", "can_a", "can_b", "can_hat", "sync", "adc_pi", "esp32")
+LIVE = ("can_a", "can_b", "can_hat", "sync", "adc_pi")      # the rest only take effect after a restart
 
 
 class Bad(Exception):
@@ -201,11 +209,17 @@ def _run(argv: list[str], dry: bool) -> bool:
     return r.returncode == 0
 
 
+def _mcp(spi_dev: str) -> bool:
+    drv = f"/sys/bus/spi/devices/{spi_dev}/driver"
+    return os.path.basename(os.path.realpath(drv)) == "mcp251xfd" if os.path.exists(drv) else False
+
+
 def _present(name: str) -> bool:
     """Already running (from config.txt at boot, or loaded earlier): nothing to load."""
     if name in ("can_a", "can_b"):
-        drv = f"/sys/bus/spi/devices/spi0.{0 if name == 'can_a' else 1}/driver"
-        return os.path.basename(os.path.realpath(drv)) == "mcp251xfd" if os.path.exists(drv) else False
+        return _mcp(f"spi0.{0 if name == 'can_a' else 1}")
+    if name == "can_hat":
+        return _mcp("spi0.0") and _mcp("spi1.0")
     if name == "adc_pi":
         import glob
         for d in glob.glob("/sys/bus/iio/devices/iio:device*"):

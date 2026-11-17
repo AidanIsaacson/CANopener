@@ -305,9 +305,24 @@ these by name.
   `SO_TIMESTAMPNS` and read the kernel's receive time with `recvmsg()` (falling back to
   `time.time()`), and record the capture's T+0 on `time.monotonic()` alongside wall time. Test it on
   `vcan0` and the MCP2518FD; it can't be exercised without SocketCAN.
-* **Two CAN channels.** DESIGN.md's dual MCP2518FD means two buses at once. A `Session` is one bus
-  and both GUIs assume one connection. Plan for one session per channel and a channel tag on
-  frames when captures are merged onto one timeline.
+* **Two CAN channels.** *Partly done.* The unit's own CAN connectors are **ports**, named by where
+  they are (**CAN 1**, **CAN 2**: `Hardware.can_ports()`, from the SPI device, so the names hold
+  whatever Linux called the interfaces). Each can be switched off (`can.ports_off`). One port is
+  the **main bus**: every screen (codes, live data, bus, transmit) works on its session, as before.
+  The other can be **watched** (`can.second` = `watch`, `can.second.bitrate`): a second, always
+  listen-only `Session` opened with the main one (`DeviceContext.second`), with its own lamp
+  (`bus2`) and its own file in a capture (`capture-can2.log`, `meta["second"]`). A watched bus
+  that won't open never costs the main connection. `swap_ports()` makes the other port main and
+  swaps the bitrates. Handheld only so far. What's left:
+  * **Show too:** live values and modules from the watched bus beside the main one, each row
+    tagged with its port, the way meter channels sit beside CAN values now. Needs a port on
+    live-data row keys and on `core.canopen.source_name` sources.
+  * **A profile per port**, for a machine with J1939 on one bus and CANopen on the other. Today
+    the profile applies to the main bus; the watched bus only says which protocols it has heard.
+  * **The capture's outputs** (`traffic.csv`, the summary, the report) read the main bus only; the
+    second log is saved raw.
+  * **Open question:** whether codes should ever be read on the watched bus (that means
+    transmitting there). Swapping ports does it today.
 * **CAN FD.** The backend reads classic 16-byte frames only. Add `CAN_RAW_FD_FRAMES` and 72-byte
   frames (J1939-22 uses FD); the MCP2518FD and CANable 2.0 both support it.
 * **Missing-module alerts.** Profiles know which modules a machine has (`detect.addresses`) and the

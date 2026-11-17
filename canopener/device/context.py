@@ -47,6 +47,7 @@ BLUETOOTH_WARNING = ("Slower than a wired CAN adapter: live data updates a few t
 PINS = ["1234", "0000", "6789", "1111"]     # what adapters ask for, most common first
 BITRATES = [0] + interfaces.BITRATES        # 0 = auto (signal finder)
 SAMPLE_EVERY = 0.2                          # live models: 5 samples a second, like the desktop
+TRAFFIC_CHECK_SECS = 5.0    # how long into a connection the one-off "little traffic" check waits
 LINK_CHECK_SECS = 1.0
 TOAST_SECS = 3.5
 
@@ -93,6 +94,13 @@ class DeviceContext:
         self.finder_log: deque = deque(maxlen=8)
         self.adapter = link.Status(link.OFF, "Adapter")
         self.bus = link.Status(link.OFF, "Bus: not connected")
+        self.second = None                  # a second bus watched listen-only (a Connection), or None
+        self.second_port = None             # its hardware.CanPort
+        self.second_bitrate = 0
+        self.bus2 = link.Status(link.OFF, "Bus: not connected")
+        self.traffic_hint = ""              # what to try when this bus has little traffic
+        self._rate, self._rate2 = link.RateMeter(), link.RateMeter()
+        self._traffic_checked = False
         self.focus_spn: int | None = None   # a fault code's SPN to show in Live Data
         self.focus_pids: list[int] = []     # the OBD-II equivalent
         self.python_can_found: list[str] = []
@@ -175,7 +183,91 @@ class DeviceContext:
             self.pps.start()
         for src in meters.sources_from_settings(self.settings, self.hardware, self.pulse_clock):
             self.hub.add_source(src)
+        self.hub.set_off(self.settings.get("meters.off") or [])
         self.meter_live.clear()
+
+    def set_meter_channel(self, channel_id: str, on: bool):
+        """Switch one meter input on or off: an input that's off isn't shown, charted or recorded."""
+        off = [c for c in (self.settings.get("meters.off") or []) if c != channel_id]
+        if not on:
+            off.append(channel_id)
+        self.settings.set("meters.off", off)
+        self.hub.set_off(off)
+        if not on:
+            self.meter_live.drop([channel_id])
+
+    # --- the unit's own CAN ports (a two-channel HAT, or stacks A / B) ---
+    def can_ports(self):
+        return self.hardware.can_ports()
+
+    def can_port_on(self, port_id: str) -> bool:
+        return port_id not in (self.settings.get("can.ports_off") or [])
+
+    def set_can_port(self, port_id: str, on: bool):
+        """A port that's off is left out of the interface list. If it was the one in use, the
+        connection setting moves to a port that's still on."""
+        off = [p for p in (self.settings.get("can.ports_off") or []) if p != port_id]
+        if not on:
+            off.append(port_id)
+        self.settings.set("can.ports_off", off)
+        ports = self.can_ports()
+        hidden = {p.iface for p in ports if p.id in off and p.iface}
+        if self.settings.get("can.iface") in hidden:
+            other = next((p.iface for p in ports if p.id not in off and p.iface), None)
+            if other:
+                self.settings.set("can.iface", other)
+
+    def second_rate(self) -> float:
+        return self._rate2.rate or 0.0
+
+    def second_speaks(self) -> str:
+        """What's been heard on the second bus, in words."""
+        s2 = self.second.session
+        heard = [n for n, yes in (("J1939", s2.has_j1939), ("CANopen", s2.has_canopen)) if yes]
+        return " and ".join(heard) + " heard" if heard else "nothing recognised yet"
+
+    def other_port(self, iface: str | None = None):
+        """The on-board port that isn't the one in use (and isn't switched off), or None."""
+        iface = iface or self.settings.get("can.iface")
+        ports = self.can_ports()
+        if not any(p.iface == iface for p in ports):
+            return None
+        return next((p for p in ports if p.iface and p.iface != iface and self.can_port_on(p.id)), None)
+
+    def second_to_watch(self, iface: str | None = None):
+        """The port to watch as a second bus on the next connect (``can.second`` = "watch"), or None."""
+        return self.other_port(iface) if self.settings.get("can.second") == "watch" else None
+
+    def port_label(self, iface: str | None = None) -> str:
+        iface = iface or self.settings.get("can.iface")
+        return next((p.label for p in self.can_ports() if p.iface == iface), "CAN")
+
+    def swap_ports(self):
+        """Make the other port the main bus (and this one the second): the two swap bitrates too."""
+        other = self.other_port()
+        if other is None:
+            self.toast("No other CAN port to switch to")
+            return
+        s = self.settings
+        was_connected = self.connection is not None
+        if was_connected:
+            self.disconnect()
+        main_br, second_br = int(s.get("can.bitrate") or 0), int(s.get("can.second.bitrate") or 0)
+        s.set("can.iface", other.iface)
+        s.set("can.bitrate", second_br)
+        s.set("can.second.bitrate", main_br)
+        self.toast(f"{other.label} is now the main bus")
+        if was_connected:
+            self.connect()
+
+    def can_iface_choices(self, names: list[str]) -> list[tuple[str, str]]:
+        """(label, interface) for the interface list: on-board ports by their connector name,
+        ports switched off left out."""
+        ports = self.can_ports()
+        off = set(self.settings.get("can.ports_off") or [])
+        hidden = {p.iface for p in ports if p.id in off and p.iface}
+        label = {p.iface: f"{p.label} ({p.iface})" for p in ports if p.iface}
+        return [(label.get(n, n), n) for n in dict.fromkeys(names) if n and n not in hidden]
 
     def iio_ratio_changed(self):
         """The Pi ADC's divider setting changed: its old calibration no longer fits."""
@@ -334,7 +426,31 @@ class DeviceContext:
         elif kind == CANOPEN_SIM and not profiles.speaks_canopen():
             self.apply_profile("sim-canopen")
 
+        watch = self.second_to_watch(name) if kind == SOCKETCAN else None
+        br2 = int(self.settings.get("can.second.bitrate") or 0)
+
+        def open_second(conn):
+            """The other port, listen-only at its own bitrate. A failure here never costs the main bus."""
+            try:
+                rate = br2
+                if not rate:
+                    rate, log = interfaces.detect_bitrate(watch.iface)
+                    if not rate:
+                        raise OSError("no traffic at any bitrate" + (f" ({log[-1]})" if log else ""))
+                else:
+                    ok, msg = interfaces.bring_up(watch.iface, rate, True)
+                    if not ok:
+                        raise OSError(msg)
+                conn.second = (open_connection(SOCKETCAN, watch.iface, listen_only=True, bitrate=rate), watch, rate)
+            except Exception as e:          # noqa: BLE001 - reported, and the main connection carries on
+                conn.second_error = f"{watch.label} not watched: {e}"
+            return conn
+
         def work():
+            conn = work_main()
+            return open_second(conn) if watch is not None else conn
+
+        def work_main():
             if kind in (ELM, ELM_SIM):
                 return open_connection(kind, elm_addr, elm_protocol=self.settings.get("elm.protocol") or "0",
                                        listen_only=listen_only,
@@ -359,6 +475,12 @@ class DeviceContext:
         self.j1939_live.clear()
         self.obd_live.clear()
         self._bus_level, self._bus_was_ok = link.OFF, False
+        self._traffic_checked, self.traffic_hint = False, ""
+        got = getattr(conn, "second", None)
+        if got is not None:
+            self.second, self.second_port, self.second_bitrate = got
+        elif getattr(conn, "second_error", ""):
+            self.toast(conn.second_error)
         if self.protocol == profiles.OBD2:
             from ..core.obd import ObdClient
             from ..core.obd_stream import ObdStreamer
@@ -378,6 +500,11 @@ class DeviceContext:
             self.obd_client.close()
             self.obd_client = None
         self.hub.remove_source(meters.ObdVoltageSource.id)
+        if self.second is not None:
+            self.second.close()
+        self.second, self.second_port = None, None
+        self.bus2 = link.Status(link.OFF, "Bus: not connected")
+        self.traffic_hint = ""
         if self.connection is not None:
             self.connection.close()
             self.toast("Disconnected")
@@ -795,6 +922,11 @@ class DeviceContext:
                 "front_end": f"device {__version__}"}
         if self.connection is not None and self.connection.kind == SOCKETCAN:
             meta.update(interface=self.settings.get("can.iface"), bitrate=self.settings.get("can.bitrate"))
+            if self.can_ports():
+                meta["port"] = self.port_label()
+        if self.second is not None:
+            meta["second"] = {"port": self.second_port.label, "interface": self.second_port.iface,
+                              "bitrate": self.second_bitrate, "listen_only": True}
         if self.session is not None:
             meta["listen_only"] = self.session.listen_only
         cal = self.calibration.snapshot()
@@ -822,7 +954,8 @@ class DeviceContext:
             self.capture = c = c.fresh_copy()
         try:
             c.start(self.session if self.live else None, config.logs_dir(), self.capture_meta(),
-                    measurements=self.hub if has_meters else None)
+                    measurements=self.hub if has_meters else None,
+                    second=self.second.session if self.second is not None and self.live else None)
         except (OSError, ValueError) as e:
             self.toast(f"Can't start the log: {e}")
             return False
@@ -1022,18 +1155,51 @@ class DeviceContext:
             self.bus = link.bus_status(s, now, last_answer=self.obd_live.sniffer.last_answer_t,
                                        polling=bool(st and st.running))
         else:
-            self.bus = link.bus_status(s, now)
-        if not self.live or (self.bus.level != link.OK and now - s.started_at < link.QUIET_SECS):
+            self.bus = link.bus_status(s, now, rate=self._rate.update(s, now))
+        if self.second is not None:
+            s2 = self.second.session
+            self.bus2 = link.bus_status(s2, now, rate=self._rate2.update(s2, now))
+        if not self.live:
             return
-        was, self._bus_level = self._bus_level, self.bus.level
-        if self.bus.level == link.IDLE or was == link.IDLE:
+        self._traffic_check(now)
+        # for the chimes, a bus with little traffic is still a bus that's there
+        level = link.OK if self.bus.level == link.LOW else self.bus.level
+        if level != link.OK and now - s.started_at < link.QUIET_SECS:
+            return
+        was, self._bus_level = self._bus_level, level
+        if level == link.IDLE or was == link.IDLE:
             pass
-        elif was == link.OK and self.bus.level != link.OK:
+        elif was == link.OK and level != link.OK:
             self.cue("lost", link_status=True)
-        elif was in (link.WAIT, link.BAD) and self.bus.level == link.OK:
+        elif was in (link.WAIT, link.BAD) and level == link.OK:
             self.cue("back" if self._bus_was_ok else "found", link_status=True)
-        if self.bus.level == link.OK:
+        if level == link.OK:
             self._bus_was_ok = True
+
+    def _traffic_check(self, now: float):
+        """Once, a few seconds into a connection: say so if this bus has little or no traffic, and
+        what to try (the other port, when the unit has two)."""
+        s = self.session
+        if self._traffic_checked or self.protocol == profiles.OBD2 or now - s.started_at < TRAFFIC_CHECK_SECS:
+            return
+        self._traffic_checked = True
+        if self.bus.level == link.LOW:
+            what = f"little traffic (about {self._rate.rate or 0:.0f} frames a second)"
+        elif self.bus.level == link.WAIT:
+            what = "no traffic"
+        else:
+            return
+        wired = self.connection.kind == SOCKETCAN
+        iface = getattr(s.backend, "channel", None)
+        here, other = (self.port_label(iface) if wired else "CAN"), (self.other_port(iface) if wired else None)
+        if other is None:
+            self.traffic_hint = "Key on? The right connector?"
+        elif self.second is not None and self.bus2.level == link.OK:
+            self.traffic_hint = (f"{other.label} has the traffic (about {self._rate2.rate or 0:.0f} frames a "
+                                 f"second): CAN > Connect > Make {other.label} the main bus")
+        else:
+            self.traffic_hint = f"Key on? Or try the other port: CAN > Connect > Make {other.label} the main bus"
+        self.toast(f"{here}: {what}. {self.traffic_hint}")
 
     def frames_per_second(self) -> float:
         s = self.session

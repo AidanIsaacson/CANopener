@@ -23,6 +23,7 @@ from .capture import (
     META_JSON,
     README_MD,
     SAVED,
+    SECOND_LOG,
     SUMMARY_TXT,
     TRAFFIC_CSV,
     Capture,
@@ -35,6 +36,8 @@ UNDECODED_SHOWN = 60        # rows of undecoded traffic in the README (traffic.c
 FILES = {
     CAPTURE_LOG: "every CAN frame, candump format: `(epoch seconds) interface ID#DATA` "
                  "(29-bit IDs have 8 hex digits, 11-bit have 3)",
+    SECOND_LOG: "the second bus, watched listen-only at the same time: same format and clock as capture.log "
+                "(which port and bitrate: `second` in capture.json)",
     SUMMARY_TXT: "the timeline: markers, fault codes going active / clearing, lamps, ECUs dropping out",
     LIVE_CSV: "every decoded live value twice a second, with the marker phase it fell in",
     MARKERS_CSV: "the timestamps (wall clock and seconds since the start)",

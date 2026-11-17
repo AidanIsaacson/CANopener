@@ -655,6 +655,7 @@ build stage" fills them in from a stage number; single parts can then be changed
 | `usb_can` USB CAN adapter | 0 | | a CAN interface on USB (or slcand's, with an slcan CANable plugged in). Informational: it never hides a USB adapter |
 | `controls` Buttons and encoder | 0b | | input devices named `button@N` / `rotary@N` [verify the names on the Pi] |
 | `can_a` CAN stack A | 1 | | the CAN interface on SPI device `spi0.0`, whatever it's named |
+| `can_hat` Waveshare 2-CH CAN FD HAT | - | | CAN interfaces on both `spi0.0` and `spi1.0`. Not part of a stage: it replaces stacks A and B, and while it's on, `can_a`, `can_b`, `controls` and `sync` aren't used (its second channel is on GPIO18-21 and 24) |
 | `logic_pico` Logic Pico | 2a | | USB serial name (`/dev/serial/by-id`), or a set port |
 | `meter_pico` Meter Pico | 2b | | USB serial name, or a set port |
 | `sync` Sync pulse input | 2b | meter_pico | a pps device named `pps-gpio` |

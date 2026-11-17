@@ -4,7 +4,6 @@
 import os
 import time
 
-from ...core import capture as cap
 from ...core import guide, observed, profiles
 from .base import InfoDialog, Row, RowList, Screen, SoftKey, choose, confirm
 
@@ -108,6 +107,7 @@ class GuideScreen(Screen):
         self.session.add_listener(self.g.feed)
         self.saved = False
         self._cued = ""
+        self._marked = 0                            # g.marks already written to the log
 
     def on_leave(self):
         if self.session is not None:
@@ -118,6 +118,7 @@ class GuideScreen(Screen):
         g = self.g
         g.tick()
         self._cue()
+        self._mark()
         s = g.step
         big, small = g.prompt()
         head = "Finished" if s is None or g.state == guide.DONE else f"Step {g.index + 1} of {len(g.steps)}: {s.name}"
@@ -138,7 +139,18 @@ class GuideScreen(Screen):
             rows += [Row(e["name"], key, kind="info") for key, e in g.kept.items()]
         if not g.frames_seen:
             rows.append(Row("No frames from the bus yet", kind="info", level=lambda: "bad"))
+        elif g.bus_note:
+            rows.append(Row("Quiet bus", kind="info", hint=g.bus_note, level=lambda: "bad"))
         return rows
+
+    def _mark(self):
+        """Each step becomes a timestamp in the log as it starts, so leaving without Save keeps them."""
+        c = self.ctx.capture
+        while self._marked < len(self.g.marks):
+            t, label = self.g.marks[self._marked]
+            self._marked += 1
+            if label != "(rest)" and self.ctx.recording:
+                c.add_marker(label, t)
 
     def _cue(self):
         """A chirp when it's time to act and when to let go."""
@@ -164,10 +176,8 @@ class GuideScreen(Screen):
     def save(self):
         g, ctx = self.g, self.ctx
         c = ctx.capture
-        if not self.saved:                          # the steps become the log's timestamps
-            for t, label in g.marks:
-                if label != "(rest)":
-                    c.markers.append(cap.Marker(label, t, planned=False))
+        if not self.saved:
+            self._mark()
             self.saved = True
             if ctx.recording:
                 ctx.stop_log()

@@ -42,6 +42,7 @@ from . import config
 from .measure import MEASUREMENTS_CSV, MeasurementLog, trim_measurements
 
 CAPTURE_LOG = "capture.log"
+SECOND_LOG = "capture-can2.log"     # a second bus watched at the same time (listen-only), same clock
 MARKERS_CSV = "markers.csv"
 META_JSON = "capture.json"
 LIVE_CSV = "live_data.csv"
@@ -112,6 +113,7 @@ class Capture:
         self.frames = 0
         self.samples = 0                    # measurement readings recorded
         self._session = None
+        self._second = None
         self._mlog: MeasurementLog | None = None
 
     # ------------------------------------------------------------------
@@ -149,6 +151,12 @@ class Capture:
 
     def add_planned(self, label: str | None = None) -> int:
         self.markers.append(Marker(label or f"Timestamp {len(self.markers) + 1}"))
+        self._changed()
+        return len(self.markers) - 1
+
+    def add_marker(self, label: str, t: float | None = None) -> int:
+        """Add a tagged timestamp with its own label (the Profile builder's steps) and write it out."""
+        self.markers.append(Marker(label, time.time() if t is None else t, planned=False))
         self._changed()
         return len(self.markers) - 1
 
@@ -316,9 +324,11 @@ class Capture:
     def measurements_path(self) -> str | None:
         return os.path.join(self.folder, MEASUREMENTS_CSV) if self.folder else None
 
-    def start(self, session, root: str | None = None, meta: dict | None = None, measurements=None):
+    def start(self, session, root: str | None = None, meta: dict | None = None, measurements=None,
+              second=None):
         """Start recording ``session`` (None: measurements only) and, when given, every reading
-        from the ``measurements`` hub (a ``core.measure.MeasurementHub``)."""
+        from the ``measurements`` hub (a ``core.measure.MeasurementHub``). ``second`` is another
+        session watched at the same time (a second bus): its frames go to ``capture-can2.log``."""
         if self.state != IDLE:
             raise RuntimeError(f"capture is {self.state}")
         if session is None and measurements is None:
@@ -343,6 +353,9 @@ class Capture:
             self._mlog = MeasurementLog(self.measurements_path, measurements)
             self.meta["channels"] = [c.to_dict() for c in self._mlog.channels.values()]
         self._session = session
+        self._second = second
+        if second is not None:
+            second.start_recording(os.path.join(self.folder, SECOND_LOG))
         self.state = RECORDING
         self._write_state()
 
@@ -353,6 +366,10 @@ class Capture:
         done = self._session.stop_recording() if self._session else None
         self.frames = done[1] if done else self.frames
         self._session = None
+        second, self._second = self._second, None
+        if second is not None:
+            done2 = second.stop_recording()
+            self.meta.setdefault("second", {})["frames"] = done2[1] if done2 else 0
         if self._mlog is not None:
             self.samples = self._mlog.close()
             self.meta["channels"] = [c.to_dict() for c in self._mlog.channels.values()]

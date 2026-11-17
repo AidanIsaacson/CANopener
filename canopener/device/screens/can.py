@@ -40,6 +40,17 @@ class ConnectPage(Screen):
         super().__init__(app)
         self.rows = RowList(self._rows)
 
+    def _port(self, port):
+        ctx = self.ctx
+        if ctx.connection is not None or ctx.finding:
+            ctx.toast("Disconnect first")
+            return
+        on = not ctx.can_port_on(port.id)
+        if not on and sum(ctx.can_port_on(p.id) for p in ctx.can_ports()) <= 1:
+            ctx.toast("One port has to stay on")
+            return
+        ctx.set_can_port(port.id, on)
+
     def _rows(self):
         ctx, s = self.ctx, self.ctx.settings
         kind = s.get("can.source")
@@ -57,15 +68,39 @@ class ConnectPage(Screen):
         if kind == SOCKETCAN:
             names = [i.name for i in interfaces.list_interfaces(details=False)]
             cur = s.get("can.iface")
-            opts = [(n, n) for n in dict.fromkeys(names + ctx.python_can_found + [cur, "can0", "vcan0"])]
+            ports = ctx.can_ports()
+            mine = {p.iface for p in ports if p.iface}
+            # with on-board ports fitted, "can0" isn't offered as a guess: it may be a port that's off
+            guesses = [cur] if mine else [cur, "can0", "vcan0"]
+            opts = ctx.can_iface_choices(names + ctx.python_can_found + guesses)
             hint = "python-can adapter" if pythoncan.is_spec(cur) else "" if cur in names else "not present"
-            rows.append(Row("Interface", cur, select=lambda: pick("Interface", "can.iface", opts), hint=hint))
+            rows.append(Row("Interface", lambda: next((lb for lb, n in opts if n == s.get("can.iface")),
+                                                      s.get("can.iface")),
+                            select=lambda: pick("Interface", "can.iface", opts), hint=hint))
+            if len(ports) > 1:
+                for p in ports:
+                    rows.append(Row(f"    {p.label} port in use", check=lambda p=p: ctx.can_port_on(p.id),
+                                    select=lambda p=p: self._port(p),
+                                    hint=(p.iface or "not found") + ": off = left out of the list above"))
             rows.append(Row("Find other adapters (python-can)", select=ctx.find_python_can,
                             hint="PEAK, Kvaser, gs_usb ... when python-can is installed"))
             rows.append(Row("Bitrate", lambda: bitrate_label(int(s.get("can.bitrate") or 0)),
                             select=lambda: pick("Bitrate", "can.bitrate", [(bitrate_label(b), b) for b in BITRATES])))
             rows.append(Row("Listen-only (never transmit)", select=lambda: self._toggle("can.listen_only"),
                             check=lambda: s.get("can.listen_only")))
+            other = ctx.other_port()
+            if other is not None:
+                rows.append(Row(f"Second bus ({other.label})", kind="header"))
+                rows.append(Row(f"Watch {other.label} too", check=lambda: s.get("can.second") == "watch",
+                                select=self._second,
+                                hint="listen-only, at its own bitrate; recorded with the data log"))
+                rows.append(Row(f"    {other.label} bitrate",
+                                lambda: bitrate_label(int(s.get("can.second.bitrate") or 0)),
+                                select=lambda: pick(f"{other.label} bitrate", "can.second.bitrate",
+                                                    [(bitrate_label(b), b) for b in BITRATES])))
+                rows.append(Row(f"Make {other.label} the main bus", kind="menu", select=self._swap,
+                                hint="the two ports swap places (and bitrates); codes and live data "
+                                     "come from the main bus"))
         if kind == ELM:
             choices = ctx.bt_choices()
             rows.append(Row("Adapter", ctx.bt_label, hint="" if choices else "none paired yet: Bluetooth adapters",
@@ -95,9 +130,31 @@ class ConnectPage(Screen):
             rows.append(Row(ctx.describe_connection(), kind="info",
                             hint=f"{ctx.frames_per_second():.0f} frames/s, {len(sess.ecus)} module(s), "
                                  f"{sess.rx_count:,} frames"))
+            if ctx.traffic_hint and ctx.bus.level in ("low", "wait"):
+                rows.append(Row(ctx.traffic_hint, kind="info", level=lambda: "low"))
+        if ctx.second is not None:
+            s2, port = ctx.second.session, ctx.second_port
+            rows.append(Row(ctx.bus2.text.replace("Bus:", f"{port.label}:"), kind="info",
+                            level=lambda: ctx.bus2.level, hint=ctx.bus2.detail))
+            rows.append(Row(f"{port.label} ({port.iface}) at {bitrate_label(ctx.second_bitrate)}, listen-only",
+                            kind="info", hint=f"{ctx.second_rate():.0f} frames/s, {s2.rx_count:,} frames, "
+                                              f"{ctx.second_speaks()}"))
         for line in list(ctx.finder_log)[-4:]:
             rows.append(Row(line, kind="info"))
         return rows
+
+    def _second(self):
+        ctx, s = self.ctx, self.ctx.settings
+        if ctx.connection is not None or ctx.finding:
+            ctx.toast("Disconnect first")
+            return
+        s.set("can.second", "off" if s.get("can.second") == "watch" else "watch")
+
+    def _swap(self):
+        if self.ctx.finding or self.ctx.busy:
+            self.ctx.toast("Busy: try again in a moment")
+            return
+        self.ctx.swap_ports()
 
     def _vehicle(self):
         ctx = self.ctx

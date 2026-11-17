@@ -303,3 +303,24 @@ def test_bus_status_gatewayed_obd_port():
     s.last_rx_t = 0.0
     s.health.last_error, s.health.last_error_t = "bus error", now - 1
     assert link.bus_status(s, now, last_answer=now - 30).level == link.BAD
+
+
+def test_little_traffic_is_a_warning_not_a_fault():
+    class Backend:
+        can_transmit = True
+    s, meter, now = Session(Backend()), link.RateMeter(), 1000.0
+    assert meter.update(s, now) is None                     # not watched long enough to say
+    for i in range(1, 5):                                   # one frame a second, like a clock message
+        s.rx_count, s.last_rx_t = i, now + i
+        rate = meter.update(s, now + i)
+    assert 0.5 < rate < 2
+    st = link.bus_status(s, now + 4, rate=rate)
+    assert st.level == link.LOW and "little traffic" in st.text
+    for i in range(5, 10):                                  # a normal truck bus
+        s.rx_count, s.last_rx_t = s.rx_count + 400, now + i
+        rate = meter.update(s, now + i)
+    assert rate > 300 and link.bus_status(s, now + 9, rate=rate).level == link.OK
+    assert link.bus_status(s, now + 9).level == link.OK    # no rate given: as before
+    assert meter.update(Session(Backend()), now + 10) is None   # a new session starts the count again
+    Backend.answers_only = True                             # a Bluetooth OBD adapter only hears answers
+    assert link.bus_status(s, now + 9, rate=1.0).level == link.OK

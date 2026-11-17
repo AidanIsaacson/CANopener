@@ -455,7 +455,8 @@ class DeviceApp:
             r = u.text(label, (right, rect.centery), "body", "rec", align="right")
             pygame.draw.circle(u.surface, u.color("rec"), (r.left - t.pad, rect.centery), t.pad * .7)
             right = r.left - t.pad * 2.5
-        pw = min(round(t.touch * 3.4), (right - x) // 2)
+        two = ctx.second is not None
+        pw = min(round(t.touch * 3.4), (right - x) // (3 if two else 2))
         srcs = ctx.hub.sources()
         if srcs:
             worst = _worst([s.status.level for s in srcs])
@@ -466,7 +467,13 @@ class DeviceApp:
         if ctx.connection is not None or ctx.finding or ctx.adapter.level in ("bad", "wait"):
             st = ctx.bus if ctx.adapter.level not in ("bad",) or ctx.connection is not None else ctx.adapter
             r = pygame.Rect(right - pw, rect.y + t.pad, pw, rect.h - 2 * t.pad)
-            u.pill(r, st.level, st.text.replace("Bus: ", "CAN: "))
+            if two:                 # the second bus's lamp, to the right of the main one
+                u.pill(r, ctx.bus2.level, ctx.bus2.text.replace("Bus:", ctx.second_port.label + ":"))
+                u.hit(r, lambda: self.open_mode("can"))
+                right = r.left - t.pad
+                r = pygame.Rect(right - pw, rect.y + t.pad, pw, rect.h - 2 * t.pad)
+            name = ctx.port_label() if two else "CAN"
+            u.pill(r, st.level, st.text.replace("Bus:", name + ":"))
             u.hit(r, lambda: self.open_mode("can"))
             right = r.left - t.pad
         title = f"{ctx.busy}…" if ctx.busy else self.breadcrumb()
