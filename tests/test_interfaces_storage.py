@@ -311,3 +311,23 @@ def test_slcan_udev_rule_starts_the_attach_service():
     # slcand attaches only: no -s/-o, so CANopener sets the bitrate and listen-only via ip link.
     exec_line = next(line for line in unit.splitlines() if line.startswith("ExecStart="))
     assert exec_line.split() == ["ExecStart=/usr/bin/slcand", "-F", "/dev/%I"]
+
+
+def test_a_can_chip_on_the_board_that_cant_join_gets_wiring_advice(tmp_path):
+    """The HAT's MCP2518FD times out when its bus never goes quiet: the advice is the cable, not a
+    USB adapter locking up."""
+    sys_net = tmp_path / "net"
+    drivers = tmp_path / "bus" / "spi" / "drivers"
+    for name, driver in (("can0", "mcp251xfd"), ("can1", "gs_usb")):
+        (drivers / driver).mkdir(parents=True, exist_ok=True)
+        dev = tmp_path / "devices" / name
+        dev.mkdir(parents=True)
+        (dev / "driver").symlink_to(drivers / driver)
+        (sys_net / name).mkdir(parents=True)
+        (sys_net / name / "device").symlink_to(dev)
+    assert interfaces.is_spi_chip("can0", str(sys_net)) and not interfaces.is_spi_chip("can1", str(sys_net))
+    assert not interfaces.is_spi_chip("can9", str(sys_net))
+    hat = interfaces.stuck_adapter_hint("can0", "RTNETLINK answers: Connection timed out", str(sys_net))
+    usb = interfaces.stuck_adapter_hint("can1", "RTNETLINK answers: Connection timed out", str(sys_net))
+    assert "never heard the bus go quiet" in hat and "wiring" in hat and "USB" not in hat
+    assert "Some USB adapters lock up" in usb

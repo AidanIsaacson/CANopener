@@ -1120,7 +1120,8 @@ def cmd_profiles(a) -> int:
         from .core import upload
         from .core.settings import Settings
         found, _errors = profiles.available_profiles()
-        todo = [p for p in found if not p.builtin and p.path and (a.upload == "all" or p.id == a.upload)]
+        # only your own: a plugin's profiles (a private one, say) stay where they were installed from
+        todo = [p for p in found if profiles.origin(p) == "user" and p.path and (a.upload == "all" or p.id == a.upload)]
         if not todo:
             print(f"No profile of your own called {a.upload!r} (canopener-cli profiles lists them).", file=sys.stderr)
             return 1

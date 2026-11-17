@@ -152,12 +152,37 @@ exercise the real backend.
   fields into profile `signals` entries with an `"observed"` note each (evidence, how sure) and
   saves an ordinary profile; the loader ignores the extra keys. Screens: `device/screens/discover.py`;
   CLI `changes`. Housekeeping traffic (`changes.is_housekeeping`) is never listed.
+* **Live fields** (`core/fieldwatch.py`): `FieldWatch`, fed every frame by a session listener the
+  handheld adds on connect (`ctx.fieldwatch`). It keeps two minutes of payloads per stream (every
+  change, else 20 a second), the change times of every byte and bit (cheap `last_change` /
+  `recent_changes` for "moving now"), and `refresh` re-judges every field over the whole window
+  with `changes._stream` (on its own thread via `refresh_soon`). `plausible` says a field could be
+  a control's own signal: not a bit of a byte that moves like a number, half of a 16-bit number,
+  a counter or noise.
 * **Guided Profile Builder** (`core/guide.py`, `device/screens/guide.py`): a state machine over a
   script of `Step`s (waiting / quiet / rest / do / look / result), fed frames by a session
-  listener and time by the screen. Each step's rest and do windows go through `changes.analyze`;
-  fields that changed in the opening hands-off stretch are `restless` and never offered; a field
-  seen for the same step twice is saved as "seen again". The screen records an ordinary log and
-  turns the steps into its timestamps.
+  listener and time by the screen. Each step's rest and do windows go through `changes.analyze`
+  (a value that leaves its resting band counts, not only one whose mean moves). Fields are left
+  out when a decoder names them or the value they're part of (`observed.known_name`, bit-exact),
+  when they changed in the opening hands-off stretch (`restless`), when `FieldWatch.plausible`
+  says no, or when they changed in any hands-off stretch so far (the quiet and every rest:
+  `wanders`). The result state is the live pick: each `Offer` counts its changes since "let go"
+  from the watcher, the list re-sorts by that only when no key was pressed for `RESORT_IDLE`, and
+  a clear winner is ticked (`auto`) unless the technician ticked something. Nothing is ticked on
+  one sighting: only "seen again" or a value that follows a known one. Kept values are "checked"
+  when they moved with the control while picking. The screen records an ordinary log and turns
+  the steps into its timestamps.
+* **Saving observed values** (`core/observed.py`): `save_entries` adds to the profile in use
+  (`in_use_target`: a user profile directly; a built-in or plugin one through
+  `observed-<id>-additions.json`, which `extends` it) or saves a new profile that `extends` the
+  profile in use. Profiles keep the streams heard (`"observed": {"bus": [...]}`), for matching.
+* **Which profile fits** (`core/profile_match.py`): `similar` ranks profiles by how many of their
+  own proprietary messages (J1939 0xFF00-0xFFFF and Proprietary A, 11-bit IDs) and recorded
+  streams are on the bus; the handheld checks once a few seconds into a connection
+  (`ctx.check_profiles`), the builder offers the best before it starts, and its page lists them.
+* **Bus explorer** (`device/screens/explore.py`): every `FieldWatch` field as a live row, moving
+  first (held still for a moment after a key press); a field page with its last minute and Name
+  it, which saves through `observed.save_entries` and switches the profile on.
 * **SSH tunnel** (`core/tunnel.py`, `deploy/upload-server/tunnel/`): `ssh -N -R` from the unit to a
   locked-down sshd container beside the upload server; the unit's key is enrolled over the
   upload API and can only listen on its own loopback port there.
@@ -355,9 +380,15 @@ these by name.
   * *Done:* remote help through the upload server, and the SSH tunnel beside it. Still open: the
     deep probe and the value recorder as remote actions, and the same page on the desktop app.
   * *Done:* the guided Profile Builder (handheld), with questions that build the script
-    (`guide.QUESTIONS`, `build_script`). Next: more kinds of machine (generator, reach truck,
-    scissor lift), a desktop version, steps that expect two states
-    (forward / neutral / reverse as one value), and using a second pass to confirm automatically.
+    (`guide.QUESTIONS`, `build_script`); after its first real run (an H80UT, 2026-11-17: five of
+    seven kept values were noise) the live pick, the hands-off filtering, saving on top of the
+    profile in use, profile matching and the bus explorer. Next: more kinds of machine
+    (generator, reach truck, scissor lift), the explorer and the live pick on the desktop app,
+    steps that expect two states (forward / neutral / reverse as one value), merging bits that
+    always change together into one multi-bit value, a "press when you move it" key matched
+    against the changes, and the standard ETC5 switches (transmission forward / neutral /
+    reverse, PGN 65219) in `j1939/signals.py` once their bit positions are checked against a
+    public source (the starter mode in EEC1 is in, as a raw number).
   * **Upload one result without a whole log**, and ask for the machine on the handheld before an
     upload (every capture that day went up with no machine and no concern).
   * **Finish the "not checked" rows** of BLUETOOTH-OBD.md's gaps on real vehicles (CAN OBD timing,

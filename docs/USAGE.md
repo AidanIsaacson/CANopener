@@ -263,9 +263,50 @@ runs on (LP, petrol, diesel) and whether a diesel has aftertreatment, whether it
 hydraulic levers are electronic or move the valve themselves, and whether the mast has a height
 switch or sensor, so it only asks for what that machine has. Then it maps the controls with the
 key on and nothing running, before the engine or pump is started. It asks for one
-thing at a time ("Raise the forks and hold"), counts you in and out, tags the log itself and names
-what followed after the step. It starts with a few seconds of hands off, to learn what changes on
-its own. Steps that move the machine say so first; it only listens to the bus.
+thing at a time ("Raise the forks and hold"), counts you in and out and tags the log itself.
+Steps that move the machine say so first; it only listens to the bus.
+
+After each step it shows **what moved, live**: up to eight values, each with its value now and a
+dot that lights when it changes. **Work the control a few more times and watch**: the value that
+follows it lights up and counts up ("changed 4x since 'let go'"). Tick it and press **Keep, next**
+(**Next** when nothing is ticked). When one value clearly follows the control it's ticked for
+you. The list puts the most-moved first, but holds still for a few seconds whenever you press a
+key, so nothing moves under your finger. **Again** repeats the step; **Skip** moves on.
+
+* It starts with a few seconds of hands off, and keeps watching during every "Get ready": values
+  that change while nobody touches the machine are left out, and the screen says how many. So
+  are the lowest digits of a reading (a battery voltage or a temperature wobbling between
+  neighbouring numbers), which look like switches over a few seconds.
+* Values the profile in use already names are listed under **Already named, moved too**, live,
+  so you can see the pedal or the engine speed did move. They aren't offered again.
+* A value offered for one step that then follows another says so ("also moved for Brake pedal"):
+  something that follows everything is rarely the answer.
+
+**Before it starts**, if a known profile fits the bus (most of that profile's own messages are on
+it), it offers to load that profile first, so it only looks for what isn't named yet. The
+**Profile builder** page lists the profiles that fit the bus, with **Load** on each. A few
+seconds after connecting, the handheld also says so if one fits clearly better than the one in
+use.
+
+**Saving.** **Save** offers:
+
+* **Add to** the profile in use. Your own profile is added to directly. A built-in or plugin
+  profile (a private one, say) gets a profile of its own on top of it (*"Hyster H80UT +
+  observed"*), which builds on it, so it keeps every value it had and still gets updates.
+* **New profile**, built on the profile in use (so nothing it already decodes is lost).
+* **Add to** another profile made on this unit.
+
+The saved profile is switched on at once. It's then shared with your upload server, if one is set
+up; the screen says whether that worked. A profile that wasn't shared is marked *not shared
+yet* on the **Profile builder** page, where selecting it offers **Share it** again.
+
+**Or explore freely:** **Profile builder > Explore the bus** lists every value on the bus, live:
+named ones and the ones nobody has named yet, with the moving ones first. Work a control and watch
+what lights up at the top. Select a value to see it big with its last minute, then **Name it**:
+pick the kind of thing, then the name, from the list. Tick **Not sure (?)** first and the name
+gets a question mark. The first name asks where names go (the profile in use, or a new profile
+built on it); it's saved at once and Live shows it. **Show** switches between the values that
+change, the unnamed ones only and everything; the list holds still for a moment after each key.
 
 Each value in an observed profile keeps a note of how it was found and how sure it is, so someone
 else can check it. A log without timestamps is cut into four equal parts, which is better than

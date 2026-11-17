@@ -41,6 +41,9 @@ SWITCH_VALUES = 4               # a byte with no more values than this is looked
 SERIES_STEP = 0.5               # seconds per slot when a value is followed over time
 FOLLOWS = 0.97                  # correlation above which one value is said to follow another
 MIN_SCORE = 3.0                 # changes scoring less than this aren't listed
+EXCURSION_MIN = 3               # counts a value has to leave its earlier band by, at least,
+EXCURSION_SPREAD = 5            # and this many times its earlier wander,
+EXCURSION_SHARE = 0.25          # and this share of its whole range, to count as moved
 BEFORE = "Before the first timestamp"
 
 CONSTANT, COUNTER, NOISE, SWITCH, VALUE = "constant", "counter", "noise", "switch", "value"
@@ -462,9 +465,17 @@ def _field_change(s: Stream, f: Field, a: int, b: int) -> Change | None:
             return None                             # its bits tell it better
         return Change(s, f, a, b, 12.0, f"{pa.mode:02X} -> {pb.mode:02X}")
     diff = abs(pa.mean - pb.mean)
+    span = max(p.high for p in f.by_phase if p.n) - min(p.low for p in f.by_phase if p.n)
+    # left its resting band: a pedal pressed and let go inside the phase, or revs on the way up,
+    # moves the mean only a little next to its own spread, but goes far outside where it sat before
+    left = max(pb.high - pa.high, pa.low - pb.low)
+    if diff >= 1 and span and left >= max(EXCURSION_MIN, EXCURSION_SPREAD * max(pa.spread, 0.5)) \
+            and left >= EXCURSION_SHARE * span:
+        return Change(s, f, a, b, 10 + 20 * min(1.0, left / span),
+                      f"{pa.mean:.0f} -> {pb.mean:.0f}  (was {pa.low:.0f}-{pa.high:.0f}, "
+                      f"now {pb.low:.0f}-{pb.high:.0f})")
     if diff < 1 or diff / max(pa.spread, pb.spread, 0.5) < MIN_SCORE:
         return None                                 # within what it wanders anyway
-    span = max(p.high for p in f.by_phase if p.n) - min(p.low for p in f.by_phase if p.n)
     score = 10 + 20 * min(1.0, diff / span) if span else 10.0      # same scale as a bit: 10 to 30
     return Change(s, f, a, b, score, f"{pa.mean:.0f} -> {pb.mean:.0f}  (was {pa.low:.0f}-{pa.high:.0f}, "
                                      f"now {pb.low:.0f}-{pb.high:.0f})")

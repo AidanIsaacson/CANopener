@@ -167,13 +167,34 @@ def slcan_listen_only_hint(name: str) -> str:
 STUCK_ERRORS = ("Connection timed out", "Broken pipe")
 
 
-def stuck_adapter_hint(name: str, msg: str) -> str | None:
+SPI_DRIVERS = ("mcp251xfd", "mcp251x")     # CAN chips on the board (a HAT or module), not USB adapters
+
+
+def is_spi_chip(name: str, sys_net: str = SYS_NET) -> bool:
+    """Is ``name`` a CAN controller chip wired to the board (the Waveshare HAT's MCP2518FD, an
+    MCP2515 module), rather than a USB adapter? Only looks at sysfs."""
+    driver = os.path.join(sys_net, name, "device", "driver")
+    return os.path.basename(os.path.realpath(driver)) in SPI_DRIVERS if os.path.exists(driver) else False
+
+
+def stuck_adapter_hint(name: str, msg: str, sys_net: str = SYS_NET) -> str | None:
     """Plain-language advice when configuring ``name`` failed because the adapter stopped
     answering, else None. A USB2CAN (gs_usb, InnoMaker firmware) started at a wrong bitrate on a
     busy bus hangs ('RTNETLINK answers: Connection timed out', then 'Broken pipe' for every
-    command) until the bus goes quiet, so retrying, or trying the next bitrate, doesn't help."""
+    command) until the bus goes quiet, so retrying, or trying the next bitrate, doesn't help.
+
+    A CAN chip on the board times out for another reason: it only joins once it hears the bus go
+    quiet, and a bus held 'busy' by the wiring (CAN-L on ground, H and L landed on the wrong pins
+    of a connector) never does. The kernel says 'failed to enter mode ... stays in Configuration
+    Mode'. Its advice is about the cable."""
     if name.startswith("vcan") or not any(e in (msg or "") for e in STUCK_ERRORS):
         return None
+    if is_spi_chip(name, sys_net):
+        return (f"{name} couldn't join the bus: its CAN chip never heard the bus go quiet. That's nearly "
+                "always the wiring. Check CAN-H, CAN-L and ground go to the right pins at both ends of the "
+                "cable (a connector wired for a different adapter is a common one). Try Connect with the cable "
+                "unplugged from the machine: if it connects then, the cable is the problem. A wrong bitrate "
+                "on a very busy bus can also do it.")
     return (f"{name} stopped answering. Some USB adapters lock up when they're started at the wrong "
             "bitrate on a busy bus. Turn the key off or unplug the adapter from the machine for a "
             "moment (or unplug it from the computer and plug it back in), then pick the bitrate "

@@ -5,6 +5,47 @@ on an older one, `git checkout v0.3.2` in its checkout.
 
 ## Unreleased
 
+- **Profile builder: pick what moved, live.** After each step it shows up to eight values with
+  their live readings and a dot that lights when one changes. Work the control a few more times:
+  the one that follows lights up and counts up, and a clear winner is ticked for you. Nothing is
+  ticked on one sighting any more. The list puts the most-moved first but holds still for a few
+  seconds after any key press. Kept values that moved with the control are saved as "checked".
+- **Profile builder: far less noise offered.** Values that change while nobody touches the machine
+  (in the hands-off stretch or any "Get ready") are left out, and so are the low digits of a
+  reading (a battery voltage or temperature wobbling between neighbouring numbers), judged over
+  the last two minutes rather than a few seconds. Bits of a value a decoder already names count
+  as named. On the first real run, 5 of the 7 values kept were the battery voltage's low byte or
+  the ambient temperature's low bit; replayed now, none of them is offered.
+- **Profile builder: says what's already named.** A step whose control the profile in use
+  already decodes (an accelerator pedal, the engine speed) lists those values live under
+  **Already named, moved too**, instead of offering the next-best field. A pedal pressed and let
+  go within the step, or revs on the way up, now count as moved (also in **What changed**).
+- **Profile builder: saves on top of the profile in use.** **Add to** the profile in use (a
+  built-in or plugin profile gets a profile of its own on top of it, so it keeps everything and
+  still gets updates) or a new profile built on it. Before, the new profile was built on the
+  generic one and switched on, which hid everything the old profile decoded.
+- **Profile builder: sharing works, and says so.** Sharing a saved profile with the upload server
+  was refused while the log was being saved (one job at a time); it now runs on its own and says
+  whether it worked. A profile not shared is marked on the Profile builder page, with **Share
+  it** to try again.
+- **Which profile fits this bus.** A few seconds after connecting, the handheld says so when a
+  known profile fits the bus clearly better than the one in use (most of that profile's own
+  messages are on the bus). The Profile builder page lists the ones that fit, with **Load**, and
+  the builder offers the best before it starts.
+- **Explore the bus.** **Profile builder > Explore the bus**: every value on the bus, live, named
+  or not, moving ones first. Select one to see its last minute, then **Name it** from the list
+  (with **Not sure (?)**); it's saved at once into the profile in use or a new one, and Live shows
+  it.
+- **The Waveshare HAT's "can't connect" now points at the cable.** When the HAT's CAN chip can't
+  join the bus (it never hears the bus go quiet), the message says to check the wiring and try
+  with the cable unplugged, not to unplug a USB adapter.
+- **Recording with no bus connected says so.** Starting a data log while not connected (with a
+  meter on) now says "Recording meters only: not connected to a bus, so no CAN data".
+- `canopener-cli profiles --upload all` sends only your own profiles, not a plugin's.
+- The engine starter mode (EEC1) is a standard live value now (a raw number), so the builder no
+  longer offers its bits as "Forward selected". The builder's glow plug step is gone: it needed the
+  key off mid-run, and the wait-to-start lamp is decoded already.
+
 ## 0.4.2 (2026-11-16)
 
 - **Profile builder: says when the bus is too quiet.** After the hands-off stretch it warns if

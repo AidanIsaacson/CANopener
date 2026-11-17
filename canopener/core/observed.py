@@ -23,6 +23,7 @@ import re
 import time
 from dataclasses import dataclass, field
 
+from ..j1939.signals import all_signals, id_signals
 from . import changes, profiles
 
 # (group, name, unit) to pick from. Plain words, grouped as a technician thinks of a machine.
@@ -67,6 +68,10 @@ class Candidate:
     def is_switch(self) -> bool:
         return "." in self.field.where
 
+    @property
+    def known(self) -> str:
+        return known_name(self.stream, self.field)
+
     def suggestion(self) -> dict:
         """A name, unit and scale to offer: from the value it follows, when there is one."""
         if self.follows is not None and self.follows.other.known:
@@ -92,14 +97,45 @@ def _round(x: float, places: int = 4) -> float:
     return round(x, places) if abs(x) >= 0.005 else 0.0
 
 
+def known_name(stream: changes.Stream, f: changes.Field) -> str:
+    """A decoder's name for a field, or for the value it is part of (a bit of a known temperature
+    is still that temperature, not a switch; a byte of a known 16-bit number is that number).
+    Bits are matched exactly: naming one bit of a status byte leaves its other bits unnamed.
+    "" when unnamed."""
+    if f.known:
+        return f.known
+    m = re.fullmatch(r"w(\d+)(?:le|be)|b(\d+)(?:\.(\d))?", f.where)
+    if not m:
+        return ""
+    if stream.kind == "j1939":
+        sigs = [g for g in all_signals() if g.can_id is None and g.pgn == stream.ident and g.accepts(stream.sa)]
+    else:
+        sigs = list(id_signals().get(stream.ident, ()))
+    if m.group(1) is not None:
+        mine = {int(m.group(1)), int(m.group(1)) + 1}
+    else:
+        mine = {int(m.group(2))}
+    bit = None if m.group(3) is None else int(m.group(2)) * 8 + int(m.group(3))
+    for g in sigs:
+        if g.bits:
+            lo = g.start * 8 + g.bit
+            if bit is not None and lo <= bit < lo + g.bits:
+                return g.name
+            if bit is None and g.bits >= 8 and all(lo <= i * 8 and i * 8 + 8 <= lo + g.bits for i in mine):
+                return g.name
+        elif mine & set(range(g.start, g.start + g.length)):
+            return g.name
+    return ""
+
+
 def candidates(report: changes.Report, include_known: bool = False) -> list[Candidate]:
     """Fields that changed between neighbouring phases, the most marked first. Fields a decoder
-    already names are left out unless ``include_known``."""
+    already names (or bits of a named value) are left out unless ``include_known``."""
     found: dict[tuple, Candidate] = {}
     for i in range(len(report.phases) - 1):
         a, b = report.phases[i].label, report.phases[i + 1].label
         for c in report.changes(i, i + 1, limit=10_000):
-            if c.field is None or (c.field.known and not include_known):
+            if c.field is None or (known_name(c.stream, c.field) and not include_known):
                 continue
             key = (id(c.stream), c.field.where)
             cand = found.setdefault(key, Candidate(c.stream, c.field, 0.0))
@@ -152,19 +188,91 @@ def protocol_of(report: changes.Report) -> str:
 
 
 def build_profile(name: str, entries: list[dict], protocol: str = profiles.J1939, source: str = "",
-                  machine: dict | None = None, base: dict | None = None) -> dict:
-    """A profile document. ``base`` is an observed profile to add to (same place replaces)."""
-    doc = dict(base) if base else {"name": name, "extends": profiles.GENERIC[protocol], "protocol": protocol,
+                  machine: dict | None = None, base: dict | None = None, extends: str = "",
+                  bus: list | None = None) -> dict:
+    """A profile document. ``base`` is a profile document to add to (same place replaces);
+    otherwise a new one that ``extends`` the profile in use (the generic one for the protocol when
+    none is given), so nothing that profile already decodes is lost. ``bus``: the streams heard
+    (``bus_fingerprint``), kept so the profile can be recognised on another machine later."""
+    doc = dict(base) if base else {"name": name, "extends": extends or profiles.GENERIC[protocol],
+                                   "protocol": protocol,
                                    "description": "Built on the machine from what its bus was seen to do.",
                                    "signals": []}
     place = lambda e: (e.get("pgn"), e.get("sa"), e.get("id"), e.get("start"), e.get("bit"), e.get("length"))  # noqa: E731
     taken = {place(e) for e in entries}
     doc["signals"] = [e for e in doc.get("signals", []) if place(e) not in taken] + list(entries)
-    history = list((doc.get("observed") or {}).get("sessions", []))
+    old = doc.get("observed") or {}
+    history = list(old.get("sessions", []))
     history.append({"when": time.strftime("%Y-%m-%d %H:%M"), "source": source, "signals": [e["name"] for e in entries]})
     doc["observed"] = {"method": "what changed between timestamps (core.changes)", "sessions": history,
-                       **({"machine": machine} if machine else {})}
+                       **({"machine": machine or old.get("machine")} if machine or old.get("machine") else {}),
+                       **({"bus": bus or old.get("bus")} if bus or old.get("bus") else {})}
     return doc
+
+
+def bus_fingerprint(stream_keys) -> list:
+    """The streams a bus carried, as plain JSON: [["j1939", "0xFF04", "0x27"], ["11-bit", "0x181", null]]."""
+    out = set()
+    for kind, ident, sa in stream_keys:
+        out.add((kind, f"0x{ident:04X}" if kind == "j1939" else f"0x{ident:03X}",
+                 None if sa is None else f"0x{sa:02X}"))
+    return [list(x) for x in sorted(out, key=lambda x: (x[0], x[1], x[2] or ""))]
+
+
+def _raw_doc(path: str) -> dict | None:
+    try:
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+@dataclass
+class Target:
+    """Where 'Add to the profile in use' writes."""
+
+    path: str
+    base: dict              # the document to add to
+    label: str              # for the menu: "Add to Hyster H80UT"
+    note: str = ""          # a second line: "kept in its own file, on top of it"
+
+
+def in_use_target(active: "profiles.Profile | None") -> Target | None:
+    """'Add to the profile in use': your own profiles are added to directly; a built-in or plugin
+    profile gets a profile of its own on top (``extends`` it), so updates to it still arrive and
+    nothing of it is lost. None when there's nothing worth adding to (no profile, or a generic one:
+    then it's a new profile)."""
+    if active is None or active.id in profiles.GENERIC.values():
+        return None
+    if profiles.origin(active) == "user" and active.path:
+        doc = _raw_doc(active.path)
+        if doc is not None:
+            return Target(active.path, doc, f"Add to {active.name}")
+    path = profile_path(f"{active.id} additions")
+    doc = _raw_doc(path) or {"name": f"{active.name} + observed", "extends": active.id,
+                             "description": f"Values named on the machine, on top of {active.name}.",
+                             "signals": []}
+    return Target(path, doc, f"Add to {active.name}", "kept in a profile on top of it, so it still gets updates")
+
+
+def save_entries(entries: list[dict], active: "profiles.Profile | None", *, new_name: str = "",
+                 protocol: str = profiles.J1939, source: str = "", machine: dict | None = None,
+                 bus: list | None = None) -> str:
+    """Save named values: into the profile in use (``in_use_target``) when ``new_name`` is empty,
+    else as a new profile of that name built on the profile in use. Returns the path written."""
+    if not new_name:
+        target = in_use_target(active)
+        if target is not None:
+            return save_profile(build_profile("", entries, protocol, source, machine, base=target.base, bus=bus),
+                                target.path)
+        new_name = f"Observed {time.strftime('%Y-%m-%d %H%M')}"
+    name, n = new_name, 2
+    while os.path.exists(profile_path(name)):
+        name, n = f"{new_name} {n}", n + 1
+    extends = active.id if active is not None else ""
+    return save_profile(build_profile(name, entries, protocol, source, machine, extends=extends, bus=bus),
+                        profile_path(name))
 
 
 def slug(name: str) -> str:

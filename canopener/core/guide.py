@@ -9,13 +9,20 @@ the key on and nothing running, so each is seen alone before the engine or pump 
 A ``Guide`` walks a script of steps ("Start the engine", "Raise the forks", "Press the horn").
 For each one it wants the machine left alone for a moment (the *rest*), then the thing done and
 held (the *do*). It keeps the frames of both, compares them with ``core.changes`` and offers what
-followed under the step's own name. Things that change by themselves are learnt in a hands-off
-stretch at the start (and whenever a step is skipped untouched) and are never offered. Doing a
-step a second time and seeing the same field again marks it "seen again".
+followed under the step's own name, live: while the technician works the control again, each
+offer counts its changes (from a ``core.fieldwatch.FieldWatch``) and the ones that follow come
+first, so the right one is picked by watching rather than guessed from one sighting.
+
+Left out: what a decoder already names (shown separately, live), what changed while nobody was
+touching the machine (the opening hands-off stretch and every rest so far), and what the watcher
+says can't be a control (the low bits of a reading, half of a 16-bit number, counters, noise).
+Doing a step a second time and seeing the same field again marks it "seen again"; one that
+moved with the control while picking is "checked".
 
 It only listens: nothing here transmits. It is a state machine fed by ``feed(frame)`` (from the
 session's receive thread) and ``tick(now)`` (from the screen); the screen shows ``prompt()`` and
-calls ``begin`` / ``again`` / ``skip`` / ``keep``. ``entries()`` are the profile signals to save
+calls ``begin`` / ``again`` / ``skip`` / ``toggle`` / ``accept`` (and ``touch`` on any key, so the
+pick list holds still under a finger). ``entries()`` are the profile signals to save
 (``core.observed``). No Qt, no Pygame.
 """
 
@@ -23,12 +30,18 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from . import changes, observed
+from . import changes, fieldwatch, observed
 
 REST_SECONDS = 3.0          # hands off before each step
 DO_SECONDS = 4.0            # do it and hold it
 QUIET_SECONDS = 6.0         # the hands-off stretch at the very start
-OFFER = 3                   # candidates shown per step
+OFFER = 8                   # candidates shown per step (six fit on the handheld; the rest scroll)
+WANDERS = 2                 # changes while hands-off that mark a field as moving by itself
+CHECKED_MOVES = 4           # changes while picking (twice on and off) that count as checked by hand
+HUMAN_MOVES = 40            # more changes than this while picking isn't a person working a control
+WANDERS_BEFORE = 3          # changes in the minute before the builder started that mark a field as restless
+BEFORE_SECONDS = 60.0
+RESORT_IDLE = 4.0           # seconds after a key press before the pick list may re-sort
 THIN_RATE = 10.0            # frames a second below which the bus is too quiet to learn from
 WAITING, QUIET, REST, DO, LOOK, RESULT, DONE = "waiting", "quiet", "rest", "do", "look", "result", "done"
 
@@ -210,10 +223,9 @@ def build_script(answers: dict) -> tuple[str, list[Step]]:
         work += [("Hydraulic pressure", "Hold tilt back against its stop for a moment", "Hydraulics", "kPa", False,
                   MOVES)]
         work[1:1] = _fuel_work(fuel, after)             # straight after the engine speed step
+        # (no glow plug step: it needs the key turned off and on mid-run, which silences the bus,
+        # and the wait-to-start lamp is a standard J1939 signal that's decoded already)
         power = [("Engine running", "Start the engine and let it idle", "Engine", "", True, "")]
-        if fuel == "diesel":
-            power.insert(0, ("Glow plugs", "Turn the key from OFF to ON and wait for the wait-to-start lamp to go "
-                             "out (engine cold if you can)", "Engine", "", True, ""))
         steps = (_steps(CONTROLS, seat, pedal, brake, park, fwd, rev, *levers, *_fuel_controls(fuel, after), horn,
                         lights)
                  + _steps(POWER, *power) + _steps(WORK, *work))
@@ -281,14 +293,31 @@ def thin_bus(frames: list, seconds: float) -> str:
 
 @dataclass
 class Offer:
+    """One field offered for a step: ticked to keep it."""
+
     cand: observed.Candidate
     keep: bool = False
     again: bool = False     # the same field followed this step before
+    also: list = field(default_factory=list)    # other steps it was offered for (one that follows all is suspect)
+    moved: int = 0          # times it changed while the technician worked the control (the pick)
+    chatters: bool = False  # most of those changes didn't hold (a bouncing contact, or noise)
+    auto: bool = False      # ticked by the builder because it moved with the control, not by hand
+    rank: int = 0           # its place when first offered (ties keep this order)
+
+    @property
+    def key(self) -> str:
+        return self.cand.key
 
     @property
     def text(self) -> str:
         c = self.cand
         return c.evidence[0].split(": ", 1)[-1] if c.evidence else ""
+
+    @property
+    def label(self) -> str:
+        """In words: 'Proprietary B (Management computer #1): byte 2 bit 3'."""
+        s = self.cand.stream
+        return f"{s.name or s.label}: {fieldwatch.place_words(self.cand.field.where)}"
 
 
 @dataclass
@@ -307,12 +336,27 @@ class Guide:
     message: str = ""
     frames_seen: int = 0
     bus_note: str = ""                              # set when the bus is too quiet to learn from
+    watch: object = None                            # a fieldwatch.FieldWatch (the app's, fed elsewhere) or its own
+    known_moved: list = field(default_factory=list) # names already decoded that moved in this step
+    known_keys: list = field(default_factory=list)  # [(name, field key)] of those, to show them live
+    hidden: int = 0                                 # fields left out of this step: they change by themselves
+    offered_at: dict = field(default_factory=dict)  # field key -> [step names it was offered for]
+    picking_since: float = 0.0                      # when the current step's pick began
 
     def __post_init__(self):
         self._lock = threading.Lock()
         self._frames: list = []
         self._t = [0.0, 0.0, 0.0]       # rest start, do start, do end
         self._learnt = False
+        self._own_watch = self.watch is None
+        if self._own_watch:
+            self.watch = fieldwatch.FieldWatch()
+        self._hands_off: list = []      # [(start, end)]: stretches nobody touched the machine
+        self._before = None             # (start, end): the minute before the builder started
+        self._last_touch = 0.0          # the technician's last key press (nothing re-sorts under a finger)
+        self._last_sort = 0.0
+        self._user_ticked = False
+        self.report = None
 
     # --- what the screen shows ---
     @property
@@ -338,8 +382,15 @@ class Guide:
         if self.state == LOOK:
             return "Let go", "Looking at what followed..."
         if self.state == RESULT:
-            return (f"{s.name}: found" if any(o.keep for o in self.offers) else f"{s.name}: nothing kept"), self.message
+            if self.offers:
+                return f"{s.name}: which one moved?", self.message
+            return f"{s.name}: nothing new found", self.message
         return s.prompt, s.caution or "Press Start, then wait for 'do it'"
+
+    def sorting_paused(self, now: float | None = None) -> bool:
+        """True for a few seconds after a key press: the list holds still while it's being touched."""
+        now = time.time() if now is None else now
+        return now - self._last_touch < RESORT_IDLE
 
     # --- frames in ---
     def feed(self, frame):
@@ -347,11 +398,17 @@ class Guide:
         if getattr(frame, "error", None) or getattr(frame, "tx", False):
             return
         self.frames_seen += 1
+        if self._own_watch:
+            self.watch.feed(frame)
         if self.state in (QUIET, REST, DO):
             with self._lock:
                 self._frames.append(frame)
 
     # --- the technician's keys ---
+    def touch(self, now: float | None = None):
+        """A key was pressed: hold the list still for a moment."""
+        self._last_touch = time.time() if now is None else now
+
     def begin(self, now: float | None = None):
         """Start (or redo) the current step."""
         now = time.time() if now is None else now
@@ -359,9 +416,10 @@ class Guide:
             return
         with self._lock:
             self._frames = []
-        self.offers, self.message = [], ""
+        self.offers, self.message, self.known_moved, self.known_keys, self.hidden = [], "", [], [], 0
         if not self._learnt:
             self.state, self._t = QUIET, [now, 0.0, 0.0]
+            self._before = (now - BEFORE_SECONDS, now)      # the minute before the builder started
             return
         self.state = REST
         self._t = [now, now + self.rest, now + self.rest + self.do]
@@ -374,7 +432,10 @@ class Guide:
 
     def toggle(self, i: int):
         if self.state == RESULT and 0 <= i < len(self.offers):
-            self.offers[i].keep = not self.offers[i].keep
+            o = self.offers[i]
+            o.keep, o.auto = not o.keep, False
+            self._user_ticked = True
+            self.touch()
 
     def accept(self):
         """Keep what's ticked for this step and move on."""
@@ -386,14 +447,17 @@ class Guide:
             name = s.name if n == 0 else f"{s.name} {n + 1}"
             hint = o.cand.suggestion()
             same_unit = hint and hint.get("unit") == s.unit
+            if o.moved >= CHECKED_MOVES:
+                o.cand.evidence.insert(0, f"Picked: it changed {o.moved} times while the control was worked")
+            sure = observed.SURE[2] if o.moved >= CHECKED_MOVES else observed.SURE[1] if o.again else observed.SURE[0]
             self.kept[o.cand.key] = observed.signal_entry(
                 o.cand, name, s.unit, hint["scale"] if same_unit else 1.0, hint["offset"] if same_unit else 0.0,
-                s.group, observed.SURE[1] if o.again else observed.SURE[0])
+                s.group, sure)
         self._next()
 
     def _next(self):
         self.index += 1
-        self.offers, self.message = [], ""
+        self.offers, self.message, self.known_moved, self.known_keys, self.hidden = [], "", [], [], 0
         self.state = DONE if self.index >= len(self.steps) else WAITING
 
     def finish(self):
@@ -406,14 +470,18 @@ class Guide:
     def tick(self, now: float | None = None):
         now = time.time() if now is None else now
         if self.state == QUIET and now >= self._t[0] + self.quiet:
+            self._hands_off.append((self._t[0], self._t[0] + self.quiet))
             self._learn(now)
         elif self.state == REST and now >= self._t[1]:
+            self._hands_off.append((self._t[0], self._t[1]))
             self.state = DO
             self.marks.append((self._t[1], self.step.name))
         elif self.state == DO and now >= self._t[2]:
             self.state = LOOK
             self.marks.append((self._t[2], "(rest)"))
-            self._look()
+            self._look(now)
+        elif self.state == RESULT:
+            self._follow_pick(now)
 
     def _take(self) -> list:
         with self._lock:
@@ -432,28 +500,93 @@ class Guide:
         self.state = REST
         self._t = [now, now + self.rest, now + self.rest + self.do]
 
-    def _look(self):
+    def wanders(self, key: str) -> bool:
+        """Did it change by itself, while nobody was touching the machine (the hands-off stretch
+        and the 'get ready' of every step so far)?"""
+        if self.watch.transitions(key, intervals=self._hands_off[-12:]) >= WANDERS:
+            return True
+        # the first steps have little hands-off behind them: the minute before the builder started
+        # (menus, not controls) says which values keep changing by themselves
+        return self._before is not None and self.watch.transitions(key, intervals=[self._before]) >= WANDERS_BEFORE
+
+    def _look(self, now: float):
         s = self.step
         frames = self._take()
+        self.watch.refresh(now)
         r = changes.analyze(frames, [changes.Phase("Rest", self._t[0], self._t[1]),
                                      changes.Phase(s.name, self._t[1], self._t[2] + 1)])
         self.report = r
-        cands = [c for c in observed.candidates(r) if c.key not in self.restless and c.key not in self.kept]
-        cands.sort(key=lambda c: (c.is_switch != s.switch, -c.score, c.key))     # the kind the step expects first
+        every = observed.candidates(r, include_known=True)
+        named = {}
+        for c in every:
+            if c.known and c.known not in named:
+                # a bit of a named reading: show the reading itself (its byte), not the bit
+                whole = c.is_switch and not c.field.known
+                named[c.known] = f"{c.stream.label} {c.field.where.split('.')[0]}" if whole else c.key
+        words = {w for w in s.name.lower().split() if len(w) > 3}
+        ranked = sorted(named.items(), key=lambda kv: not words & set(kv[0].lower().replace("(", " ").split()))
+        self.known_moved = [n for n, _k in ranked]      # the ones that sound like the step first
+        self.known_keys = ranked
+        fresh, self.hidden = [], 0
+        for c in every:
+            if c.known or c.key in self.kept:
+                continue
+            if c.key in self.restless or not self.watch.plausible(c.key) or self.wanders(c.key):
+                self.hidden += 1
+                continue
+            fresh.append(c)
+        # the kind the step expects first; a field already offered for another step after the rest
+        fresh.sort(key=lambda c: (c.is_switch != s.switch, any(n != s.name for n in self.offered_at.get(c.key, [])),
+                                  -c.score, c.key))
         self.offers = []
-        for c in cands[:OFFER]:
+        for rank, c in enumerate(fresh[:OFFER]):
             times = self.seen.get((s.name, c.key), 0)
             self.seen[(s.name, c.key)] = times + 1
-            self.offers.append(Offer(c, keep=False, again=times > 0))
-        if self.offers:
-            self.offers[0].keep = True
-            more = len(cands) - 1
-            self.message = f"{self.offers[0].cand.key}  {self.offers[0].text}" + (f"  (+{more} more)" if more else "")
-        elif not frames:
-            self.message = "No frames arrived. Is the bus connected?"
-        else:
-            named = [c for c in observed.candidates(r, include_known=True) if c.field.known]
-            self.message = (f"Only values already named changed ({named[0].field.known})." if named
-                            else "Nothing followed. " + ("The bus is very quiet (see above)." if self.bus_note
-                                                         else "Try again, a little slower, or skip."))
+            also = [n for n in self.offered_at.get(c.key, []) if n != s.name]
+            if s.name not in self.offered_at.setdefault(c.key, []):
+                self.offered_at[c.key].append(s.name)
+            o = Offer(c, again=times > 0, also=also, rank=rank)
+            o.keep = o.again or bool(c.suggestion())        # ticked only on good evidence
+            self.offers.append(o)
+        self.picking_since, self._last_sort, self._last_touch, self._user_ticked = now, now, 0.0, False
+        self.message = self._explain(frames)
         self.state = RESULT
+
+    def _explain(self, frames) -> str:
+        left = f" ({self.hidden} that change by themselves left out)" if self.hidden else ""
+        if self.offers:
+            return f"Work it a few more times and watch the values: tick the one that follows, then Keep.{left}"
+        if not frames:
+            return "No frames arrived. Is the bus connected?"
+        if self.known_moved:
+            return f"Nothing new: only values already named moved ({', '.join(self.known_moved[:3])}).{left}"
+        if self.hidden:
+            return (f"Nothing followed: only values that change by themselves moved{left}. "
+                    "Try again a little slower, or skip.")
+        return "Nothing followed. " + ("The bus is very quiet (see above)." if self.bus_note
+                                       else "Try again, a little slower, or skip.")
+
+    def _follow_pick(self, now: float):
+        """While picking: count how often each offer changes as the control is worked, put the
+        ones that follow it first (only when no key was pressed for a moment) and tick a clear
+        winner unless the technician has ticked something themselves."""
+        if not self.offers:
+            return
+        for o in self.offers:                       # letting go after 'do it' counts: it's the control too
+            o.moved = self.watch.transitions(o.key, since=self.picking_since)
+            held = self.watch.held_transitions(o.key, self.picking_since) if o.cand.is_switch else o.moved
+            o.chatters = o.moved >= CHECKED_MOVES and held * 2 < o.moved
+        if not self.sorting_paused(now) and now - self._last_sort >= 1.0:
+            order = sorted(self.offers, key=lambda o: (-o.moved, o.rank))
+            if order != self.offers:
+                self.offers = order
+            self._last_sort = now
+        if not self._user_ticked:
+            top = max(self.offers, key=lambda o: (o.moved, -o.rank))
+            clear = (CHECKED_MOVES <= top.moved <= HUMAN_MOVES and not top.chatters
+                     and all(o is top or o.moved * 2 <= top.moved for o in self.offers))
+            for o in self.offers:
+                if o.auto and o is not top:
+                    o.keep = o.auto = False
+            if clear and not top.keep:
+                top.keep = top.auto = True

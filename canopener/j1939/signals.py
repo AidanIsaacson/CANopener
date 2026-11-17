@@ -160,6 +160,8 @@ SIGNALS: list[Signal] = [
     S("Driver's demand torque", 0xF004, 1, 1, 1, -125, "%", 512, 0),
     S("Actual engine torque", 0xF004, 2, 1, 1, -125, "%", 513, 0),
     S("Engine speed", 0xF004, 3, 2, 0.125, 0, "rpm", 190, 0),
+    # the starter mode as its raw number: where it sits is public, its value table we have not confirmed
+    Signal("Engine starter mode", 0xF004, 6, 1, 1, 0, "", 1675, 0, bit=0, bits=4),
     S("Engine demand torque", 0xF004, 7, 1, 1, -125, "%", 2432, 0),
     # EEC2 (61443) - engine controller 2
     _sw("Accelerator low-idle switch", 0xF003, 0, 0, 558),

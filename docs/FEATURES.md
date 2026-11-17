@@ -108,6 +108,13 @@ CANopener recognises the machine next time and offers its profile.
 
 How to use it: [Naming things](USAGE.md#naming-things-canopener-doesnt-know).
 
+On the handheld you don't need a laptop for any of it. The **Profile builder** walks you through
+the machine one control at a time, then shows what moved, live, so you pick the value that follows
+the lever by watching it rather than trusting a guess. **Explore the bus** shows every value at
+once, moving ones on top: work a control, see what lights up, name it from a list. Both leave out
+what changes by itself, say what's already named, and save on top of the profile you were using,
+so nothing it knew is lost. How: [Working out a machine from what its bus does](USAGE.md#working-out-a-machine-from-what-its-bus-does).
+
 ## It opens in about a second
 
 Unlike *some other* diagnostic programs. On my laptop it's open in about a second, so it's

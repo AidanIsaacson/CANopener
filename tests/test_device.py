@@ -265,7 +265,8 @@ def test_soft_key_and_tile_taps(app_for):
     app.open_mode("builder")
     for _ in range(2):
         app.step([])
-    assert app.top.title == "Profile builder" and "Start" in [r.label for r in app.top.rows.refresh()]
+    labels = [r.label for r in app.top.rows.refresh()]
+    assert app.top.title == "Profile builder" and "Start the guided builder" in labels
 
 
 def test_rotation_maps_touch_back_to_the_ui(app_for):
@@ -1291,7 +1292,7 @@ def test_guided_profile_builder_on_the_handheld(app_for, monkeypatch):
     from canopener.core import capture as cap
     from canopener.core import guide, observed, profiles
     from canopener.device.screens import guide as guide_screen
-    from canopener.device.screens.base import ChoiceDialog
+    from canopener.device.screens.base import ChoiceDialog, ConfirmDialog
     monkeypatch.setattr(guide, "build_script", lambda answers: (
         "Something else", [guide.Step("Lift", "Raise the forks", "Hydraulics", stage="Controls")]))
     app = app_for()
@@ -1301,6 +1302,9 @@ def test_guided_profile_builder_on_the_handheld(app_for, monkeypatch):
     ctx.connect("sim")
     assert ctx.wait_idle()
     guide_screen.start(app)
+    if isinstance(app.top, ConfirmDialog):                  # the simulator's bus fits its own profile:
+        assert "fits this bus" in app.top.title             # offered first, declined here
+        app.action(inp.BACK)
     assert isinstance(app.top, ChoiceDialog)
     assert "What kind of machine?" in app.top.title
     app.action(inp.SELECT)                                  # IC forklift: it goes on to ask about the engine
@@ -1333,9 +1337,16 @@ def test_guided_profile_builder_on_the_handheld(app_for, monkeypatch):
     run(0.32)
     assert g.state == guide.DO
     run(0.6, lift=True)
-    assert g.state == guide.RESULT and [o.cand.key for o in g.offers] == ["ID 288 b1.2"] and g.offers[0].keep
-    assert "Keep, next" in [k.label for k in screen.softkeys() if k]
-    g.accept()
+    assert g.state == guide.RESULT and [o.cand.key for o in g.offers] == ["ID 288 b1.2"] and not g.offers[0].keep
+    assert "Next" in [k.label for k in screen.softkeys() if k]          # nothing ticked yet
+    labels = [r.label for r in screen.rows.refresh()]
+    assert any(lb.startswith("Which one moved? Work it and watch") for lb in labels)
+    assert any(lb.startswith("Listening:") for lb in labels)
+    row = next(i for i, r in enumerate(screen.rows.rows) if r.label == g.offers[0].label)
+    screen.rows.view.focus = row
+    app.action(inp.SELECT)                                  # tick it on the screen
+    assert g.offers[0].keep and "Keep, next" in [k.label for k in screen.softkeys() if k]
+    screen.keep()
     assert g.state == guide.DONE
     app.step([])
     screen.save()
@@ -1612,3 +1623,100 @@ def test_a_second_bus_that_wont_open_doesnt_cost_the_main_one(ctx, tmp_path, mon
     ctx.connect()
     assert ctx.wait_idle() and ctx.live and ctx.second is None
     assert any("CAN 2 not watched" in text for text, _ in ctx.toasts)
+
+
+def test_bus_explorer_lists_every_field_live_and_names_one(app_for):
+    """Profile builder > Explore: every field from the simulator, moving ones first; pick one, name
+    it from the list and it's saved in a profile on top of the one in use, which Live then uses."""
+    from canopener.core import profiles
+    from canopener.device.screens import explore
+    from canopener.device.screens import guide as guide_screen
+    from canopener.device.screens.base import ChoiceDialog
+    app = app_for()
+    ctx = app.ctx
+    home = guide_screen.BuilderHome(app)
+    app.push(home)
+    home.explore()
+    assert "Connect" in ctx.current_toast() and app.top is home
+    assert any(r.label == "Not connected" for r in home.rows.refresh())
+    ctx.connect("sim")
+    assert ctx.wait_idle()
+    time.sleep(1.5)
+    ctx.fieldwatch.refresh()
+    labels = [r.label for r in home.rows.refresh()]
+    assert any(lb.startswith("Listening:") for lb in labels) and "Explore the bus" in labels
+    home.explore()
+    screen = app.top
+    assert isinstance(screen, explore.ExploreScreen)
+    for _ in range(3):
+        app.step([])
+    rows = screen.rows.refresh()
+    assert rows[0].label.startswith("Profile in use:") and "values (changing, moving first)" in rows[1].label
+    named = [r for r in rows[2:] if r.select is not None and ": byte" not in r.label]     # a decoder's name
+    assert named and named[0].value_text() not in ("", "--") and named[0].hint.startswith("PGN ")
+    unnamed = next(r for r in rows[2:] if r.select is not None and ": byte" in r.label)
+    screen.cycle_show()
+    assert screen.show == "unnamed" and named[0].label not in [r.label for r in screen.rows.refresh()]
+    screen.toggle_sort()
+    assert screen.sort == "bus"
+    before = profiles.active()
+    unnamed.select()
+    page = app.top
+    assert isinstance(page, explore.FieldScreen)
+    app.step([])
+    page.toggle_unsure()
+    page.name_it()
+    assert isinstance(app.top, ChoiceDialog) and "Where should names go?" in app.top.title
+    app.action(inp.SELECT)                                  # the first choice (the profile in use, or a new one)
+    assert isinstance(app.top, ChoiceDialog) and "what kind of thing" in app.top.title
+    app.action(inp.SELECT)                                  # Engine
+    assert isinstance(app.top, ChoiceDialog) and app.top.title.startswith("Engine")
+    app.action(inp.SELECT)                                  # Engine speed
+    p = profiles.active()
+    assert p is not None and p.id != (before.id if before else None)
+    assert "Engine speed ?" in [s.name for s in p.signals]
+    assert "Named" in ctx.current_toast() and screen.where_to
+    ctx.disconnect()
+
+
+def test_profile_sharing_does_not_wait_for_the_job_slot(app_for, monkeypatch, tmp_path):
+    """The builder saves the log (a job) and shares the profile at the same moment: the share runs
+    on its own and says how it went."""
+    from canopener.core import upload
+    app = app_for(**{"upload__url": "https://example.invalid"})
+    ctx = app.ctx
+    path = tmp_path / "observed-x.json"
+    path.write_text("{}")
+    monkeypatch.setattr(upload.HttpUploader, "configured", lambda self, settings: True)
+    monkeypatch.setattr(upload, "upload_profile", lambda settings, p: {"revision": 3})
+    ctx.busy = "Saving the log"
+    assert ctx.share_profile(str(path))
+    for _ in range(100):
+        ctx.tick()
+        if ctx.current_toast() and "shared" in ctx.current_toast():
+            break
+        time.sleep(0.01)
+    assert ctx.current_toast() == "Profile shared with the upload server (revision 3)"
+
+    def fail(settings, p):
+        raise upload.UploadError("server said no")
+    monkeypatch.setattr(upload, "upload_profile", fail)
+    ctx.share_profile(str(path))
+    for _ in range(100):
+        ctx.tick()
+        if "not shared" in (ctx.current_toast() or ""):
+            break
+        time.sleep(0.01)
+    assert "not shared yet" not in ctx.current_toast() and "server said no" in ctx.current_toast()
+    assert "observed-x" in ctx.share_failed
+    ctx.busy = None
+
+
+def test_recording_without_a_bus_says_it_is_meters_only(app_for):
+    app = app_for(**{"meters__sim": True})
+    ctx = app.ctx
+    if not ctx.hub.sources():
+        return                                              # no meter here: nothing to record at all
+    assert ctx.start_log()
+    assert "meters only" in ctx.current_toast()
+    ctx.stop_log()

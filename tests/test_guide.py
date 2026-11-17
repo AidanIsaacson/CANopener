@@ -46,12 +46,19 @@ def test_guide_walks_the_steps_names_what_followed_and_ignores_what_drifts():
     assert g.state == guide.DO and g.prompt() == ("Raise the forks", "Hold it there...")
     m.run(3.05, lift=True)
     assert g.state == guide.RESULT
-    assert [o.cand.key for o in g.offers] == ["ID 288 b1.2"] and g.offers[0].keep and not g.offers[0].again
-    assert "off -> on" in g.message and g.prompt()[0] == "Lift: found"
+    assert [o.cand.key for o in g.offers] == ["ID 288 b1.2"] and not g.offers[0].again
+    assert not g.offers[0].keep                             # nothing is ticked on one sighting alone
+    assert "tick the one that follows" in g.message and g.prompt()[0] == "Lift: which one moved?"
+    assert g.offers[0].label == "TPDO2: byte 2 bit 3" and g.offers[0].text == "off -> on"
+    for lift in (False, True, False, True):                 # the technician works the lever while watching
+        m.run(0.6, lift=lift)
+    assert g.offers[0].moved == 4 and g.offers[0].keep and g.offers[0].auto
     g.accept()
     m.lift = False
     assert g.index == 1 and g.state == guide.WAITING and g.kept["ID 288 b1.2"]["name"] == "Lift"
-    assert g.kept["ID 288 b1.2"]["group"] == "Hydraulics" and g.kept["ID 288 b1.2"]["observed"]["sure"] == "seen once"
+    lift = g.kept["ID 288 b1.2"]
+    assert lift["group"] == "Hydraulics" and lift["observed"]["sure"] == "checked"
+    assert lift["observed"]["evidence"][0].startswith("Picked: it changed 4 times")
 
     g.begin(m.t)                                            # the horn: nothing pressed the first time
     m.run(2.05)
@@ -88,7 +95,8 @@ def test_guide_offers_a_second_thing_that_followed_and_numbers_it():
     m.run(4.1)
     m.run(2.05)
     m.run(3.05, lift=True, horn=True)                       # two bits followed
-    assert len(g.offers) == 2 and [o.keep for o in g.offers] == [True, False]
+    assert len(g.offers) == 2 and [o.keep for o in g.offers] == [False, False]
+    g.toggle(0)
     g.toggle(1)
     g.accept()
     assert sorted(e["name"] for e in g.entries()) == ["Lift", "Lift 2"] and g.state == guide.DONE
@@ -115,12 +123,12 @@ def test_questions_narrow_the_script_and_controls_come_before_the_engine():
                                         "hydraulics": "manual", "height": "none", "side_shift": False})
     d = [s.name for s in diesel]
     assert title == "IC forklift, diesel with aftertreatment, manual hydraulics"
-    assert d.index("Regeneration inhibit switch") < d.index("Glow plugs") < d.index("Engine running")
+    assert d.index("Regeneration inhibit switch") < d.index("Engine running") and "Glow plugs" not in d
     assert "Exhaust temperature" in d and "LP fuel pressure switch" not in d and "Throttle position" not in d
     regen = diesel[d.index("Regeneration request switch")]
     assert regen.stage == guide.CONTROLS and "regeneration" in regen.caution
     plain = [s.name for s in guide.build_script({"machine": "ic", "fuel": "diesel", "aftertreatment": False})[1]]
-    assert "Regeneration inhibit switch" not in plain and "Glow plugs" in plain
+    assert "Regeneration inhibit switch" not in plain and "Engine running" in plain
     # every control input is mapped with the key on, before the engine is started
     start = names.index("Engine running")
     for control in ("Seat switch", "Accelerator pedal", "Lift lever", "Lower lever", "Tilt back lever",

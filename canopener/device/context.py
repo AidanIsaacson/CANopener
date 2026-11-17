@@ -19,7 +19,7 @@ from .. import __version__
 from ..can import pythoncan
 from ..core import bluetooth as bt
 from ..core import capture as cap
-from ..core import config, identity, interfaces, link, meters, profiles, scan, sound, units, upload
+from ..core import config, identity, interfaces, link, meters, profile_match, profiles, scan, sound, units, upload
 from ..core.calibration import Calibration
 from ..core.capture import Capture
 from ..core.connection import (
@@ -32,6 +32,7 @@ from ..core.connection import (
     SOCKETCAN,
     open_connection,
 )
+from ..core.fieldwatch import FieldWatch
 from ..core.hardware import Hardware
 from ..core.live import LiveData, ObdLiveData
 from ..core.measure import MeasurementHub, MeasurementLiveData
@@ -68,6 +69,10 @@ class DeviceContext:
         self.connection = None
         self.session = None
         self.j1939_live = LiveData()
+        self.fieldwatch = FieldWatch()      # every field on the bus, live (the builder and the bus explorer)
+        self.share_failed: set = set()      # profiles (ids) whose last share failed: offered again
+        self.profile_matches: list = []     # known profiles this bus looks like (core.profile_match)
+        self._matches_checked = False
         self.obd_live = ObdLiveData()
         self.meter_live = MeasurementLiveData()
         self.calibration = Calibration(self.settings)  # per-channel zero + gain (System > Meters > Calibration)
@@ -476,6 +481,9 @@ class DeviceContext:
         self.obd_live.clear()
         self._bus_level, self._bus_was_ok = link.OFF, False
         self._traffic_checked, self.traffic_hint = False, ""
+        self.fieldwatch.clear()
+        conn.session.add_listener(self.fieldwatch.feed)
+        self.profile_matches, self._matches_checked = [], False
         got = getattr(conn, "second", None)
         if got is not None:
             self.second, self.second_port, self.second_bitrate = got
@@ -506,6 +514,7 @@ class DeviceContext:
         self.bus2 = link.Status(link.OFF, "Bus: not connected")
         self.traffic_hint = ""
         if self.connection is not None:
+            self.connection.session.remove_listener(self.fieldwatch.feed)
             self.connection.close()
             self.toast("Disconnected")
         self.connection = None
@@ -963,7 +972,7 @@ class DeviceContext:
         if stream and self.protocol == profiles.OBD2 and self.obd_streamer is not None \
                 and not self.obd_streamer.running:
             self.toggle_obd_stream()        # a car only talks when asked: keep it talking while logging
-        self.toast("Recording")
+        self.toast("Recording" if self.live else "Recording meters only: not connected to a bus, so no CAN data")
         self.cue("rec_start")
         return True
 
@@ -1084,15 +1093,28 @@ class DeviceContext:
 
     def share_profile(self, path: str) -> bool:
         """Send a profile made on this unit to the upload server, when one is set up and profile
-        sharing is on (``upload.profiles``, on by default). Quiet if there's nowhere to send it."""
+        sharing is on (``upload.profiles``, on by default). Runs on its own thread, not as a job:
+        saving the log at the same moment (the builder does both) must not crowd it out. Says how
+        it went either way. Quiet if there's nowhere to send it."""
         if not self.settings.get("upload.profiles") or not upload.HttpUploader().configured(self.settings):
             return False
         settings = self.settings
+        name = os.path.splitext(os.path.basename(path))[0]
 
-        def done(got):
-            self.toast("Profile shared with the upload server"
-                       + ("" if got.get("unchanged") else f" (revision {got.get('revision')})"))
-        return self.run_job("Sharing the profile", lambda: upload.upload_profile(settings, path), done)
+        def work():
+            try:
+                got = upload.upload_profile(settings, path)
+                text = ("Profile shared with the upload server"
+                        + ("" if got.get("unchanged") else f" (revision {got.get('revision')})"))
+            except Exception as e:      # noqa: BLE001 - said on screen; the profile is saved here anyway
+                traceback.print_exc()
+                text = f"Profile saved here but not shared: {e}"
+                self.share_failed.add(name)
+            else:
+                self.share_failed.discard(name)
+            self.post(lambda: self.toast(text))
+        threading.Thread(target=work, name="share-profile", daemon=True).start()
+        return True
 
     def find_changes(self, then) -> bool:
         """Compare what the bus said between the saved log's timestamps (``core.changes``).
@@ -1162,6 +1184,7 @@ class DeviceContext:
         if not self.live:
             return
         self._traffic_check(now)
+        self._match_check(now)
         # for the chimes, a bus with little traffic is still a bus that's there
         level = link.OK if self.bus.level == link.LOW else self.bus.level
         if level != link.OK and now - s.started_at < link.QUIET_SECS:
@@ -1200,6 +1223,27 @@ class DeviceContext:
         else:
             self.traffic_hint = f"Key on? Or try the other port: CAN > Connect > Make {other.label} the main bus"
         self.toast(f"{here}: {what}. {self.traffic_hint}")
+
+    def _match_check(self, now: float):
+        """Once, a few seconds into a connection: which known profiles this bus looks like. Said out
+        loud when one fits clearly better than the profile in use."""
+        s = self.session
+        if self._matches_checked or now - s.started_at < TRAFFIC_CHECK_SECS + 2:
+            return
+        self._matches_checked = True
+        best = self.check_profiles()
+        if best is not None and best.share >= profile_match.GOOD_SHARE:
+            self.toast(f"This looks like {best.profile.name} ({best.matched} of {best.total} of its messages here): "
+                       "Profile builder > Load it")
+
+    def check_profiles(self):
+        """Rank the known profiles against the bus now (``profile_matches``); the best one that
+        fits better than the profile in use, or None."""
+        if self.session is None:
+            return None
+        found = profiles.arrange(profiles.available_profiles()[0])
+        self.profile_matches = profile_match.similar(found, profiles.present_pgns(self.session))
+        return profile_match.better_than_active(self.profile_matches, profiles.active())
 
     def frames_per_second(self) -> float:
         s = self.session
