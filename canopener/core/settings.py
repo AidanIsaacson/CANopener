@@ -85,9 +85,12 @@ DEFAULTS: dict = {
     "device.accent": "",                # "#rrggbb" in place of the theme's accent colour ("" = the theme's)
     "device.keys": {},                  # key name -> action, on top of device.input.DEFAULT_KEYS
     "device.encoder": "auto",           # evdev device for the rotary encoder: auto / none / /dev/input/eventN
-    "device.ladder": "",                # IIO channel of a resistor-ladder button stack ("" = none)
-    "device.ladder_levels": [0.0, 0.6, 1.2, 1.8, 2.4],     # volts per ladder button (soft keys 1-5)
-    "device.side_levels": [0.0, 0.60, 1.18, 1.98],      # the side buttons on A3: Back, Hold, Record, Timestamp
+    # volts per button on the button ADC's stacks (10 k pull-up; 0, 2.2 k, 5.6 k, 12 k, 27 k to ground),
+    # in each stack's order: top row F1-F5 / up, down, left, right, push / Back, Hold, Record, Timestamp
+    "device.button_levels": [0.0, 0.60, 1.18, 1.80, 2.41],
+    "battery.divider": 115 / 15,        # pack volts per volt on the button ADC's A0 (100 k over 15 k)
+    "battery.cells": 5,                 # Li-ion cells in series (a 20V MAX pack: 5)
+    "battery.power_off": True,          # power off when the pack is flat (packs don't all cut off themselves)
     "device.games": False,              # Games on the home screen (System > About, seven times)
     "device.tile_order": [],            # home tiles as dragged into place (mode ids; device/modes.py)
     "device.live_view": {},             # CAN > Live: picks, grid, the enlarged value (device/screens/live.py)

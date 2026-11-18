@@ -17,6 +17,7 @@ from collections import deque
 
 from .. import __version__
 from ..can import pythoncan
+from ..core import battery as batt
 from ..core import bluetooth as bt
 from ..core import capture as cap
 from ..core import config, identity, interfaces, link, meters, profile_match, profiles, scan, sound, units, upload
@@ -149,6 +150,7 @@ class DeviceContext:
         self._jobs: queue.Queue = queue.Queue()
         self._last_sample = 0.0
         self.held = False                   # Hold: live values frozen on the screen (the bus and log go on)
+        self.battery_monitor = batt.BatteryMonitor()    # the pack, when the button ADC reads it
         self._link_checked = 0.0
         self._bus_level = link.OFF
         self._bus_was_ok = False
@@ -1047,6 +1049,25 @@ class DeviceContext:
         self.toast("Recording" if self.live else "Recording meters only: not connected to a bus, so no CAN data")
         self.cue("rec_start")
         return True
+
+    @property
+    def battery(self) -> "batt.Battery | None":
+        """The handheld's pack (button ADC input A0), or None when nothing reads it."""
+        return self.battery_monitor.battery
+
+    def battery_reading(self, adc_v: float | None, now: float | None = None) -> str | None:
+        """One reading of the battery input, in ADC volts (from the UI's button thread). Warns once
+        per step down; returns the event ("low", "very low", "empty") so the UI can power off at
+        "empty"."""
+        m, s = self.battery_monitor, self.settings
+        m.divider = float(s.get("battery.divider") or m.divider)
+        m.cells = int(s.get("battery.cells") or m.cells)
+        m.power_off = bool(s.get("battery.power_off"))
+        ev = m.update(adc_v, time.monotonic() if now is None else now)
+        if ev:
+            self.toast(m.message(ev))
+            self.cue("battery")
+        return ev
 
     def toggle_hold(self):
         """Freeze the live values on the screen (Live, the grid's traces), or let them go again.

@@ -1791,3 +1791,81 @@ def test_hold_button_freezes_the_screen_and_the_meter_uses_its_own_hold(app_for)
     assert meter.hold is not None and not ctx.held
     app.action(inp.HOLD)
     assert meter.hold is None
+
+
+class _FakeButtons:
+    """Stands in for input.ButtonAdc: the presses queued in ``events``, the battery in ADC volts."""
+
+    def __init__(self):
+        self.events, self.lost, self.battery, self.stopped = [], False, None, False
+        self.read_battery = object()
+
+    def poll(self):
+        out, self.events = self.events, []
+        return out
+
+    def stop(self):
+        self.stopped = True
+
+
+def test_button_adc_buttons_battery_and_doom(app_for, monkeypatch):
+    """Buttons on the button ADC go the same way as keys (a long push is still Back), the pack shows
+    in the status strip and System, a flat pack powers off, a lost ADC is said on screen, and while
+    Doom runs the stacks reach it as keys."""
+    from canopener.core import battery as batt
+    from canopener.device import app as app_mod
+    from canopener.device import doom_controls
+    fake = _FakeButtons()
+    monkeypatch.setattr(inp, "button_adc", lambda levels: fake)
+    app = app_for()
+    ctx = app.ctx
+    ctx.hardware.set_state("button_adc", "yes")
+    app.open_mode("can")
+    depth = len(app.stack)
+    fake.events = [("down", inp.BACK), ("up", inp.BACK)]
+    app.poll_hardware()
+    assert app.buttons is fake and len(app.stack) == depth - 1           # Back, from the side stack
+    t = [1000.0]
+    app.press = inp.PressTracker(0.7)
+    monkeypatch.setattr(inp.time, "monotonic", lambda: t[0])
+    app.open_mode("can")
+    depth = len(app.stack)
+    fake.events = [("down", inp.SELECT)]                                # the encoder's push, held
+    app.poll_hardware()
+    t[0] += 1.0
+    app.poll_hardware()
+    assert len(app.stack) == depth - 1                                  # held: Back
+    monkeypatch.undo()
+    monkeypatch.setattr(inp, "button_adc", lambda levels: fake)
+    fake.battery = 18.9 / (115 / 15)                                     # ADC volts for an 18.9 V pack
+    app.poll_hardware()
+    assert ctx.battery.state == batt.OK and fake.battery is None
+    app.step([])                                                        # the strip draws the percentage
+    from canopener.device.screens.settings import SettingsScreen
+    scr = SettingsScreen(app)
+    assert "18.9 V" in scr._battery_text()
+    fake.lost = True
+    app.poll_hardware()
+    assert "stopped answering" in ctx.current_toast()
+    fake.lost = False
+    powered = []
+    monkeypatch.setattr(app_mod.subprocess, "Popen", lambda argv, **kw: powered.append(argv))
+    ctx.battery_monitor._empty_since = -1e9                             # flat for long enough already
+    fake.battery = 14.5 / (115 / 15)
+    app.poll_hardware()
+    assert powered[-1] == app_mod.system.POWER_OFF and "Battery empty" in ctx.current_toast()
+    # Doom: the stack presses become key codes on a keyboard of their own
+    sent = []
+
+    class Out:
+        def key(self, code, down):
+            sent.append((code, down))
+
+        def close(self):
+            sent.append("closed")
+    keys = doom_controls.ButtonKeys(fake, Out())
+    fake.events = [("down", inp.UP), ("down", inp.SOFT[0])]
+    keys.tick()
+    assert sent == [(103, True), (59, True)]
+    keys.stop()                                                         # what's still down is let go
+    assert sent[2:] == [(59, False), (103, False), "closed"]

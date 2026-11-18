@@ -23,7 +23,7 @@ import threading
 import time
 
 from . import game_controls as gc
-from .input import EVENT
+from .input import EVENT, KEYCODES
 
 DEVICE = "/dev/uinput"
 STALE_S = 1.0               # a signal not heard for this long counts as let go
@@ -209,3 +209,64 @@ class DoomControls:
         except OSError:
             pass
         self.out.close()
+
+
+class ButtonKeys:
+    """The button ADC's stacks as a keyboard while Doom has the screen. Buttons on GPIO are
+    already keys Doom reads; buttons on the resistor stacks only reach the app, whose UI thread is
+    waiting for Doom to end, so this passes their presses on as the same key codes the gpio-key
+    overlays send (``input.KEYCODES``). ``buttons``: an ``input.ButtonAdc``; ``out``:
+    ``key(code, down)`` and ``close()`` (a uinput keyboard unless given)."""
+
+    def __init__(self, buttons, out=None):
+        self.buttons = buttons
+        self.out = out if out is not None else _Keyboard()
+        self.down: set[int] = set()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def tick(self):
+        for kind, action in self.buttons.poll():
+            code = KEYCODES.get(action)
+            if code is None:
+                continue
+            down = kind == "down"
+            self.out.key(code, down)
+            (self.down.add if down else self.down.discard)(code)
+
+    def start(self):
+        self._stop.clear()
+        self.buttons.poll()                     # what was pressed before Doom started isn't for Doom
+        self._thread = threading.Thread(target=self._run, name="doom-buttons", daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        while not self._stop.wait(POLL_S):
+            try:
+                self.tick()
+            except OSError:
+                return
+
+    def stop(self):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+            self._thread = None
+        try:
+            for code in sorted(self.down):
+                self.out.key(code, False)
+        except OSError:
+            pass
+        self.down = set()
+        self.out.close()
+
+
+class _Keyboard:
+    def __init__(self):
+        self.dev = VirtualDevice("CANopener buttons (keys)", keys=range(1, 128))
+
+    def key(self, code: int, down: bool):
+        self.dev.emit(EV_KEY, code, 1 if down else 0)
+
+    def close(self):
+        self.dev.close()

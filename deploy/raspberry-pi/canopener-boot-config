@@ -42,20 +42,29 @@ def _can(cs: int, irq: int, osc: int, spi: int) -> list[str]:
 # The Waveshare 2-CH CAN FD HAT as shipped: 40 MHz, CAN_0 on SPI0 CE0 / GPIO25, CAN_1 on SPI1 CE0
 # (GPIO18) / GPIO24. spi1-1cs claims only that one chip select.
 # spi0-1cs leaves SPI0's unused CE1 (GPIO7) free: with the HAT, the encoder's A line moves there
-# (ENCODER_PINS), off GPIO24, which is the HAT's CAN_1 interrupt.
+# (ENCODERS), off GPIO24, which is the HAT's CAN_1 interrupt.
 CAN_HAT = ("dtparam=spi=on", "dtoverlay=spi0-1cs", "dtoverlay=mcp251xfd,spi0-0,oscillator=40000000,interrupt=25",
            "dtoverlay=spi1-1cs", "dtoverlay=mcp251xfd,spi1-0,oscillator=40000000,interrupt=24")
-ENCODER_PINS = (24, 7)          # the encoder's A line: 24 as designed, 7 with the Waveshare HAT
+# The encoder by its A pin: (A, B, the buttons on gpio-key too). 24 as designed; 7 with the Waveshare
+# HAT; 17 with the buttons and battery ADC, where every button is on a resistor stack and only the
+# encoder is on GPIO (A 17, B 27: physical pins 11 and 13, ground on 14).
+ENCODERS = {24: (24, 4, True), 7: (7, 4, True), 17: (17, 27, False)}
+ENCODER_PINS = tuple(ENCODERS)
+BUTTON_ADC = ("dtparam=i2c_arm=on",
+              "dtoverlay=ads1115,addr=0x49,cha_enable,cha_cfg=4,chb_enable,chb_cfg=5,chc_enable,chc_cfg=6,"
+              "chd_enable,chd_cfg=7")
 
 
 def lines(option: str, osc: int = 20000000, spi: int = 0, pi5: bool = True, enc: int = 24) -> list[str]:
     """The config.txt lines for one option (in the order they are written)."""
     if option == "controls":
+        a, b, keys = ENCODERS.get(enc, ENCODERS[24])
         out = [f'dtoverlay=gpio-key,gpio={g},active_low=1,gpio_pull=up,keycode={k},label="{n}"'
-               for g, k, n in GPIO_KEYS[:9]]
-        return out + [f"gpio={enc},4=ip,pu",
-                      f"dtoverlay=rotary-encoder,pin_a={enc},pin_b=4,relative_axis=1,steps-per-period=1",
-                      'dtoverlay=gpio-key,gpio=26,active_low=1,gpio_pull=up,keycode=28,label="SELECT"']
+               for g, k, n in GPIO_KEYS[:9]] if keys else []
+        out += [f"gpio={a},{b}=ip,pu",
+                f"dtoverlay=rotary-encoder,pin_a={a},pin_b={b},relative_axis=1,steps-per-period=1"]
+        return out + (['dtoverlay=gpio-key,gpio=26,active_low=1,gpio_pull=up,keycode=28,label="SELECT"']
+                      if keys else [])
     if option == "can_a":
         return _can(0, 25, osc, spi)
     if option == "can_b":
@@ -68,13 +77,15 @@ def lines(option: str, osc: int = 20000000, spi: int = 0, pi5: bool = True, enc:
         return ["dtparam=i2c_arm=on",
                 "dtoverlay=ads1115,addr=0x48,cha_enable,cha_cfg=4,chb_enable,chb_cfg=5,chc_enable,chc_cfg=6,"
                 "chd_enable,chd_cfg=7"]
+    if option == "button_adc":
+        return list(BUTTON_ADC)
     if option == "esp32":
         return ["dtparam=uart0=on"] if pi5 else ["enable_uart=1", "dtoverlay=disable-bt"]
     raise KeyError(option)
 
 
-PARTS = ("controls", "can_a", "can_b", "can_hat", "sync", "adc_pi", "esp32")
-LIVE = ("can_a", "can_b", "can_hat", "sync", "adc_pi")      # the rest only take effect after a restart
+PARTS = ("controls", "can_a", "can_b", "can_hat", "sync", "adc_pi", "button_adc", "esp32")
+LIVE = ("can_a", "can_b", "can_hat", "sync", "adc_pi", "button_adc")      # the rest only take effect after a restart
 
 
 class Bad(Exception):
@@ -83,7 +94,7 @@ class Bad(Exception):
 
 def parse_token(token: str) -> tuple[str, int, int, int]:
     """'can_a:osc=40000000:spi=1000000' -> ('can_a', 40000000, 1000000, 24); 'controls:enc=7' ->
-    ('controls', 20000000, 0, 7). Raises Bad."""
+    ('controls', 20000000, 0, 7) (the encoder's A pin: see ENCODERS). Raises Bad."""
     name, *params = token.split(":")
     if name not in PARTS:
         raise Bad(f"unknown option {name!r} (known: {', '.join(PARTS)})")
@@ -224,22 +235,31 @@ def _mcp(spi_dev: str) -> bool:
     return os.path.basename(os.path.realpath(drv)) == "mcp251xfd" if os.path.exists(drv) else False
 
 
+def _adc_at(addr: int) -> bool:
+    """An ADS1115 driven by the kernel at this I2C address (one whose address can't be told is 0x48)."""
+    import glob
+    import re
+    for d in glob.glob("/sys/bus/iio/devices/iio:device*"):
+        try:
+            with open(os.path.join(d, "name")) as f:
+                if f.read().strip() not in ("ads1115", "ads1015"):
+                    continue
+        except OSError:
+            continue
+        m = re.fullmatch(r"\d+-([0-9a-fA-F]{4})", os.path.basename(os.path.dirname(os.path.realpath(d))))
+        if (int(m.group(1), 16) if m else 0x48) == addr:
+            return True
+    return False
+
+
 def _present(name: str) -> bool:
     """Already running (from config.txt at boot, or loaded earlier): nothing to load."""
     if name in ("can_a", "can_b"):
         return _mcp(f"spi0.{0 if name == 'can_a' else 1}")
     if name == "can_hat":
         return _mcp("spi0.0") and _mcp("spi1.0")
-    if name == "adc_pi":
-        import glob
-        for d in glob.glob("/sys/bus/iio/devices/iio:device*"):
-            try:
-                with open(os.path.join(d, "name")) as f:
-                    if f.read().strip() in ("ads1115", "ads1015"):
-                        return True
-            except OSError:
-                pass
-        return False
+    if name in ("adc_pi", "button_adc"):
+        return _adc_at(0x48 if name == "adc_pi" else 0x49)
     if name == "sync":
         return os.path.exists("/dev/pps0")
     return False

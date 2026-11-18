@@ -54,6 +54,7 @@ import select
 import threading
 import time
 
+from . import hardware
 from .measure import BAD, OK, SIM, WAIT, Channel, ClockMapper, MeasurementSource, SourceStatus
 
 RETRY_SECS = 2.0
@@ -364,6 +365,27 @@ def iio_devices(sys_iio: str = SYS_IIO) -> list[tuple[str, str]]:
     return out
 
 
+PROBE_ADC_AT = f"ads1115@0x{hardware.PROBE_ADC:02x}"
+
+
+def _iio_named(spec: str, sys_iio: str = SYS_IIO) -> str | None:
+    """The folder for "ads1115" or "ads1115@0x48" (see ``IioSource``)."""
+    name, _, at = spec.partition("@")
+    try:
+        want = int(at, 16) if at else None
+    except ValueError:
+        return None
+    for d, n in iio_devices(sys_iio):
+        if n != name:
+            continue
+        addr = hardware.iio_address(d)
+        if want is None and addr != hardware.BUTTON_ADC:
+            return d
+        if want is not None and (addr if addr is not None else hardware.PROBE_ADC) == want:
+            return d
+    return None
+
+
 def _read_float(path: str) -> float | None:
     try:
         with open(path) as f:
@@ -375,16 +397,16 @@ def _read_float(path: str) -> float | None:
 class IioSource(MeasurementSource):
     """Single-ended voltage inputs of a kernel ADC driver, polled from sysfs.
 
-    ``device`` is the driver name ("ads1115") or a folder; ``ratio`` is the input divider
-    (probe volts per ADC volt: 6.0 for the DESIGN.md 50k/10k divider)."""
+    ``device`` is the driver name ("ads1115"), a name at an I2C address ("ads1115@0x48") or a
+    folder; ``ratio`` is the input divider (probe volts per ADC volt: 6.0 for the DESIGN.md
+    50k/10k divider). A bare name never picks the buttons' ADS1115 (0x49): its inputs are buttons
+    and the battery, not probes."""
 
     id = "iio"
 
-    def __init__(self, device: str, ratio: float = 1.0, rate: float = 10.0, sys_iio: str = SYS_IIO,
-                 skip: tuple = ()):
+    def __init__(self, device: str, ratio: float = 1.0, rate: float = 10.0, sys_iio: str = SYS_IIO):
         super().__init__()
         self.device = device
-        self.skip = {str(i) for i in skip}      # inputs used for something else (the side buttons on A3)
         self.ratio = ratio or 1.0
         self.rate = rate
         self.sys_iio = sys_iio
@@ -398,15 +420,14 @@ class IioSource(MeasurementSource):
         return [c for c, _, _ in self._inputs]
 
     def _find(self) -> bool:
-        folder = self.device if os.path.isdir(self.device) else next(
-            (d for d, n in iio_devices(self.sys_iio) if n == self.device), None)
+        folder = self.device if os.path.isdir(self.device) else _iio_named(self.device, self.sys_iio)
         if folder is None:
             return False
         self.folder = folder
         inputs = []
         for raw in sorted(glob.glob(os.path.join(folder, "in_voltage*_raw"))):
             idx = os.path.basename(raw)[len("in_voltage"):-len("_raw")]
-            if not idx.isdigit() or idx in self.skip:      # differential pairs; inputs used for buttons
+            if not idx.isdigit():                   # differential pairs
                 continue
             scale = os.path.join(folder, f"in_voltage{idx}_scale")
             if not os.path.exists(scale):
@@ -549,13 +570,11 @@ def sources_from_settings(settings, hardware=None, pulse_clock=None) -> list[Mea
             ports.add(port)
             out.append(SerialLineSource(port, "esp32", "Wireless meters"))
         if hardware.available("adc_pi") and not iio:
-            found = hardware.detect("adc_pi")
-            iio = found.detail if found.found else "ads1115"
+            iio = hardware.iio_folder("adc_pi") or PROBE_ADC_AT
     if settings.get("meters.sim"):
         out.append(SimulatedMeter())
     if settings.get("meters.serial") and settings.get("meters.serial") not in ports:
         out.append(SerialLineSource(settings.get("meters.serial")))
     if iio:
-        buttons = hardware is not None and hardware.available("side_buttons")
-        out.append(IioSource(iio, ratio, skip=(3,) if buttons else ()))
+        out.append(IioSource(iio, ratio))
     return out

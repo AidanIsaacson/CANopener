@@ -31,6 +31,7 @@ Standard library only.
 
 import glob
 import os
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -81,13 +82,14 @@ OPTIONS: list[Option] = [
            "(gpio-key) and the rotary encoder (rotary-encoder). Wire some or all; touch still works.",
            "deploy/raspberry-pi/config-controls.txt in /boot/firmware/config.txt, then reboot; the user in the "
            "input group (install.sh --device) for the encoder.", detect="input"),
-    Option("side_buttons", "Side buttons (on the ADC)", "-", "Four buttons on the side, Back, Hold, Record and "
-           "Timestamp, on one resistor ladder into the ADS1115's input A3 (10 kohm pull-up to 3.3 V; each button "
-           "to ground through 0, 2.2 k, 5.6 k and 15 kohm). They need no GPIO. A3 isn't a meter input while this "
-           "is on.",
-           "Is the ADC on the Pi working (System > Installed options)? With nothing pressed A3 should read "
-           "about 3.3 V; each button its own lower voltage (device.side_levels in settings.json).",
-           requires=("adc_pi",), detect="iio", arg=("ads1115", "ads1015")),
+    Option("button_adc", "Buttons and battery ADC", "-", "A second ADS1115 on I2C1 at 0x49 (ADDR to 3.3 V): "
+           "the battery pack through a divider on A0, and every button on resistor stacks on A1-A3 (top row; "
+           "d-pad and encoder push; side buttons). The buttons then need no GPIO: only the encoder's A and B "
+           "stay on pins (17 and 27).",
+           "`i2cdetect -y 1` should show 49 (48 is the probe ADC). Then two ads1115 under "
+           "/sys/bus/iio/devices, one on 1-0049. With nothing pressed A1-A3 read about 3.3 V; each button its "
+           "own lower voltage (device.button_levels in settings.json).",
+           detect="iio", arg=("ads1115", "ads1015", 0x49)),
     Option("can_a", "CAN stack A", "1", "MCP2518FD + TCAN1051V on SPI0 CE0, the DB9.",
            "dtoverlay=mcp251xfd,spi0-0,oscillator=20000000,interrupt=25 in config.txt; then "
            "`dmesg | grep mcp251xfd`. No interface usually means wiring or the crystal.",
@@ -97,8 +99,8 @@ OPTIONS: list[Option] = [
            "Instead of CAN stacks A and B.",
            "Seated on all 40 pins, and the solder jumpers on the back still as shipped (CAN_0: CE0 / D25, "
            "CAN_1: SPI1_CE0 / D24)? `dmesg | grep mcp251xfd` should show two controllers. Its second channel "
-           "takes GPIO18-21 and 24: with it on, the encoder's A line is on GPIO7 instead of 24, and the sync "
-           "input (GPIO21) and a GPIO18 buzzer have no pin.",
+           "takes GPIO18-21 and 24: with it on, the encoder's A line is on GPIO7 instead of 24 (17 with the "
+           "buttons and battery ADC), and the sync input (GPIO21) and a GPIO18 buzzer have no pin.",
            detect="spi_nets", arg=("spi0.0", "spi1.0"), clashes=("can_a", "can_b", "sync")),
     Option("logic_pico", "Logic Pico", "2a", "Original Pico running stock sigrok-pico: the logic analyzer.",
            "Plugged in by USB? Flashed with sigrok-pico? Set hardware.logic_pico.port if it isn't recognised.",
@@ -114,7 +116,7 @@ OPTIONS: list[Option] = [
     Option("adc_pi", "ADC on the Pi", "3", "ADS1115 on I2C1: four slow probe voltages before the meter Pico "
            "exists. Only through the divider + clamp front end, never bare probes.",
            "dtoverlay=ads1115 in config.txt (check `dtoverlay -h ads1115`); `i2cdetect -y 1` should show 48.",
-           detect="iio", arg=("ads1115", "ads1015")),
+           detect="iio", arg=("ads1115", "ads1015", 0x48)),
     Option("can_b", "CAN stack B", "5", "Second MCP2518FD on SPI0 CE1: a second bus at the same time.",
            "dtoverlay=mcp251xfd,spi0-1,oscillator=20000000,interrupt=20 in config.txt.",
            detect="spi_net", arg="spi0.1"),
@@ -242,12 +244,14 @@ class Probe:
                 return Detection(True, f"/dev/{os.path.basename(d)}", name)
         return Detection(False, detail="no pps-gpio device")
 
-    def iio(self, names) -> Detection:
-        for d in sorted(glob.glob(self._p("/sys/bus/iio/devices/iio:device*"))):
-            name = _read(os.path.join(d, "name"))
-            if name in names:
-                return Detection(True, f"{os.path.basename(d)} ({name})", name)
-        return Detection(False, detail=f"no IIO device named {' / '.join(names)}")
+    def iio(self, arg) -> Detection:
+        names, addr = iio_arg(arg)
+        d = find_iio(names, addr, self._p(SYS_IIO))
+        if d is None:
+            at = f" at 0x{addr:02x}" if addr is not None else ""
+            return Detection(False, detail=f"no IIO device named {' / '.join(names)}{at}")
+        at, name = (f", 0x{addr:02x}" if addr is not None else ""), _read(os.path.join(d, "name"))
+        return Detection(True, f"{os.path.basename(d)} ({name}{at})", name)
 
     def detect(self, opt: Option, settings=None, reported: list | None = None) -> Detection:
         port = (settings.get(f"hardware.{opt.id}.port") if settings is not None else "") or ""
@@ -272,6 +276,37 @@ class Probe:
                 return Detection(None, detail="waiting for the meter Pico to report its parts")
             return Detection(opt.arg in reported, "meter Pico" if opt.arg in reported else "")
         return Detection(None)
+
+
+SYS_IIO = "/sys/bus/iio/devices"
+ADC_NAMES = ("ads1115", "ads1015")
+PROBE_ADC, BUTTON_ADC = 0x48, 0x49      # I2C addresses: the probes' ADS1115 (ADDR to GND), the buttons' (to 3.3 V)
+
+
+def iio_arg(arg) -> tuple[tuple, int | None]:
+    """An iio option's ``arg``: driver names, then optionally an I2C address."""
+    names = tuple(a for a in arg if isinstance(a, str))
+    addr = next((a for a in arg if isinstance(a, int)), None)
+    return names, addr
+
+
+def iio_address(folder: str) -> int | None:
+    """The I2C address of an IIO device, from where it sits (``.../i2c-1/1-0049/iio:device1``)."""
+    parent = os.path.basename(os.path.dirname(os.path.realpath(folder)))
+    m = re.fullmatch(r"\d+-([0-9a-fA-F]{4})", parent)
+    return int(m.group(1), 16) if m else None
+
+
+def find_iio(names, addr: int | None = None, sys_iio: str = SYS_IIO) -> str | None:
+    """The folder of the IIO device with one of these driver names at this I2C address (None: any).
+    One whose address can't be told counts as the probe ADC (0x48, the chip's default address)."""
+    for d in sorted(glob.glob(os.path.join(sys_iio, "iio:device*"))):
+        if _read(os.path.join(d, "name")) not in names:
+            continue
+        found = iio_address(d)
+        if addr is None or (found if found is not None else PROBE_ADC) == addr:
+            return d
+    return None
 
 
 def _read(path: str) -> str:
@@ -403,6 +438,11 @@ class Hardware:
 
     def report(self) -> list[OptionStatus]:
         return [self.status(o.id) for o in OPTIONS]
+
+    def iio_folder(self, opt_id: str) -> str | None:
+        """The IIO folder of an ADC option (``/sys/bus/iio/devices/iio:device1``), or None."""
+        names, addr = iio_arg(BY_ID[opt_id].arg)
+        return find_iio(names, addr, self.probe._p(SYS_IIO))
 
     def port(self, opt_id: str) -> str:
         """The serial port of a serial option, as set or as found ("" if neither)."""

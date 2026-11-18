@@ -162,7 +162,7 @@ def test_sources_follow_installed_options(tmp_path):
     hw.set_state("meter_pico", hardware.YES)     # not plugged in: a source that reports it and retries
     srcs = meters.sources_from_settings(s, hw)
     assert sorted(x.id for x in srcs) == ["iio", "pico"]
-    assert next(x for x in srcs if x.id == "iio").device == "ads1115"
+    assert next(x for x in srcs if x.id == "iio").device.endswith("iio:device0")     # the probe ADC's own folder
     s.set("meters.sim", True)
     assert "sim" in [x.id for x in meters.sources_from_settings(s, hw)]
 
@@ -329,46 +329,98 @@ def test_can_ports_are_named_by_connector_not_by_linux_name(tmp_path):
     assert [(p.label, p.iface, p.option) for p in hw.can_ports()] == [("CAN 1", "can1", "can_a")]
 
 
-def test_side_buttons_need_the_adc_and_find_its_a3_input(tmp_path):
-    """Back, Hold, Record and Timestamp on a resistor ladder into the ADS1115's A3: no GPIO, an
-    Installed option that needs the ADC, and A3 is then no meter input."""
+def _adc(iio, n, addr, raws=("0", "0", "0", "0")):
+    """An ADS1115 the way sysfs shows one: iio:deviceN links to .../i2c-1/1-00XX/iio:deviceN."""
+    real = iio.parent / "devices" / "i2c-1" / f"1-{addr:04x}" / f"iio:device{n}"
+    real.mkdir(parents=True)
+    (real / "name").write_text("ads1115\n")
+    for i, v in enumerate(raws):
+        (real / f"in_voltage{i}_raw").write_text(f"{v}\n")
+        (real / f"in_voltage{i}_scale").write_text("0.125\n")       # millivolts per count
+    iio.mkdir(parents=True, exist_ok=True)
+    (iio / f"iio:device{n}").symlink_to(real)
+    return real
+
+
+def test_two_adcs_are_told_apart_by_address(tmp_path):
+    """The probes' ADS1115 (0x48) and the buttons' (0x49): each option, and the meter, finds its own."""
     from canopener.core import meters
-    from canopener.device import input as inp
-    hw = _hw(tmp_path)
-    opt = hardware.BY_ID["side_buttons"]
-    assert opt.requires == ("adc_pi",) and opt.stage not in hardware.STAGES
-    hw.set_state("side_buttons", hardware.YES)
-    assert not hw.available("side_buttons")                 # the ADC isn't installed
+    iio = tmp_path / "sys" / "bus" / "iio" / "devices"
+    btn = _adc(iio, 0, 0x49)                # the button ADC came up first
+    probe = _adc(iio, 1, 0x48)
+    assert hardware.iio_address(str(iio / "iio:device0")) == 0x49
+    assert hardware.find_iio(hardware.ADC_NAMES, 0x48, str(iio)) == str(iio / "iio:device1")
+    assert hardware.find_iio(hardware.ADC_NAMES, 0x49, str(iio)) == str(iio / "iio:device0")
+    hw = hardware.Hardware(Settings(str(tmp_path / "s.json")), hardware.Probe(str(tmp_path)))
     hw.set_state("adc_pi", hardware.YES)
-    iio = tmp_path / "iio"
-    dev = iio / "iio:device0"
-    dev.mkdir(parents=True)
-    (dev / "name").write_text("ads1115\n")
+    hw.set_state("button_adc", hardware.YES)
+    assert hw.detect("button_adc").where == "iio:device0 (ads1115, 0x49)"
+    assert hw.iio_folder("adc_pi") == str(iio / "iio:device1")
+    src = meters.IioSource("ads1115", sys_iio=str(iio))      # a bare name never takes the buttons' ADC
+    assert src._find() and os.path.realpath(src.folder) == str(probe)
+    src = meters.IioSource(meters.PROBE_ADC_AT, sys_iio=str(iio))
+    assert src._find() and [c.id for c in src.channels()] == ["iio.a0", "iio.a1", "iio.a2", "iio.a3"]
+    assert meters.IioSource("ads1115@0x49", sys_iio=str(iio))._find() and btn.exists()
+    # one ADC with no address to be seen (an older kernel, a test folder) counts as the probe ADC
+    plain = tmp_path / "plain" / "iio:device0"
+    plain.mkdir(parents=True)
+    (plain / "name").write_text("ads1115\n")
+    assert hardware.find_iio(hardware.ADC_NAMES, 0x48, str(plain.parent)) == str(plain)
+    assert hardware.find_iio(hardware.ADC_NAMES, 0x49, str(plain.parent)) is None
+
+
+def test_button_adc_reads_the_stacks_and_the_battery(tmp_path):
+    """Every button on resistor stacks on the second ADS1115 (A1 top row, A2 d-pad + push, A3 side),
+    the pack on A0. Buttons on different stacks can be down together."""
+    from canopener.device import input as inp
+    opt = hardware.BY_ID["button_adc"]
+    assert opt.stage not in hardware.STAGES and not opt.requires and "side_buttons" not in hardware.BY_ID
+    iio = tmp_path / "sys" / "bus" / "iio" / "devices"
+    dev = _adc(iio, 0, 0x49, ("19900", "26400", "26400", "26400"))     # 2.49 V on A0: about 19 V of pack
+    levels = [0.0, 0.60, 1.18, 1.80, 2.41]
+    assert inp.button_adc(levels, sys_iio=str(tmp_path / "none")) is None
+    clock = [100.0]
+    b = inp.button_adc(levels, sys_iio=str(iio), start=False, clock=lambda: clock[0])
+    assert sorted(b.stacks) == [1, 2, 3] and len(b.stacks[3].actions) == 4
+    b.step()
+    b.step()
+    assert b.poll() == [] and abs(b.battery - 2.4875) < 1e-6 and not b.lost
+    (dev / "in_voltage1_raw").write_text("9440\n")           # 1.18 V on A1: soft key 3
+    (dev / "in_voltage2_raw").write_text("0\n")              # 0 V on A2: up, at the same time
+    b.step()
+    b.step()
+    assert sorted(b.poll()) == [("down", inp.SOFT[2]), ("down", inp.UP)]
+    (dev / "in_voltage2_raw").write_text("19280\n")          # 2.41 V on A2: the encoder's push
+    (dev / "in_voltage3_raw").write_text("14400\n")          # 1.80 V on A3: Timestamp
+    b.step()
+    b.step()
+    assert b.poll() == [("up", inp.UP), ("down", inp.SELECT), ("down", inp.TAG)]
+    (dev / "in_voltage1_raw").write_text("12000\n")          # 1.5 V: between two buttons, so neither
+    b.step()
+    b.step()
+    assert b.poll() == [("up", inp.SOFT[2])]
     for i in range(4):
-        (dev / f"in_voltage{i}_raw").write_text("0\n")
-    (dev / "in_voltage3_scale").write_text("0.125\n")   # millivolts per count
-    assert inp.iio_channel(sys_iio=str(iio)) == str(dev / "in_voltage3_raw")
-    assert inp.iio_channel(names=("other",), sys_iio=str(iio)) is None
-    src = meters.IioSource(str(dev), skip=(3,))
-    assert src._find() and [c.id for c in src.channels()] == ["iio.a0", "iio.a1", "iio.a2"]
-    levels = [0.0, 0.60, 1.18, 1.98]
-    lad = inp.LadderButtons(levels, list(inp.SIDE_ACTIONS), inp.iio_volts_reader(str(dev / "in_voltage3_raw")))
-    (dev / "in_voltage3_raw").write_text("26400\n")        # 3.3 V: nothing pressed
-    assert lad.poll() == [] and lad.poll() == []
-    (dev / "in_voltage3_raw").write_text("4800\n")         # 0.60 V: Hold
-    assert lad.poll() == [] and lad.poll() == [("down", inp.HOLD)]
-    (dev / "in_voltage3_raw").write_text("15840\n")        # 1.98 V: Timestamp
-    lad.poll()
-    assert lad.poll() == [("up", inp.HOLD), ("down", inp.TAG)]
-    side = inp.side_ladder(levels, sys_iio=str(iio))
-    try:
-        import time
-        for _ in range(50):
-            got = side.poll()
-            if got:
-                break
-            time.sleep(0.02)
-        assert got == [("down", inp.TAG)]
-    finally:
-        side.stop()
-    assert inp.side_ladder(levels, sys_iio=str(tmp_path / "none")) is None
+        os.unlink(dev / f"in_voltage{i}_raw")                 # the ADC went away
+    clock[0] += 3
+    b.step()
+    b.step()
+    assert b.lost and ("up", inp.SELECT) in b.poll()
+
+
+def test_battery_monitor_warns_once_and_powers_off_when_flat():
+    from canopener.core import battery as batt
+    assert batt.percent(21.0) == 100 and batt.percent(15.0) == 0 and 40 < batt.percent(18.4) < 60
+    m = batt.BatteryMonitor(divider=115 / 15, cells=5)
+    assert m.update(19.5 / m.divider, 0) is None and m.battery.state == batt.OK
+    assert m.battery.text.endswith("%") and m.battery.level == "ok"
+    assert m.update(0.3, 1) is None and m.battery.state == batt.ABSENT     # 2.3 V: nothing on the divider
+    assert m.update(17.4 / m.divider, 2) == batt.LOW and "17.4 V" in m.message(batt.LOW)
+    assert m.update(17.4 / m.divider, 3) is None                           # said once
+    for t in range(4, 40):
+        ev = m.update(14.8 / m.divider, t)
+        if ev == batt.EMPTY:
+            break
+    assert ev == batt.EMPTY and t >= 4 + batt.EMPTY_HOLD_S and m.battery.level == "bad"
+    quiet = batt.BatteryMonitor(power_off=False)
+    events = {quiet.update(14.0 / quiet.divider, t) for t in range(0, 60)}
+    assert batt.EMPTY not in events and batt.VERY_LOW in events

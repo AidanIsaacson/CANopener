@@ -115,7 +115,7 @@ Start with whatever you have. Any subset works, and touch covers the rest. Sugge
 |---|---|---|---|
 | Button 1 | 5 | 29 | Soft key 1 |
 | Button 5 | 16 | 36 | Back |
-| Encoder A | 24 (7 with the Waveshare HAT) | 18 (26 with the HAT) | Move (turn) |
+| Encoder A | 24 | 18 | Move (turn) |
 | Encoder B | 4 | 7 | Move (turn) |
 | Encoder push | 26 | 37 | Select (hold: Back) |
 | GND | | 30, 34, 39 (also 6, 9, 14, 20, 25) | One side of every switch |
@@ -123,6 +123,10 @@ Start with whatever you have. Any subset works, and touch covers the rest. Sugge
 The full set (buttons 2-4 on GPIO6/12/13, the d-pad on GPIO17/27/22/23) is in
 [DEVICE.md](../DEVICE.md#controls-wiring). Those pins are chosen to stay clear of what the later
 stages need, so use these and not others.
+
+**Building with the Waveshare 2-CH CAN FD HAT?** Its second channel takes GPIO24 and others, so on
+that build the buttons go on resistor stacks read by a second ADS1115 instead, and the encoder
+moves to GPIO17 / 27: [prototype wiring, section 2](handheld-prototype.md#2-buttons-encoder-and-battery-the-button-adc).
 
 **Encoder:** the RKJXT1F42001 in the order is the final part, but its pinout isn't confirmed yet
 (ELECTRONICS.md 5.8), so start with any plain mechanical encoder (EC11 type): its two outer pins

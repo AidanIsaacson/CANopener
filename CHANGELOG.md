@@ -5,15 +5,20 @@ on an older one, `git checkout v0.3.2` in its checkout.
 
 ## Unreleased
 
-- **Buttons with the Waveshare HAT.** The HAT no longer pushes out the buttons and encoder: with
-  both marked installed, **System > Installed options** moves the encoder's A line to GPIO7
-  (SPI0's spare chip select, freed with `spi0-1cs`), off the HAT's GPIO24. Run the Pi installer
-  once more first, so the boot-settings helper knows the new layout. The sync input and a buzzer
-  still have no pin while the HAT is on.
-- **Side buttons on the ADC.** **System > Installed options > Side buttons**: Back, Hold, Record and
-  Timestamp on one resistor ladder into the ADS1115's A3 (no GPIO is left for them with the HAT),
-  read on their own thread; A3 then isn't a meter input. Wiring in DEVICE.md; the prototype guide
-  and wiring diagram now show the HAT build.
+- **Buttons and battery on a second ADC.** With the Waveshare HAT taking GPIO18-21 and 24, every
+  button moves to resistor stacks on a second ADS1115 at 0x49 (**System > Installed options >
+  Buttons and battery ADC**): the top row on A1, the d-pad and encoder push on A2, the side buttons
+  (Back, Hold, Record, Timestamp) on A3. Buttons on different stacks can be held together, and
+  holding the push is still Back. Only the encoder stays on GPIO, on 17 / 27, which leaves twelve
+  pins free. The probe ADC keeps all four inputs. Run the Pi installer once more first, so the
+  boot-settings helper knows the new layout. Wiring in DEVICE.md and the prototype guide; the
+  wiring diagram shows it.
+- **Battery charge.** The same ADC reads the pack (a DeWalt 20V MAX on the prototype) on A0 through
+  a 100k / 15k divider: the charge at the right of the status strip and in **System > Power >
+  Battery**, warnings at 20% and 8% with a tone (**Battery low**), and a power-off, saving any log,
+  once the pack has sat at 3.0 V a cell for 30 s (packs don't all cut off by themselves; it can be
+  turned off).
+- **Doom with the buttons on the ADC:** their presses reach it as keys.
 
 - **Two buses: the busier one is the main bus.** With both of the handheld's CAN ports in use (two
   buses on the machine's 9-pin connector), Connect listens to both first, listen-only, and makes

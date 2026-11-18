@@ -31,26 +31,35 @@ OSCILLATORS = [("20 MHz (prototype module)", 20000000), ("40 MHz (custom board)"
 SPI_SPEEDS = [("Full speed (8.5 MHz)", 0), ("4 MHz", 4000000), ("1 MHz (breadboard wiring)", 1000000)]
 GPIO_KEYS = [(5, 59, "F1"), (6, 60, "F2"), (12, 61, "F3"), (13, 62, "F4"), (16, 63, "F5"), (17, 103, "UP"),
              (27, 108, "DOWN"), (22, 105, "LEFT"), (23, 106, "RIGHT"), (26, 28, "SELECT")]
-PARTS = ("controls", "can_a", "can_b", "can_hat", "sync", "adc_pi", "esp32")
-LIVE = ("can_a", "can_b", "can_hat", "sync", "adc_pi")
+PARTS = ("controls", "can_a", "can_b", "can_hat", "sync", "adc_pi", "button_adc", "esp32")
+LIVE = ("can_a", "can_b", "can_hat", "sync", "adc_pi", "button_adc")
 CAN = ("can_a", "can_b")
 # The Waveshare 2-CH CAN FD HAT as shipped: 40 MHz, CAN_0 on SPI0 CE0 / GPIO25, CAN_1 on SPI1 CE0
 # (GPIO18) / GPIO24. spi1-1cs claims only that one chip select.
 # spi0-1cs leaves SPI0's unused CE1 (GPIO7) free: with the HAT, the encoder's A line moves there
-# (ENCODER_PINS), off GPIO24, which is the HAT's CAN_1 interrupt.
+# (ENCODERS), off GPIO24, which is the HAT's CAN_1 interrupt.
 CAN_HAT = ("dtparam=spi=on", "dtoverlay=spi0-1cs", "dtoverlay=mcp251xfd,spi0-0,oscillator=40000000,interrupt=25",
            "dtoverlay=spi1-1cs", "dtoverlay=mcp251xfd,spi1-0,oscillator=40000000,interrupt=24")
-ENCODER_PINS = (24, 7)          # the encoder's A line: 24 as designed, 7 with the Waveshare HAT
+# The encoder by its A pin: (A, B, the buttons on gpio-key too). 24 as designed; 7 with the Waveshare
+# HAT; 17 with the buttons and battery ADC, where every button is on a resistor stack and only the
+# encoder is on GPIO (A 17, B 27: physical pins 11 and 13, ground on 14).
+ENCODERS = {24: (24, 4, True), 7: (7, 4, True), 17: (17, 27, False)}
+ENCODER_PINS = tuple(ENCODERS)
+BUTTON_ADC = ("dtparam=i2c_arm=on",
+              "dtoverlay=ads1115,addr=0x49,cha_enable,cha_cfg=4,chb_enable,chb_cfg=5,chc_enable,chc_cfg=6,"
+              "chd_enable,chd_cfg=7")
 
 
 def lines(option: str, osc: int = 20000000, spi: int = 0, pi5: bool = True, enc: int = 24) -> list[str]:
     """The boot-config lines for one option (the helper's table, mirrored)."""
     if option == "controls":
+        a, b, keys = ENCODERS.get(enc, ENCODERS[24])
         out = [f'dtoverlay=gpio-key,gpio={g},active_low=1,gpio_pull=up,keycode={k},label="{n}"'
-               for g, k, n in GPIO_KEYS[:9]]
-        return out + [f"gpio={enc},4=ip,pu",
-                      f"dtoverlay=rotary-encoder,pin_a={enc},pin_b=4,relative_axis=1,steps-per-period=1",
-                      'dtoverlay=gpio-key,gpio=26,active_low=1,gpio_pull=up,keycode=28,label="SELECT"']
+               for g, k, n in GPIO_KEYS[:9]] if keys else []
+        out += [f"gpio={a},{b}=ip,pu",
+                f"dtoverlay=rotary-encoder,pin_a={a},pin_b={b},relative_axis=1,steps-per-period=1"]
+        return out + (['dtoverlay=gpio-key,gpio=26,active_low=1,gpio_pull=up,keycode=28,label="SELECT"']
+                      if keys else [])
     if option in CAN:
         cs, irq = (0, 25) if option == "can_a" else (1, 20)
         extra = f",speed={spi}" if spi else ""
@@ -63,6 +72,8 @@ def lines(option: str, osc: int = 20000000, spi: int = 0, pi5: bool = True, enc:
         return ["dtparam=i2c_arm=on",
                 "dtoverlay=ads1115,addr=0x48,cha_enable,cha_cfg=4,chb_enable,chb_cfg=5,chc_enable,chc_cfg=6,"
                 "chd_enable,chd_cfg=7"]
+    if option == "button_adc":
+        return list(BUTTON_ADC)
     if option == "esp32":
         return ["dtparam=uart0=on"] if pi5 else ["enable_uart=1", "dtoverlay=disable-bt"]
     raise KeyError(option)
@@ -122,10 +133,12 @@ def current(path: str | None = None) -> list[str]:
 
 def wanted(hw: "hardware.Hardware") -> list[str]:
     """Tokens for every part on the Pi's pins that's set to Installed or Use if found (a part
-    whose pins another one has taken is left out). With the Waveshare HAT, the encoder's A line
-    is on GPIO7 (``controls:enc=7``): GPIO24 is the HAT's."""
+    whose pins another one has taken is left out). With the buttons and battery ADC the buttons
+    are off the GPIOs and the encoder is on 17 / 27 (``controls:enc=17``); otherwise, with the
+    Waveshare HAT, the encoder's A line is on GPIO7 (``controls:enc=7``): GPIO24 is the HAT's."""
     on = [o for o in PARTS if hw.state(o) in (hardware.YES, hardware.AUTO) and not hw.clash(o)]
-    return [token(o, hw.settings) + (":enc=7" if o == "controls" and "can_hat" in on else "") for o in on]
+    enc = ":enc=17" if "button_adc" in on else ":enc=7" if "can_hat" in on else ""
+    return [token(o, hw.settings) + (enc if o == "controls" else "") for o in on]
 
 
 @dataclass

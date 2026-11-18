@@ -162,6 +162,7 @@ The same app runs on a Raspberry Pi, and the plan is a rugged handheld that repl
 the multimeter and the logic analyzer in one:
 
 * A 4-channel meter, recorded alongside the CAN data on one timeline, and calibrated on the handheld against a known voltage
+* Runs from a power-tool battery pack, showing its charge and switching itself off before the pack runs flat
 * Small wireless meter modules
 * A logic analyzer
 * LIN and OBD-I

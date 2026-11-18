@@ -166,10 +166,35 @@ def test_waveshare_hat_lines_and_what_it_pushes_out(tmp_path, cfg):
     written = cfg.read_text()
     assert "spi1-0,oscillator=40000000,interrupt=24" in written and "pin_a=7,pin_b=4" in written
     assert "pin_a=24" not in written and "gpio=24" not in written and "spi0-1cs" in written
-    assert h.main(["--config", str(cfg), "set", "controls:enc=9"]) == 2             # only 24 or 7
+    assert h.main(["--config", str(cfg), "set", "controls:enc=9"]) == 2             # only 24, 7 or 17
     hw.set_state("can_hat", hardware.NO)
     assert bootconfig.wanted(hw)[0] == "controls"                                   # back on GPIO24
     plan = bootconfig.Plan(["controls:enc=7"], add=["controls:enc=7"])
     assert any("pin_a=7" in line for line in plan.describe())
     assert h.main(["--config", str(cfg), "set", "can_hat:osc=20000000"]) == 2      # no settings on the HAT
     assert h.main(["--dry-run", "live", "can_hat"]) == 0
+
+
+def test_button_adc_takes_the_buttons_off_the_gpios(tmp_path, cfg):
+    """With the buttons and battery ADC every button is on a resistor stack: the controls lines are
+    the encoder alone, on 17 / 27, and the second ADS1115 loads at 0x49 beside the probes' 0x48."""
+    h = _helper()
+    for enc in bootconfig.ENCODER_PINS:
+        assert h.lines("controls", enc=enc) == bootconfig.lines("controls", enc=enc)
+    enc = bootconfig.lines("controls", enc=17)
+    assert enc == ["gpio=17,27=ip,pu",
+                   "dtoverlay=rotary-encoder,pin_a=17,pin_b=27,relative_axis=1,steps-per-period=1"]
+    assert bootconfig.lines("button_adc")[1].startswith("dtoverlay=ads1115,addr=0x49,")
+    assert bootconfig.lines("adc_pi")[1].startswith("dtoverlay=ads1115,addr=0x48,")
+    s = Settings(str(tmp_path / "settings.json"))
+    hw = hardware.Hardware(s, hardware.Probe(str(tmp_path)))
+    for oid in ("controls", "can_hat", "adc_pi", "button_adc"):
+        hw.set_state(oid, hardware.YES)
+    assert bootconfig.wanted(hw) == ["controls:enc=17", "can_hat", "adc_pi", "button_adc"]
+    assert h.main(["--config", str(cfg), "set", *bootconfig.wanted(hw)]) == 0
+    written = cfg.read_text()
+    assert "gpio-key" not in written and "pin_a=17,pin_b=27" in written
+    assert "addr=0x48" in written and "addr=0x49" in written and written.count("dtparam=i2c_arm=on") == 1
+    assert h.main(["--dry-run", "live", "button_adc"]) == 0
+    hw.set_state("button_adc", hardware.NO)
+    assert bootconfig.wanted(hw)[0] == "controls:enc=7"                             # back to gpio-key buttons

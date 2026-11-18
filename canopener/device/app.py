@@ -11,6 +11,7 @@ Back pops, Home goes to the launcher. See docs/DEVICE.md.
 
 import argparse
 import os
+import subprocess
 import sys
 import time
 import traceback
@@ -18,7 +19,8 @@ import traceback
 import pygame
 
 from .. import __version__, plugins
-from ..core import sound, themes
+from ..core import battery as batt
+from ..core import sound, system, themes
 from ..core.settings import Settings
 from . import input as inp
 from . import modes, ui
@@ -83,13 +85,9 @@ class DeviceApp:
         self.encoder = None
         if encoder and s.get("device.encoder") not in ("none", "", None) and sys.platform.startswith("linux"):
             self.encoder = inp.EvdevReader(s.get("device.encoder"))
-        self.ladder = None
-        if s.get("device.ladder"):
-            levels = list(s.get("device.ladder_levels"))
-            acts = (list(inp.SOFT[:4]) + [inp.BUTTON5])[:len(levels)]
-            self.ladder = inp.LadderButtons(levels[:len(acts)], acts, inp.iio_volts_reader(s.get("device.ladder")))
-        self.side = None                    # the side buttons on the ADC's A3 (Installed options > Side buttons)
-        self._side_tried = 0.0
+        self.buttons = None                 # the button ADC's stacks and battery (Installed options)
+        self._buttons_tried = -1e9
+        self._buttons_lost = False
         self.clock = pygame.time.Clock()
         self.running = True
         self.switch_to: str | None = None   # another front-end to start once this one has closed
@@ -171,7 +169,6 @@ class DeviceApp:
     def run_external(self, argv: list[str]) -> tuple[bool, str]:
         """Hand the screen and the sound to another full-screen program, wait for it to finish,
         then take them back. Returns (it ran and ended normally, what went wrong)."""
-        import subprocess
         if pygame.mixer.get_init():                 # MixerSpeaker opens it again on the next tone
             pygame.mixer.quit()
         speaker = getattr(self.ctx, "speaker", None)
@@ -380,34 +377,68 @@ class DeviceApp:
             steps = self.encoder.read()
             if steps:
                 self.action(inp.ROTATE, steps)
-        if self.ladder is not None:
-            for kind, a in self.ladder.poll():
-                if kind == "down":
-                    self.chirp()
-                    self.action(self.keymap.button5 if a == inp.BUTTON5 else a)
-        self._poll_side()
-
-    def _poll_side(self):
-        """The side buttons, when they're installed: found again every few seconds until the ADC is up."""
-        if not self.ctx.hardware.available("side_buttons"):
-            if self.side is not None:
-                self.side.stop()
-                self.side = None
-            return
-        if self.side is None:
-            if time.monotonic() - self._side_tried < 5.0:
-                return
-            self._side_tried = time.monotonic()
-            self.side = inp.side_ladder(self.ctx.settings.get("device.side_levels"))
-            if self.side is None:
-                return
-        for kind, a in self.side.poll():
-            if kind == "down":
-                self.chirp()
-                self.action(a)
+        self._poll_buttons()
         a = self.press.poll()
         if a is not None:
             self.action(a)
+
+    def button(self, kind: str, a: str):
+        """A button press or release that didn't come as a key (the button ADC's stacks): the same
+        path as a key, so holding the encoder's push is still Back."""
+        if a == inp.BUTTON5:
+            a = self.keymap.button5
+        if kind == "down":
+            self.chirp()
+            a = self.press.down(a)
+        else:
+            a = self.press.up(a)
+        if a is not None:
+            self.action(a)
+
+    def _poll_buttons(self):
+        """The button ADC, when it's installed: found again every few seconds until it's up, and
+        said on screen when it stops answering (every hardware button is on it)."""
+        if not self.ctx.hardware.available("button_adc"):
+            if self.buttons is not None:
+                self.buttons.stop()
+                self.buttons = None
+            return
+        if self.buttons is None:
+            if time.monotonic() - self._buttons_tried < 5.0:
+                return
+            self._buttons_tried = time.monotonic()
+            self.buttons = inp.button_adc(self.ctx.settings.get("device.button_levels"))
+            if self.buttons is None:
+                if not self._buttons_lost:
+                    self._buttons_lost = True
+                    self.ctx.toast("Buttons: the button ADC (0x49) isn't there. Touch still works; "
+                                   "System > Installed options says what to check.")
+                return
+            if self._buttons_lost:
+                self.ctx.toast("Buttons working again")
+            self._buttons_lost = False
+        for kind, a in self.buttons.poll():
+            self.button(kind, a)
+        if self.buttons.lost != self._buttons_lost:
+            self._buttons_lost = self.buttons.lost
+            self.ctx.toast("Buttons: the button ADC stopped answering. Touch still works; check its wiring."
+                           if self._buttons_lost else "Buttons working again")
+        if self.buttons.read_battery is not None:
+            bat, self.buttons.battery = self.buttons.battery, None
+            if bat is not None and self.ctx.battery_reading(bat) == batt.EMPTY:
+                self.battery_power_off()
+
+    def battery_power_off(self):
+        """The pack is flat: save a log, close the bus, power off (System > Power > Power off without
+        the question: nobody may be there to answer, and the pack is what's at stake)."""
+        if self.ctx.unsaved:
+            self.show_saving()
+        self.ctx.shutdown()
+        try:
+            subprocess.Popen(system.POWER_OFF, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+        except OSError as e:
+            self.ctx.toast(f"Power off failed: {e}")
 
     # ------------------------------------------------------------------
     # drawing
@@ -479,6 +510,10 @@ class DeviceApp:
             x = r.right + t.pad // 2
         right = rect.right - t.pad
         right = u.text(time.strftime("%H:%M"), (right, rect.centery), "body", "dim", align="right").left - t.pad
+        b = ctx.battery
+        if b is not None:               # the pack, from the button ADC: dim while fine, coloured when it isn't
+            role = {"ok": "dim", "wait": "warn", "bad": "bad"}.get(b.level, "dim")
+            right = u.text(b.text, (right, rect.centery), "body", role, align="right").left - t.pad
         if ctx.recording:
             c = ctx.capture
             label = f"REC {int(c.elapsed()) // 60:02d}:{int(c.elapsed()) % 60:02d}"

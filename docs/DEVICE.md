@@ -380,8 +380,8 @@ needs free ([ELECTRONICS.md](ELECTRONICS.md) 5.1): I2C1 (GPIO2/3) for the ADS111
 MCP2518FD CAN controllers (CE0 + INT GPIO25, CE1 + INT GPIO20), GPIO21 for the SYNC pulse from the
 meter Pico, the UART (GPIO14/15) for the ESP32, and GPIO18 for a PWM buzzer. I2S audio is given up
 for GPIO20/21; GPIO19 is the only spare. (The Waveshare 2-CH CAN FD HAT's second channel uses
-GPIO18-21 and 24: with it, the encoder's A line moves to GPIO7 and there's no sync input or
-buzzer, [below](#with-the-waveshare-hat-and-the-side-buttons).) Their overlay lines are in
+GPIO18-21 and 24: with it, the buttons go on a second ADC instead,
+[below](#buttons-and-battery-on-the-second-adc).) Their overlay lines are in
 [`deploy/raspberry-pi/config-hardware.txt`](../deploy/raspberry-pi/config-hardware.txt), and
 System > Installed options writes them for you.
 
@@ -390,7 +390,7 @@ System > Installed options writes them for you.
 | Top button 1-4 | 5, 6, 12, 13 | F1-F4 | Soft keys 1-4 |
 | Top button 5 | 16 | F5 | Back (or soft key 5, start/stop log, timestamp: System > Controls > Button 5 does) |
 | D-pad up / down / left / right | 17, 27, 22, 23 | arrows | Move / change page |
-| Encoder A / B | 24 (7 with the HAT), 4 | REL_X | Move (rotate) |
+| Encoder A / B | 24, 4 (17, 27 with the button ADC) | REL_X | Move (rotate) |
 | Encoder push | 26 | Enter | Select (hold: Back) |
 
 That's twelve pins. The overlay lines are in
@@ -398,47 +398,88 @@ That's twelve pins. The overlay lines are in
 them to `/boot/firmware/config.txt` and reboot. The Alps RKJXT1F42001 named in DESIGN.md is the
 d-pad, push and encoder in one part, so it covers seven of these pins on its own.
 
-**About a resistor ladder for the buttons:** the Pi has no analog inputs, so a ladder needs an
-ADC (an ADS1115 on I2C, or the Pico's ADC), can't see two buttons pressed together, and adds a
-polling loop. If pins run short it's supported: set `device.ladder` in settings.json to the IIO
-channel (`/sys/bus/iio/devices/iio:device0/in_voltage3_raw`) and `device.ladder_levels` to each
-button's voltage; `LadderButtons` decodes it with debouncing and a dead band between levels. Pins
-are not short here (twelve of the free ones), so one GPIO each is the recommendation.
+**Short of pins?** With the Waveshare HAT fitted, put the buttons on the second ADC instead
+([below](#buttons-and-battery-on-the-second-adc)): every button moves off the GPIOs.
 
 Change what any key does in `~/.config/canopener/settings.json`, e.g.
 `"device.keys": {"f6": "log", "f7": "tag"}` for two more buttons as dedicated Log / Timestamp
 keys (System > Controls > Key map shows the current map).
 
-### With the Waveshare HAT, and the side buttons
+### Buttons and battery on the second ADC
 
-The Waveshare 2-CH CAN FD HAT's second channel takes GPIO18-21 and 24. With it fitted:
+The Waveshare 2-CH CAN FD HAT's second channel takes GPIO18-21 and 24, and the side buttons
+(Back, Hold, Record, Timestamp) need four more inputs. So on the HAT build every button is on
+**resistor stacks** read by a **second ADS1115**, which also reads the **battery**. Only the
+encoder's A and B lines stay on GPIO: a turning encoder is too quick for an ADC.
 
-* **Encoder A moves from GPIO24 to GPIO7** (pin 26). GPIO7 is SPI0's second chip select, which the
-  HAT doesn't use; its boot lines include `dtoverlay=spi0-1cs` to free it. **System > Installed
-  options** writes the right lines when both the HAT and the buttons are marked installed
-  (run the Pi installer once more first, so the boot-settings helper knows the new layout).
-  Everything else in the table above stays where it is.
-* **No buzzer and no sync input**: GPIO18 and 21 are the HAT's. Sound comes from the speaker.
+* The second ADS1115 sits on the same I2C wires as the probe ADC (GPIO2 / 3) with its **ADDR pin
+  tied to 3.3 V**, so it answers at **0x49** (the probe ADC is 0x48, ADDR to ground).
+* Its **A0** is the battery, through a divider. **A1-A3** are three stacks of buttons.
+* The encoder moves to **GPIO17 (A)** and **GPIO27 (B)**, physical pins 11 and 13 (ground on 14).
+* Switch it on in **System > Installed options > Buttons and battery ADC**, with **Buttons and
+  encoder** marked installed too. It writes the boot settings: the encoder lines, no button lines,
+  and the second ADC. Run the Pi installer once more first, so the boot-settings helper knows the
+  new layout.
 
-That leaves no free GPIO for the four **side buttons** (Back, Hold, Record, Timestamp), so they
-share one input: a **resistor ladder into the ADS1115's A3**. Each button pulls the input to its
-own voltage; the app reads it on its own thread. Switch it on in **System > Installed options >
-Side buttons**; A3 is then no longer a meter input.
+**Each stack:** a 10 kΩ pull-up from 3.3 V to the input, and each button from the input to ground
+through its own resistor. The same five resistors on every stack, so the voltages are the same:
 
 ```
-3.3 V ──[10 kΩ]──┬──────────── ADS1115 A3   (no probe divider on this input)
-                 ├─[Back]──────────────── GND        0 V
-                 ├─[Hold]──────[2.2 kΩ]── GND        0.60 V
-                 ├─[Record]────[5.6 kΩ]── GND        1.18 V
-                 └─[Timestamp]─[15 kΩ]─── GND        1.98 V
-                                   nothing pressed:  3.3 V
+3.3 V ──[10 kΩ]──┬──────────────────── ADS1115 (0x49) A1 / A2 / A3
+                 ├─[button 1]──────────────── GND     0 V
+                 ├─[button 2]───[2.2 kΩ]───── GND     0.60 V
+                 ├─[button 3]───[5.6 kΩ]───── GND     1.18 V
+                 ├─[button 4]───[12 kΩ]────── GND     1.80 V
+                 └─[button 5]───[27 kΩ]────── GND     2.41 V
+                                     nothing pressed:  3.3 V
 ```
 
-One button at a time (a ladder can't see two pressed together). Different resistors? Put each
-button's voltage in `device.side_levels` in settings.json, Back first.
+| Input | Button 1 | Button 2 | Button 3 | Button 4 | Button 5 |
+|---|---|---|---|---|---|
+| A1: top row | F1 (soft key 1) | F2 | F3 | F4 | F5 (button 5) |
+| A2: d-pad and push | Up | Down | Left | Right | Encoder push (Select; hold for Back) |
+| A3: side | Back | Hold | Record | Timestamp | (none) |
 
-The same four functions on keys instead (a USB keypad on the bench, or buttons on spare GPIOs on
-a build without the HAT) need no setting either:
+Buttons on different stacks work together (an arrow while holding a soft key). Two on the same
+stack don't: the input reads as one or the other, or neither. That means no diagonals on the
+d-pad. 1% or 5% resistors both work. Different values? Put each button's voltage in
+`device.button_levels` in settings.json, button 1 first.
+
+**The battery (A0):** a DeWalt 20V MAX pack is 5 cells, about 20.5 V full and about 15 V flat
+[verify against your pack]. A **100 kΩ over 15 kΩ** divider brings a full pack to about 2.7 V on A0:
+
+```
+pack + ──[100 kΩ]──┬──────── ADS1115 (0x49) A0
+                   ├─[15 kΩ]── GND (pack −)
+                   ├─[100 nF]─ GND
+                   └─ BAT54S: one diode to 3.3 V, one from ground
+```
+
+The pack's minus must be the Pi's ground: with an ordinary (non-isolated) buck converter it
+already is. The divider draws about 0.2 mA. The clamp protects A0 if the 15 kΩ ever comes loose. Not a zener: its leakage through 13 kΩ
+shifts the reading.
+Different resistors? Set `battery.divider` to (top + bottom) / bottom.
+
+The charge shows at the right of the status strip: dim while it's fine, amber when low (20%), red
+when very low (8%), each said once on screen with a tone (**System > Sound > Tones for events >
+Battery low**). Power-tool packs don't all switch themselves off when they're flat, so when the
+pack has sat at 3.0 V a cell (15 V) for 30 s, the handheld saves a running log and **powers off**.
+**System > Power > Battery** shows the charge and volts, and turns the power-off on or off. A
+reading under 5 V means nothing is on the divider, and is never taken as a flat pack.
+
+If the button ADC stops answering, the screen says so, and touch still works.
+**System > Installed options** says what to check.
+
+**Doom** reads the keyboard itself. While it runs, the app passes the stacks' presses on as the
+same keys the GPIO buttons send, through the same input permission the controls from CAN use
+(`install.sh --device`).
+
+**What the HAT build leaves free:** GPIO 4, 5, 6, 7, 12, 13, 14, 15, 16, 22, 23, 26. GPIO12 / 13
+can do PWM, so a buzzer could go on one of them. GPIO14 / 15 are the UART, for an ESP32 later.
+The sync input from the meter Pico could go on any of them.
+
+The same Back / Hold / Record / Timestamp functions on keys instead (a USB keypad on the bench,
+or buttons on spare GPIOs on a build without the HAT) need no setting:
 
 | Button | Sends (Linux key code) | Does |
 |---|---|---|

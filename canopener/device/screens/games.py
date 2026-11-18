@@ -95,13 +95,22 @@ def play_doom(app):
     except OSError as e:
         note = (f"Controls from CAN didn't reach Doom: no access to {doom_controls.DEVICE} ({e.strerror or e}). "
                 "Run deploy/raspberry-pi/install.sh --device, then log out and in.")
-    if bridge is not None:
-        bridge.start()
+    keys = None
+    if getattr(app, "buttons", None) is not None:   # buttons on the button ADC: passed on as keys
+        try:
+            keys = doom_controls.ButtonKeys(app.buttons)
+        except OSError as e:
+            note = (f"The buttons didn't reach Doom: no access to {doom_controls.DEVICE} ({e.strerror or e}). "
+                    "Run deploy/raspberry-pi/install.sh --device, then log out and in.")
+    for b in (bridge, keys):
+        if b is not None:
+            b.start()
     try:
         ok, msg = app.run_external(argv)
     finally:
-        if bridge is not None:
-            bridge.stop()
+        for b in (bridge, keys):
+            if b is not None:
+                b.stop()
     if not ok:
         app.push(InfoDialog(app, "Doom stopped", [msg]))
     elif note:

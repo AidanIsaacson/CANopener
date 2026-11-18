@@ -73,6 +73,7 @@ EVENTS = [
     ("cal_step", "Calibration: reading taken", "blip"),
     ("cal_saved", "Calibration: channel saved", "double"),
     ("error", "Something failed", "low"),
+    ("battery", "Battery low", "double"),
     ("game_clear", "Game: circuit or row cleared", "click"),
     ("game_over", "Game over", "falling"),
     ("game_level", "Game: next level, or a puzzle solved", "rising"),

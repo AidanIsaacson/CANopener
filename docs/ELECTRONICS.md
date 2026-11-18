@@ -107,29 +107,34 @@ Same header on the 3B+ and Pi 5. Control pins come from the repo (`docs/DEVICE.m
 
 | Pin | GPIO | Function | Status |
 |---|---|---|---|
-| 1 / 17 | 3V3 | MCP2518FD VDD, TCAN VIO, ADS1115 VDD | [P] |
+| 1 / 17 | 3V3 | MCP2518FD VDD, TCAN VIO, ADS1115 VDD (both), button stack pull-ups | [P] |
 | 2 / 4 | 5V | TCAN VCC | [P] |
 | 6, 9, 14, 20, 25, 30, 34, 39 | GND | Common ground | |
-| 3 | 2 (SDA1) | ADS1115 SDA | [P] |
-| 5 | 3 (SCL1) | ADS1115 SCL | [P] |
+| 3 | 2 (SDA1) | ADS1115 SDA (probes 0x48; with the HAT, also the button ADC 0x49) | [P] |
+| 5 | 3 (SCL1) | ADS1115 SCL (both) | [P] |
 | 19 | 10 (MOSI) | MCP2518FD A/B SDI | [V] |
 | 21 | 9 (MISO) | MCP2518FD A/B SDO | [V] |
 | 23 | 11 (SCLK) | MCP2518FD A/B SCK | [V] |
 | 24 | 8 (CE0) | MCP2518FD A nCS | [V] |
 | 22 | 25 | MCP2518FD A INT | [V] repo overlay |
-| 26 | 7 (CE1) | MCP2518FD B nCS. With the Waveshare HAT: encoder A (`spi0-1cs` frees it) | [P] |
+| 26 | 7 (CE1) | MCP2518FD B nCS. With the Waveshare HAT: free (`spi0-1cs` leaves it unclaimed) | [P] |
 | 38 | 20 | MCP2518FD B INT | [P] D7 |
 | 40 | 21 | SYNC **input** from meter Pico (`pps-gpio`) | [P] D7 |
 | 8, 10 | 14 (TXD), 15 (RXD) | ESP32 RX0 / TX0 | [P] D8 |
 | 12 | 18 | PWM buzzer (optional) | repo |
 | 35 | 19 | Free (was I2S) | |
-| 29, 31, 32, 33 | 5, 6, 12, 13 | Buttons 1-4 | [V] repo |
-| 36 | 16 | Button 5 | [V] repo |
-| 11, 13, 15, 16 | 17, 27, 22, 23 | D-pad up, down, left, right | [V] repo |
-| 18, 7 | 24, 4 | Encoder A, B (with the Waveshare HAT, A is on GPIO7: GPIO24 is the HAT's CAN_1 INT) | [V] repo |
-| 37 | 26 | Encoder push | [V] repo |
+| 29, 31, 32, 33 | 5, 6, 12, 13 | Buttons 1-4 (free with the button ADC) | [V] repo |
+| 36 | 16 | Button 5 (free with the button ADC) | [V] repo |
+| 11, 13, 15, 16 | 17, 27, 22, 23 | D-pad up, down, left, right. With the button ADC: 17 / 27 are encoder A / B, 22 / 23 free | [V] repo |
+| 18, 7 | 24, 4 | Encoder A, B (with the Waveshare HAT, 24 is its CAN_1 INT: the encoder moves to 17 / 27) | [V] repo |
+| 37 | 26 | Encoder push (free with the button ADC) | [V] repo |
 | 27, 28 | 0, 1 | HAT ID EEPROM. Do not use | |
-| - | ADS1115 A3 | With the Waveshare HAT: the four side buttons (Back, Hold, Record, Timestamp) as a resistor ladder, no GPIO left for them (DEVICE.md) | repo |
+| - | button ADC (ADS1115 0x49) A0 | Battery pack through 100k / 15k + clamp (HAT build) | repo |
+| - | button ADC A1, A2, A3 | Resistor stacks: top row F1-F5; d-pad + encoder push; side Back / Hold / Record / Timestamp (DEVICE.md) | repo |
+
+**With the Waveshare HAT** every button moves to resistor stacks on a second ADS1115 (ADDR to 3V3,
+0x49), which also reads the battery; only the encoder (17 / 27) stays on GPIO. Free then: GPIO 4,
+5, 6, 7, 12, 13, 14, 15, 16, 22, 23, 26.
 
 `deploy/raspberry-pi/config-controls.txt` keeps these clear of the controls (updated for D7/D8 in rev 0.6); the overlay lines for each stage are in `deploy/raspberry-pi/config-hardware.txt`.
 
@@ -637,7 +642,7 @@ What runs where, and the file that holds it. **Sketch** = written, not yet run o
 | ADS1115 on the Pi (stage 3) | Kernel IIO driver | `core/meters.IioSource`; per-channel zero and gain in `core/calibration.py` (System > Meters > Calibration) | Ready to try |
 | ESP32 | Arduino sketch | `firmware/esp32-bridge/` (ESP-NOW -> line protocol on UART0; satellite packet v1) | Sketch, not compiled |
 | Probe front end, ohms, test source, ADS8584S | Meter Pico firmware | `firmware/meter-pico/parts.py` (MCP4728, ADS1115, INA226, ADS8584S) | Sketch; register values to verify |
-| Buttons, d-pad, encoder | Kernel `gpio-key` / `rotary-encoder` | `deploy/raspberry-pi/config-controls.txt`, `device/input.py` | Done, untested on a Pi |
+| Buttons, d-pad, encoder | Kernel `gpio-key` / `rotary-encoder`, or resistor stacks on the button ADC (HAT build) | `deploy/raspberry-pi/config-controls.txt`, `device/input.py` (`ButtonAdc`), `core/battery.py` | Done, untested on a Pi |
 
 The meter Pico starts in MicroPython because stages 2b-7b are I2C parts, GPIO and 10-50 readings a
 second, and it can be edited without a toolchain. Waveform streaming (section 8) needs PIO + DMA
@@ -656,12 +661,12 @@ build stage" fills them in from a stage number; single parts can then be changed
 | `usb_can` USB CAN adapter | 0 | | a CAN interface on USB (or slcand's, with an slcan CANable plugged in). Informational: it never hides a USB adapter |
 | `controls` Buttons and encoder | 0b | | input devices named `button@N` / `rotary@N` [verify the names on the Pi] |
 | `can_a` CAN stack A | 1 | | the CAN interface on SPI device `spi0.0`, whatever it's named |
-| `can_hat` Waveshare 2-CH CAN FD HAT | - | | CAN interfaces on both `spi0.0` and `spi1.0`. Not part of a stage: it replaces stacks A and B, and while it's on, `can_a`, `can_b` and `sync` aren't used (its second channel is on GPIO18-21 and 24); the buttons stay, with the encoder's A line on GPIO7 |
+| `can_hat` Waveshare 2-CH CAN FD HAT | - | | CAN interfaces on both `spi0.0` and `spi1.0`. Not part of a stage: it replaces stacks A and B, and while it's on, `can_a`, `can_b` and `sync` aren't used (its second channel is on GPIO18-21 and 24); the encoder's A line moves to GPIO7, or with `button_adc` the buttons leave the GPIOs and the encoder is on 17 / 27 |
 | `logic_pico` Logic Pico | 2a | | USB serial name (`/dev/serial/by-id`), or a set port |
 | `meter_pico` Meter Pico | 2b | | USB serial name, or a set port |
 | `sync` Sync pulse input | 2b | meter_pico | a pps device named `pps-gpio` |
-| `adc_pi` ADC on the Pi | 3 | | IIO device `ads1115` / `ads1015` |
-| `side_buttons` Side buttons | - | adc_pi | the same IIO device; its input A3 is the buttons' resistor ladder, not a meter input |
+| `adc_pi` ADC on the Pi | 3 | | IIO device `ads1115` / `ads1015` at I2C 0x48 (one whose address can't be seen counts as 0x48) |
+| `button_adc` Buttons and battery ADC | - | | IIO device `ads1115` at I2C 0x49 (`.../1-0049/iio:deviceN`): the battery on A0, button stacks on A1-A3. With it, the controls lines are the encoder alone, on 17 / 27 |
 | `can_b` CAN stack B | 5 | | the CAN interface on `spi0.1` |
 | `esp32` ESP32 wireless | 6 | | `/dev/ttyAMA0` exists |
 | `probe_frontend` Probe front end | 7 | meter_pico | meter hello: MCP4728 answered |

@@ -282,8 +282,10 @@ Usage, wiring and status are in [DEVICE.md](DEVICE.md).
   live models, the meter hub, the capture, and worker-thread jobs drained once per frame. Tests
   drive it directly, like `gui/context.py` but without Qt.
 * `device/input.py` (no Pygame) turns keys (the `gpio-key` buttons), the rotary encoder (evdev
-  `REL_X`) and an optional resistor ladder into actions: up / down / left / right, select (hold
-  = back), back, home, soft keys 1-5, rotate, log, tag.
+  `REL_X`) and the button ADC's resistor stacks (`ButtonAdc`: a second ADS1115 at 0x49, read on its
+  own thread, which also reads the battery for `core/battery.py`) into actions: up / down / left /
+  right, select (hold = back), back, home, soft keys 1-5, rotate, log, tag, hold. While Doom runs,
+  `doom_controls.ButtonKeys` passes the stacks on as a uinput keyboard.
 * `device/app.py` draws the chrome (soft keys on the buttons' edge, status strip opposite) and
   stacks screens; `device/ui.py` is the drawing kit (sizes in millimetres from the panel's pixel
   density, lists with drag scrolling, procedural icons); `device/screens/` are the pages.

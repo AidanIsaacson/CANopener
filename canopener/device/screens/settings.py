@@ -176,6 +176,9 @@ class SettingsScreen(Screen):
             group("Remote help", self._remote_summary, "let someone you trust look at this unit from elsewhere"),
             Row("About this device", select=self._about, hint="temperature, network, screen"),
             Row("Power", kind="header"),
+            *([Row("Battery", self._battery_text, select=self._battery_off,
+                   hint="power off by itself when the pack is flat: select to turn on or off")]
+              if ctx.hardware.available("button_adc") else []),
             # Exits cleanly, so the Pi's service (Restart=on-failure) leaves the desktop showing.
             Row("Exit to desktop", select=lambda: confirm(
                 self.app, "Exit to the desktop?",
@@ -186,6 +189,22 @@ class SettingsScreen(Screen):
             Row("Power off", select=lambda: self._power("Power off", system.POWER_OFF)),
         ]
         return rows
+
+    def _battery_text(self) -> str:
+        b, s = self.ctx.battery, self.ctx.settings
+        off = "" if s.get("battery.power_off") else ", stays on when flat"
+        if b is None:
+            return "not read yet" + off
+        if b.state == "absent":
+            return f"no pack on the input ({b.volts:.1f} V){off}"
+        return f"{b.percent}%, {b.volts:.1f} V{off}"
+
+    def _battery_off(self):
+        s = self.ctx.settings
+        on = not s.get("battery.power_off")
+        s.set("battery.power_off", on)
+        self.ctx.toast("Powers off by itself when the pack is flat" if on else
+                       "Stays on when the pack is flat: only warns. Over-draining a pack can ruin it.")
 
     # --- the groups ---
     def _page_display(self):

@@ -21,10 +21,16 @@ dtoverlay=mcp251xfd,spi0-0,oscillator=20000000,interrupt=25
 #dtoverlay=pps-gpio,gpiopin=21
 
 # --- Stage 3: ADS1115 on I2C1 (GPIO2/3), address 0x48 -> IIO device "ads1115" [verify] ---
-# Only through the divider + clamp front end (ELECTRONICS.md 5.7), never bare probes. With the side
-# buttons (option side_buttons), A3 is their resistor ladder instead of a probe input.
+# Only through the divider + clamp front end (ELECTRONICS.md 5.7), never bare probes.
 #dtparam=i2c_arm=on
 #dtoverlay=ads1115,addr=0x48,cha_enable,chb_enable,chc_enable,chd_enable
+
+# --- Buttons and battery: a second ADS1115, ADDR to 3.3 V -> address 0x49 (option button_adc) [verify] ---
+# A0 the battery pack through a 100k / 15k divider; A1-A3 the button stacks (docs/DEVICE.md). The
+# ads1115 overlay is loaded twice, once per address: `ls /sys/bus/iio/devices/` should then show two
+# devices, one under 1-0048 and one under 1-0049 (`readlink -f /sys/bus/iio/devices/iio:device*`).
+#dtparam=i2c_arm=on
+#dtoverlay=ads1115,addr=0x49,cha_enable,cha_cfg=4,chb_enable,chb_cfg=5,chc_enable,chc_cfg=6,chd_enable,chd_cfg=7
 
 # --- Stage 5: CAN stack B (MCP2518FD on SPI0 CE1, INT on GPIO20) -> can1 ---
 #dtoverlay=mcp251xfd,spi0-1,oscillator=20000000,interrupt=20
@@ -34,7 +40,8 @@ dtoverlay=mcp251xfd,spi0-0,oscillator=20000000,interrupt=25
 # CAN_1: SPI1 (MISO 19, MOSI 20, SCLK 21, CE0 GPIO18), INT GPIO24. That second channel takes the
 # SYNC input's pin (GPIO21) and the buzzer's (GPIO18), so the app leaves sync out while the HAT is
 # on, and the encoder's A line moves from GPIO24 to GPIO7 (SPI0's CE1, which the HAT doesn't use:
-# spi0-1cs frees it; config-controls.txt has the line to change).
+# spi0-1cs frees it; config-controls.txt has the line to change). With the button ADC too, the
+# buttons leave the GPIOs altogether and the encoder is on 17 / 27.
 #dtparam=spi=on
 #dtoverlay=spi0-1cs
 #dtoverlay=mcp251xfd,spi0-0,oscillator=40000000,interrupt=25
@@ -51,7 +58,8 @@ dtoverlay=mcp251xfd,spi0-0,oscillator=20000000,interrupt=25
 #dtoverlay=disable-bt
 
 # --- Optional: PWM buzzer on GPIO18 (I2S audio is given up for GPIO19-21) ---
-# As in deploy/raspberry-pi/README.md; [verify] the func= value on the Pi 5's RP1.
+# As in deploy/raspberry-pi/README.md; [verify] the func= value on the Pi 5's RP1. With the
+# Waveshare HAT, GPIO18 is its own: with the button ADC, GPIO12 or 13 (also PWM) are free for it.
 #dtoverlay=pwm,pin=18,func=2
 
 # Pi 5 power: a 5 V / 5 A supply, or it limits USB current (the Picos are on USB). On the 3B+,

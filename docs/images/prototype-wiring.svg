@@ -1,23 +1,25 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="940" viewBox="0 0 1000 940" font-family="DejaVu Sans, Arial, Helvetica, sans-serif">
-<rect width="1000" height="940" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1100" viewBox="0 0 1000 1100" font-family="DejaVu Sans, Arial, Helvetica, sans-serif">
+<rect width="1000" height="1100" fill="#ffffff"/>
 <text x="500.0" y="32" font-size="20" font-weight="bold" text-anchor="middle" fill="#111">CANopener handheld prototype: wiring (with the Waveshare CAN HAT)</text>
 <text x="500.0" y="54" font-size="12" font-weight="normal" text-anchor="middle" fill="#444" font-style="italic">Pins per docs/ELECTRONICS.md 5.1 and docs/install/handheld-prototype.md. Wire colours are for the diagram only.</text>
 <path d="M60 82 H84" fill="none" stroke="#d32f2f" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
 <text x="90" y="86" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">5 V</text>
-<path d="M137 82 H161" fill="none" stroke="#e37b00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="167" y="86" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">3.3 V</text>
-<path d="M228 82 H252" fill="none" stroke="#222222" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="258" y="86" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">ground</text>
-<path d="M326 82 H350" fill="none" stroke="#2b6cd4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="356" y="86" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">CAN</text>
-<path d="M403 82 H427" fill="none" stroke="#2e8b3a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="433" y="86" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">I2C</text>
-<path d="M480 82 H504" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="510" y="86" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">buttons / encoder</text>
-<path d="M655 82 H679" fill="none" stroke="#7b3fbf" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="685" y="86" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">SYNC pulse</text>
-<path d="M781 82 H805" fill="none" stroke="#a8a8a8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="811" y="86" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">USB / ribbon</text>
+<path d="M129 82 H153" fill="none" stroke="#e37b00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="159" y="86" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">3.3 V</text>
+<path d="M212 82 H236" fill="none" stroke="#222222" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="242" y="86" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">ground</text>
+<path d="M302 82 H326" fill="none" stroke="#2b6cd4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="332" y="86" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">CAN</text>
+<path d="M371 82 H395" fill="none" stroke="#2e8b3a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="401" y="86" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">I2C</text>
+<path d="M440 82 H464" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="470" y="86" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">buttons / encoder</text>
+<path d="M607 82 H631" fill="none" stroke="#8a1c7c" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="637" y="86" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">battery</text>
+<path d="M704 82 H728" fill="none" stroke="#7b3fbf" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="734" y="86" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">SYNC pulse</text>
+<path d="M822 82 H846" fill="none" stroke="#a8a8a8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="852" y="86" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">USB / ribbon</text>
 <rect x="390" y="100" width="220" height="80" rx="5" fill="#f4f4f4" stroke="#555" stroke-width="2"/>
 <text x="500.0" y="130" font-size="16" font-weight="bold" text-anchor="middle" fill="#111">Touch Display 2</text>
 <text x="500.0" y="152" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">DSI ribbon + its power lead</text>
@@ -29,9 +31,9 @@
 <text x="500.0" y="290" font-size="16" font-weight="bold" text-anchor="middle" fill="#111">Raspberry Pi 5</text>
 <text x="500.0" y="312" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">40-pin header</text>
 <text x="500" y="370" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">SPI0 + SPI1 · the HAT</text>
-<text x="500" y="390" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">I2C1 · GPIO2/3</text>
-<text x="500" y="410" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">gpio-key · rotary-encoder</text>
-<text x="500" y="430" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">encoder A on GPIO7</text>
+<text x="500" y="390" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">I2C1 · GPIO2/3 · both ADCs</text>
+<text x="500" y="410" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">rotary-encoder 17 / 27</text>
+<text x="500" y="430" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">12 GPIO left free</text>
 <text x="500" y="450" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">USB × 2 to the Picos</text>
 <rect x="40" y="220" width="230" height="130" rx="5" fill="#f4f4f4" stroke="#555" stroke-width="2"/>
 <text x="155.0" y="250" font-size="16" font-weight="bold" text-anchor="middle" fill="#111">2-CH CAN FD HAT</text>
@@ -59,24 +61,34 @@
 <text x="235" y="380" font-size="11" font-weight="normal" text-anchor="start" fill="#555555">G</text>
 <rect x="40" y="520" width="230" height="110" rx="5" fill="#f4f4f4" stroke="#555" stroke-width="2"/>
 <text x="155.0" y="550" font-size="16" font-weight="bold" text-anchor="middle" fill="#111">ADS1115 · 0x48</text>
-<text x="155.0" y="572" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">A0-A2: 1 MΩ / 49.9 kΩ + clamp</text>
-<text x="155.0" y="590" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">A3: side-button ladder</text>
+<text x="155.0" y="572" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">probes: A0-A3</text>
+<text x="155.0" y="590" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">1 MΩ / 49.9 kΩ + clamp each</text>
+<text x="155.0" y="608" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">ADDR → GND</text>
 <path d="M270 560 H330 V480 H390" fill="none" stroke="#2e8b3a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
 <text x="338" y="550" font-size="12" font-weight="normal" text-anchor="start" fill="#111">I2C1</text>
 <text x="338" y="566" font-size="12" font-weight="normal" text-anchor="start" fill="#111">3V3 · GND</text>
-<text x="155" y="656" font-size="12" font-weight="normal" text-anchor="middle" fill="#555555">probes 1-3 + COM come in here</text>
-<rect x="300" y="575" width="190" height="80" rx="5" fill="#f4f4f4" stroke="#555" stroke-width="2"/>
-<text x="395.0" y="605" font-size="16" font-weight="bold" text-anchor="middle" fill="#111">4 side buttons</text>
-<text x="395.0" y="627" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">Back · Hold · Record · Mark</text>
-<text x="395.0" y="645" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">one resistor ladder</text>
-<path d="M300 615 H270" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="285" y="607" font-size="12" font-weight="normal" text-anchor="middle" fill="#111">A3</text>
+<text x="155" y="656" font-size="12" font-weight="normal" text-anchor="middle" fill="#555555">probes 1-4 + COM come in here</text>
+<rect x="390" y="670" width="220" height="110" rx="5" fill="#f4f4f4" stroke="#555" stroke-width="2"/>
+<text x="500.0" y="700" font-size="16" font-weight="bold" text-anchor="middle" fill="#111">ADS1115 · 0x49</text>
+<text x="500.0" y="722" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">buttons + battery</text>
+<text x="500.0" y="740" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">ADDR → 3.3 V</text>
+<text x="500.0" y="758" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">A0 pack · A1-A3 stacks</text>
+<path d="M500 520 V670" fill="none" stroke="#2e8b3a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="510" y="600" font-size="12" font-weight="normal" text-anchor="start" fill="#111">I2C1 · 3V3 · GND</text>
+<rect x="40" y="700" width="230" height="110" rx="5" fill="#f4f4f4" stroke="#555" stroke-width="2"/>
+<text x="155.0" y="730" font-size="16" font-weight="bold" text-anchor="middle" fill="#111">Battery pack</text>
+<text x="155.0" y="752" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">DeWalt 20V MAX → buck → Pi</text>
+<text x="155.0" y="770" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">100 kΩ / 15 kΩ + 100 nF + clamp</text>
+<text x="155.0" y="788" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">pack − = Pi ground</text>
+<path d="M270 740 H390" fill="none" stroke="#8a1c7c" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="330" y="731" font-size="12" font-weight="normal" text-anchor="middle" fill="#111">A0</text>
 <rect x="730" y="230" width="230" height="110" rx="5" fill="#f4f4f4" stroke="#555" stroke-width="2"/>
-<text x="845.0" y="260" font-size="16" font-weight="bold" text-anchor="middle" fill="#111">5 buttons + encoder</text>
-<text x="845.0" y="282" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">d-pad · push · A/B</text>
-<text x="845.0" y="300" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">switches to GND, Pi pull-ups</text>
+<text x="845.0" y="260" font-size="16" font-weight="bold" text-anchor="middle" fill="#111">Rotary encoder</text>
+<text x="845.0" y="282" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">A → GPIO17 (pin 11)</text>
+<text x="845.0" y="300" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">B → GPIO27 (pin 13)</text>
+<text x="845.0" y="318" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">C → GND (pin 14) · push: A2</text>
 <path d="M730 285 H610" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="670" y="276" font-size="12" font-weight="normal" text-anchor="middle" fill="#111">12 GPIO + GND</text>
+<text x="670" y="276" font-size="12" font-weight="normal" text-anchor="middle" fill="#111">2 GPIO + GND</text>
 <rect x="730" y="390" width="230" height="90" rx="5" fill="#f4f4f4" stroke="#555" stroke-width="2"/>
 <text x="845.0" y="420" font-size="16" font-weight="bold" text-anchor="middle" fill="#111">Pico 2 · meter</text>
 <text x="845.0" y="442" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">firmware/meter-pico</text>
@@ -90,35 +102,45 @@
 <text x="652" y="550" font-size="12" font-weight="normal" text-anchor="end" fill="#111">USB</text>
 <path d="M845 480 V540" fill="none" stroke="#7b3fbf" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
 <text x="855" y="515" font-size="12" font-weight="normal" text-anchor="start" fill="#111">SYNC → GP2</text>
-<line x1="40" y1="670" x2="960" y2="670" stroke="#ccc" stroke-width="1"/>
-<text x="40" y="696" font-size="16" font-weight="bold" text-anchor="start" fill="#111">Breadboard power rails</text>
-<text x="40" y="738" font-size="13" font-weight="normal" text-anchor="start" fill="#111">Pi pin 2 (5V)</text>
-<path d="M40 750 H260" fill="none" stroke="#d32f2f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-<rect x="260" y="738" width="60" height="24" rx="3" fill="#fff" stroke="#111111" stroke-width="2"/>
-<path d="M266 760 L314 740" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="290" y="782" font-size="12" font-weight="normal" text-anchor="middle" fill="#555555">PTC 0.5 A hold (MF-MSMF050-2)</text>
-<path d="M320 750 H900" fill="none" stroke="#d32f2f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="900" y="738" font-size="13" font-weight="normal" text-anchor="end" fill="#111">fused 5 V rail: spare (the HAT takes 5 V through the header)</text>
-<text x="40" y="818" font-size="13" font-weight="normal" text-anchor="start" fill="#111">Pi pin 1 (3V3)</text>
-<path d="M40 830 H900" fill="none" stroke="#e37b00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="900" y="818" font-size="13" font-weight="normal" text-anchor="end" fill="#111">3.3 V rail: ADS1115, encoder +, side-button pull-up</text>
-<text x="40" y="898" font-size="13" font-weight="normal" text-anchor="start" fill="#111">Pi pin 6 or 20 (GND)</text>
-<path d="M40 910 H900" fill="none" stroke="#222222" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="900" y="932" font-size="13" font-weight="normal" text-anchor="end" fill="#111">ground rail: every module, the buttons, the ladder, the encoder</text>
-<path d="M450 750 V772 M438 772 H462 M438 780 H462 M450 780 V910" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="468" y="780" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">10 µF</text>
-<circle cx="450" cy="750" r="4" fill="#111111"/>
+<rect x="730" y="670" width="230" height="130" rx="5" fill="#f4f4f4" stroke="#555" stroke-width="2"/>
+<text x="845.0" y="700" font-size="16" font-weight="bold" text-anchor="middle" fill="#111">Button stacks</text>
+<text x="845.0" y="722" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">10 kΩ pull-up each, then</text>
+<text x="845.0" y="740" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">0 · 2.2k · 5.6k · 12k · 27k to GND</text>
+<text x="845.0" y="758" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">A1: F1-F5 · A2: d-pad + push</text>
+<text x="845.0" y="776" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#555555">A3: Back · Hold · Rec · Mark</text>
+<path d="M730 725 H610" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M730 740 H610" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M730 755 H610" fill="none" stroke="#b38f00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="670" y="716" font-size="12" font-weight="normal" text-anchor="middle" fill="#111">A1 · A2 · A3</text>
+<line x1="40" y1="830" x2="960" y2="830" stroke="#ccc" stroke-width="1"/>
+<text x="40" y="856" font-size="16" font-weight="bold" text-anchor="start" fill="#111">Breadboard power rails</text>
+<text x="40" y="898" font-size="13" font-weight="normal" text-anchor="start" fill="#111">Pi pin 2 (5V)</text>
+<path d="M40 910 H260" fill="none" stroke="#d32f2f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="260" y="898" width="60" height="24" rx="3" fill="#fff" stroke="#111111" stroke-width="2"/>
+<path d="M266 920 L314 900" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="290" y="942" font-size="12" font-weight="normal" text-anchor="middle" fill="#555555">PTC 0.5 A hold (MF-MSMF050-2)</text>
+<path d="M320 910 H900" fill="none" stroke="#d32f2f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="900" y="898" font-size="13" font-weight="normal" text-anchor="end" fill="#111">fused 5 V rail: spare (the HAT takes 5 V through the header)</text>
+<text x="40" y="978" font-size="13" font-weight="normal" text-anchor="start" fill="#111">Pi pin 1 (3V3)</text>
+<path d="M40 990 H900" fill="none" stroke="#e37b00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="900" y="978" font-size="13" font-weight="normal" text-anchor="end" fill="#111">3.3 V rail: both ADS1115s (and the 0x49 ADDR), encoder +, stack pull-ups</text>
+<text x="40" y="1058" font-size="13" font-weight="normal" text-anchor="start" fill="#111">Pi pin 6 or 20 (GND)</text>
+<path d="M40 1070 H900" fill="none" stroke="#222222" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="900" y="1092" font-size="13" font-weight="normal" text-anchor="end" fill="#111">ground rail: every module, the button stacks, the encoder, the battery divider</text>
+<path d="M450 910 V932 M438 932 H462 M438 940 H462 M450 940 V1070" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="468" y="940" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">10 µF</text>
 <circle cx="450" cy="910" r="4" fill="#111111"/>
-<path d="M540 750 V772 M528 772 H552 M528 780 H552 M540 780 V910" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="558" y="780" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">100 nF</text>
-<circle cx="540" cy="750" r="4" fill="#111111"/>
+<circle cx="450" cy="1070" r="4" fill="#111111"/>
+<path d="M540 910 V932 M528 932 H552 M528 940 H552 M540 940 V1070" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="558" y="940" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">100 nF</text>
 <circle cx="540" cy="910" r="4" fill="#111111"/>
-<path d="M660 830 V852 M648 852 H672 M648 860 H672 M660 860 V910" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="678" y="860" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">10 µF</text>
-<circle cx="660" cy="830" r="4" fill="#111111"/>
-<circle cx="660" cy="910" r="4" fill="#111111"/>
-<path d="M750 830 V852 M738 852 H762 M738 860 H762 M750 860 V910" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="768" y="860" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">100 nF</text>
-<circle cx="750" cy="830" r="4" fill="#111111"/>
-<circle cx="750" cy="910" r="4" fill="#111111"/>
+<circle cx="540" cy="1070" r="4" fill="#111111"/>
+<path d="M660 990 V1012 M648 1012 H672 M648 1020 H672 M660 1020 V1070" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="678" y="1020" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">10 µF</text>
+<circle cx="660" cy="990" r="4" fill="#111111"/>
+<circle cx="660" cy="1070" r="4" fill="#111111"/>
+<path d="M750 990 V1012 M738 1012 H762 M738 1020 H762 M750 1020 V1070" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="768" y="1020" font-size="12" font-weight="normal" text-anchor="start" fill="#555555">100 nF</text>
+<circle cx="750" cy="990" r="4" fill="#111111"/>
+<circle cx="750" cy="1070" r="4" fill="#111111"/>
 </svg>

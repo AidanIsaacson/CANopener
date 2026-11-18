@@ -2,6 +2,8 @@
 # Wiring and the reasons for these pins are in docs/DEVICE.md ("Controls"). Each switch goes
 # between its GPIO and ground; the Pi's internal pull-ups are used, so no resistors are needed.
 #
+# The pins below are the all-GPIO layout. With the Waveshare HAT, put the buttons on the button ADC
+# instead (the end of this file): it frees the button pins.
 # Pins left free on purpose (docs/ELECTRONICS.md 5.1; their overlays are in config-hardware.txt):
 # GPIO2/3 (I2C: the ADS1115), GPIO7-11 + 25 (SPI0: CAN stack A on CE0, INT 25; stack B on CE1),
 # GPIO20 (CAN stack B INT), GPIO21 (SYNC in from the meter Pico, pps-gpio), GPIO14/15 (UART:
@@ -30,5 +32,11 @@ dtoverlay=rotary-encoder,pin_a=24,pin_b=4,relative_axis=1,steps-per-period=1
 dtoverlay=gpio-key,gpio=26,active_low=1,gpio_pull=up,keycode=28,label="SELECT"
 # One detent moving two rows? Use steps-per-period=2 (or 4) to match the encoder.
 
-# Side buttons (Back, Hold, Record, Timestamp) need no lines here: they're a resistor ladder into
-# the ADS1115's A3 (System > Installed options > Side buttons; wiring in docs/DEVICE.md).
+
+# --- Or: every button on the button ADC (System > Installed options > Buttons and battery ADC) ---
+# A second ADS1115 at 0x49 reads the buttons as resistor stacks (A1 top row, A2 d-pad + push,
+# A3 side buttons) and the battery on A0: wiring in docs/DEVICE.md. Then none of the gpio-key lines
+# above are used, and the encoder moves to GPIO17 (A) / GPIO27 (B), physical pins 11 and 13. The
+# whole controls block is just these two lines (plus the ADC's, in config-hardware.txt):
+#gpio=17,27=ip,pu
+#dtoverlay=rotary-encoder,pin_a=17,pin_b=27,relative_axis=1,steps-per-period=1

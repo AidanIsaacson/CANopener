@@ -2,15 +2,15 @@
 
 Hardware (see docs/DEVICE.md for wiring and config.txt lines):
 
-* **Buttons** (the soft keys along the top edge, the d-pad, the encoder's push) are GPIO pins
-  with the kernel's ``gpio-key`` overlay: each one is a key press (F1-F5, arrows, Enter), so
-  they arrive as ordinary keyboard events. No polling, kernel debouncing, and a USB keyboard
-  does the same thing on the bench.
+* **Buttons** (the soft keys along the top edge, the d-pad, the encoder's push) are either GPIO
+  pins with the kernel's ``gpio-key`` overlay, where each one is a key press (F1-F5, arrows,
+  Enter) arriving as an ordinary keyboard event (a USB keyboard does the same on the bench), or
+  resistor stacks on the button ADC (below).
 * **The rotary encoder** uses the ``rotary-encoder`` overlay, which reports relative motion
   (``REL_X``), not keys. ``EvdevReader`` reads it straight from ``/dev/input/eventN``.
-* **A resistor-ladder button stack** (several buttons on one analog input) needs an ADC: the
-  Pi has no analog inputs. ``LadderButtons`` decodes one ADC channel (an ADS1115 through
-  the kernel IIO driver) into button presses, if the hardware goes that way.
+* **Resistor-ladder button stacks** (several buttons on one analog input) are on a second
+  ADS1115 (the button ADC, I2C 0x49, through the kernel IIO driver): ``LadderButtons`` decodes
+  one input into presses, ``ButtonAdc`` reads every stack and the battery on its own thread.
 
 Everything here is standard library; the app (``device/app.py``) feeds in key names from
 Pygame.
@@ -203,7 +203,8 @@ class LadderButtons:
     a reading is the button whose level is nearest, within 40% of the gap to its neighbours (a
     reading halfway between two is ambiguous, so it counts as nothing pressed).
     A new button must read the same twice in a row (debounce). One button at a time: a ladder
-    can't tell two pressed together, which is a reason to prefer one GPIO per button."""
+    can't tell two pressed together (the stacks are split so that buttons used together, like
+    the d-pad and a soft key, are on different inputs)."""
 
     def __init__(self, levels: list[float], actions: list[str], read_volts=None):
         if len(levels) != len(actions):
@@ -242,53 +243,75 @@ class LadderButtons:
         return self.update(self.read_volts() if self.read_volts else None)
 
 
-SIDE_ACTIONS = (BACK, HOLD, LOG, TAG)    # the side buttons on the ADS1115's A3 ladder, in level order
-SIDE_CHANNEL = 3
+# ----------------------------------------------------------------------------
+# The button ADC: every button on resistor stacks, and the battery
+# ----------------------------------------------------------------------------
+# A second ADS1115 at I2C 0x49 (System > Installed options > Buttons and battery ADC). Each stack
+# is buttons from one input to ground, each through its own resistor, with a 10 kohm pull-up to
+# 3.3 V: 0, 2.2 k, 5.6 k, 12 k and 27 kohm, the same on every stack, so one list of levels
+# (device.button_levels). Buttons on different stacks can be held together; two on one can't.
+BUTTON_STACKS = {1: (SOFT[0], SOFT[1], SOFT[2], SOFT[3], BUTTON5),    # A1: the top row, left to right
+                 2: (UP, DOWN, LEFT, RIGHT, SELECT),                  # A2: the d-pad and the encoder's push
+                 3: (BACK, HOLD, LOG, TAG)}                           # A3: the side buttons, top down
+BATTERY_CHANNEL = 0                                                   # A0: the pack, through its divider
+STACK_NAMES = {1: "top row", 2: "d-pad and push", 3: "side buttons"}
+# The kernel's codes for each action (the gpio-key overlays' codes for the same buttons), for Doom:
+# while it has the screen, the stacks reach it as a keyboard (``doom_controls.ButtonKeys``).
+KEYCODES = {SOFT[0]: 59, SOFT[1]: 60, SOFT[2]: 61, SOFT[3]: 62, BUTTON5: 63, UP: 103, DOWN: 108, LEFT: 105,
+            RIGHT: 106, SELECT: 28, BACK: 1, HOLD: 119, LOG: 67, TAG: 68}
 SYS_IIO = "/sys/bus/iio/devices"
+LOST_S = 2.0                # every read failing this long: the ADC has gone (``ButtonAdc.lost``)
 
 
-def iio_channel(names=("ads1115", "ads1015"), index: int = SIDE_CHANNEL, sys_iio: str = SYS_IIO) -> str | None:
-    """The raw file of input ``index`` on the first IIO device with one of these driver names
-    (``.../iio:device0/in_voltage3_raw``), or None."""
-    for d in sorted(glob.glob(os.path.join(sys_iio, "iio:device*"))):
-        try:
-            with open(os.path.join(d, "name")) as f:
-                name = f.read().strip()
-        except OSError:
-            continue
-        raw = os.path.join(d, f"in_voltage{index}_raw")
-        if name in names and os.path.exists(raw):
-            return raw
-    return None
+class ButtonAdc:
+    """The button ADC on its own thread (a conversion takes milliseconds, which the screen's loop
+    shouldn't wait for): every stack read ``hz`` times a second, the battery every ``battery_s``.
+    ``poll()`` (from the UI) returns the [("down" / "up", action)] since the last call;
+    ``battery`` is the last battery input reading in ADC volts (None until there is one)."""
 
-
-def side_ladder(levels, sys_iio: str = SYS_IIO) -> "LadderThread | None":
-    """The four side buttons (Back, Hold, Record, Timestamp) on the ADS1115's A3, read on their own
-    thread, or None when that input isn't there (yet: the app tries again)."""
-    raw = iio_channel(sys_iio=sys_iio)
-    if raw is None:
-        return None
-    return LadderThread(LadderButtons(list(levels)[:len(SIDE_ACTIONS)], list(SIDE_ACTIONS), iio_volts_reader(raw)))
-
-
-class LadderThread:
-    """A ``LadderButtons`` read on its own thread: an ADC conversion takes milliseconds, which the
-    screen's loop shouldn't wait for. ``poll()`` (from the UI) returns what happened since."""
-
-    def __init__(self, ladder: "LadderButtons", hz: float = 50.0):
-        self.ladder, self.period = ladder, 1.0 / hz
+    def __init__(self, stacks: dict, battery=None, hz: float = 40.0, battery_s: float = 2.0,
+                 clock=time.monotonic, start: bool = True):
+        self.stacks, self.read_battery = dict(stacks), battery
+        self.period, self.battery_s, self.clock = 1.0 / hz, battery_s, clock
+        self.battery: float | None = None
+        self._battery_at = -1e9
+        self._ok_at = clock()
         self._events: list = []
         self._lock = threading.Lock()
         self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._run, name="side-buttons", daemon=True)
-        self._thread.start()
+        self._thread = None
+        if start:
+            self._thread = threading.Thread(target=self._run, name="button-adc", daemon=True)
+            self._thread.start()
+
+    def step(self):
+        """One pass over every stack (and the battery when it's due)."""
+        got, any_ok = [], False
+        for lad in self.stacks.values():
+            v = lad.read_volts() if lad.read_volts else None
+            any_ok |= v is not None
+            got += lad.update(v)
+        now = self.clock()
+        if self.read_battery is not None and now - self._battery_at >= self.battery_s:
+            self._battery_at = now
+            v = self.read_battery()
+            any_ok |= v is not None
+            if v is not None:
+                self.battery = v
+        if any_ok:
+            self._ok_at = now
+        if got:
+            with self._lock:
+                self._events += got
+
+    @property
+    def lost(self) -> bool:
+        """Nothing has read for ``LOST_S``: the ADC or its wiring has gone."""
+        return self.clock() - self._ok_at >= LOST_S
 
     def _run(self):
         while not self._stop.wait(self.period):
-            got = self.ladder.poll()
-            if got:
-                with self._lock:
-                    self._events += got
+            self.step()
 
     def poll(self) -> list[tuple[str, str]]:
         with self._lock:
@@ -297,6 +320,24 @@ class LadderThread:
 
     def stop(self):
         self._stop.set()
+
+
+def button_adc(levels, sys_iio: str = SYS_IIO, stacks: dict | None = None, **kw) -> "ButtonAdc | None":
+    """The stacks and the battery on the buttons' ADS1115 (0x49), reading on their own thread, or
+    None when that ADC isn't there (yet: the app tries again)."""
+    from ..core import hardware
+    folder = hardware.find_iio(hardware.ADC_NAMES, hardware.BUTTON_ADC, sys_iio)
+    if folder is None:
+        return None
+    levels = list(levels)
+    ladders = {}
+    for ch, acts in (BUTTON_STACKS if stacks is None else stacks).items():
+        raw = os.path.join(folder, f"in_voltage{ch}_raw")
+        n = min(len(acts), len(levels))
+        if os.path.exists(raw) and n:
+            ladders[ch] = LadderButtons(levels[:n], list(acts)[:n], iio_volts_reader(raw))
+    bat = os.path.join(folder, f"in_voltage{BATTERY_CHANNEL}_raw")
+    return ButtonAdc(ladders, iio_volts_reader(bat) if os.path.exists(bat) else None, **kw)
 
 
 def iio_volts_reader(raw_path: str):
