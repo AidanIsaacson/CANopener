@@ -285,7 +285,10 @@ Usage, wiring and status are in [DEVICE.md](DEVICE.md).
   `REL_X`) and the button ADC's resistor stacks (`ButtonAdc`: a second ADS1115 at 0x49, read on its
   own thread, which also reads the battery for `core/battery.py`) into actions: up / down / left /
   right, select (hold = back), back, home, soft keys 1-5, rotate, log, tag, hold. While Doom runs,
-  `doom_controls.ButtonKeys` passes the stacks on as a uinput keyboard.
+  `doom_controls.ButtonKeys` passes the stacks on as a uinput keyboard. `ButtonAdc` ignores a stack that sends presses on its
+  own (a floating input: `flooding`), and takes the Control mapping page's changes
+  (`stack_actions`, `stack_levels`, muted stacks); `screens/controls.py` is that page, which takes
+  the hardware's input for itself while it tests (`DeviceApp._testing`).
 * `device/app.py` draws the chrome (soft keys on the buttons' edge, status strip opposite) and
   stacks screens; `device/ui.py` is the drawing kit (sizes in millimetres from the panel's pixel
   density, lists with drag scrolling, procedural icons); `device/screens/` are the pages.

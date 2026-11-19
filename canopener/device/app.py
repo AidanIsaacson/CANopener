@@ -65,6 +65,9 @@ class MixerSpeaker:
         return True
 
 
+BUTTON_SETTINGS = ("device.button_map", "device.button_tuning", "device.button_levels", "device.stacks_off")
+
+
 class DeviceApp:
     def __init__(self, ctx: DeviceContext, size: tuple[int, int] = (800, 480), *, rotate: int | None = None,
                  fullscreen: bool = False, encoder: bool = True):
@@ -88,6 +91,7 @@ class DeviceApp:
         self.buttons = None                 # the button ADC's stacks and battery (Installed options)
         self._buttons_tried = -1e9
         self._buttons_lost = False
+        self._flooding: set = set()
         self.clock = pygame.time.Clock()
         self.running = True
         self.switch_to: str | None = None   # another front-end to start once this one has closed
@@ -121,6 +125,10 @@ class DeviceApp:
     def _setting_changed(self, key, value):
         if key in ("device.keys", "device.button5"):
             self.keymap = inp.KeyMap(self.ctx.settings.get("device.keys"), self.ctx.settings.get("device.button5"))
+        elif key in BUTTON_SETTINGS:            # Control mapping changed a stack: read them again with it
+            if self.buttons is not None:
+                self.buttons.stop()
+            self.buttons, self._buttons_tried = None, -1e9
         elif key in ("device.diagonal_in", "device.theme", "device.accent"):
             self._fit()
         elif key == "device.window" and not self.fullscreen:     # System > Display > Window size: apply now
@@ -315,6 +323,8 @@ class DeviceApp:
             if ev.key == pygame.K_q and ev.mod & pygame.KMOD_CTRL:
                 self.running = False
                 return
+            if self._testing("key", pygame.key.name(ev.key), True):
+                return
             a = self.keymap.action(pygame.key.name(ev.key))
             if a in (inp.ROTATE_CW, inp.ROTATE_CCW):
                 self.action(inp.ROTATE, 1 if a == inp.ROTATE_CW else -1)
@@ -324,6 +334,8 @@ class DeviceApp:
                 if a is not None:
                     self.action(a)
         elif ev.type == pygame.KEYUP:
+            if self._testing("key", pygame.key.name(ev.key), False):
+                return
             a = self.keymap.action(pygame.key.name(ev.key))
             if a is not None:
                 a = self.press.up(a)
@@ -372,10 +384,22 @@ class DeviceApp:
         self.ctx.cue("touch")
         h[1].begin(self._touch[4])
 
+    def _testing(self, kind: str, *what) -> bool:
+        """The Control mapping page in test mode takes the hardware's input for itself (to show
+        it) instead of it doing anything: True when it did. Touch always works."""
+        page = next((scr for scr in reversed(self.stack) if not scr.modal), None)    # a dialog over it too
+        if page is None or not getattr(page, "testing", False):
+            return False
+        top = page
+        top.capture(kind, *what)
+        return True
+
     def poll_hardware(self):
         if self.encoder is not None:
             steps = self.encoder.read()
-            if steps:
+            if steps and self.ctx.settings.get("device.encoder_reverse"):
+                steps = -steps
+            if steps and not self._testing("encoder", steps):
                 self.action(inp.ROTATE, steps)
         self._poll_buttons()
         a = self.press.poll()
@@ -407,7 +431,10 @@ class DeviceApp:
             if time.monotonic() - self._buttons_tried < 5.0:
                 return
             self._buttons_tried = time.monotonic()
-            self.buttons = inp.button_adc(self.ctx.settings.get("device.button_levels"))
+            s = self.ctx.settings
+            self.buttons = inp.button_adc(s.get("device.button_levels"),
+                                          stacks=inp.stack_actions(s.get("device.button_map")),
+                                          tuning=s.get("device.button_tuning"), muted=s.get("device.stacks_off") or ())
             if self.buttons is None:
                 if not self._buttons_lost:
                     self._buttons_lost = True
@@ -417,8 +444,17 @@ class DeviceApp:
             if self._buttons_lost:
                 self.ctx.toast("Buttons working again")
             self._buttons_lost = False
-        for kind, a in self.buttons.poll():
-            self.button(kind, a)
+        events = self.buttons.poll()
+        if not self._testing("stacks", events):             # the page reads the stacks itself
+            for kind, a in events:
+                self.button(kind, a)
+        flooding = set(self.buttons.flooding)
+        for ch in sorted(flooding - self._flooding):
+            self.ctx.toast(f"A{ch} ({inp.STACK_NAMES.get(ch, '')}) is sending presses on its own: ignored "
+                           "until it settles. Not wired yet?")
+        for ch in sorted(self._flooding - flooding):
+            self.ctx.toast(f"Buttons: A{ch} has settled: its buttons work again")
+        self._flooding = flooding
         if self.buttons.lost != self._buttons_lost:
             self._buttons_lost = self.buttons.lost
             self.ctx.toast("Buttons: the button ADC stopped answering. Touch still works; check its wiring."

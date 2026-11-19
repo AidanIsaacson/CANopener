@@ -21,6 +21,7 @@ import os
 import struct
 import threading
 import time
+from collections import deque
 
 # Actions
 UP, DOWN, LEFT, RIGHT = "up", "down", "left", "right"
@@ -60,6 +61,8 @@ class KeyMap:
 
     def action(self, key_name: str) -> str | None:
         a = self.keys.get((key_name or "").lower())
+        if a in ("", "none"):                   # a key set to do nothing (Control mapping)
+            return None
         return self.button5 if a == BUTTON5 else a
 
 
@@ -197,6 +200,9 @@ class EvdevReader:
 # ----------------------------------------------------------------------------
 # Resistor ladder
 # ----------------------------------------------------------------------------
+MIN_GAP = 0.05              # volts: levels closer than this can't be told apart
+
+
 class LadderButtons:
     """Several buttons on one analog input: each pulls the input to its own voltage, and nothing
     pressed reads above the top level. ``levels`` are the expected volts per button, in order;
@@ -212,9 +218,12 @@ class LadderButtons:
         self.levels = list(levels)
         self.actions = list(actions)
         self.read_volts = read_volts
-        gaps = [b - a for a, b in zip(self.levels, self.levels[1:])] or [1.0]
-        self.tolerance = min(gaps) * 0.4
+        order = sorted(self.levels)
+        gaps = [b - a for a, b in zip(order, order[1:])] or [1.0]
+        self.tolerance = max(MIN_GAP, min(gaps)) * 0.4
+        self.rest = max(self.levels) + self.tolerance       # above this: nothing pressed
         self.pressed: int | None = None
+        self.volts: float | None = None                     # the last reading
         self._candidate: int | None = None
 
     def decode(self, volts: float | None) -> int | None:
@@ -225,6 +234,7 @@ class LadderButtons:
 
     def update(self, volts: float | None) -> list[tuple[str, str]]:
         """Feed one reading; returns [("down" / "up", action)] transitions."""
+        self.volts = volts
         b = self.decode(volts)
         if b != self._candidate:
             self._candidate = b
@@ -252,30 +262,77 @@ class LadderButtons:
 # (device.button_levels). Buttons on different stacks can be held together; two on one can't.
 BUTTON_STACKS = {1: (SOFT[0], SOFT[1], SOFT[2], SOFT[3], BUTTON5),    # A1: the top row, left to right
                  2: (UP, DOWN, LEFT, RIGHT, SELECT),                  # A2: the d-pad and the encoder's push
-                 3: (BACK, HOLD, LOG, TAG)}                           # A3: the side buttons, top down
+                 3: (BACK, HOLD, LOG, TAG, "")}                       # A3: the side buttons, top down; 5th spare
+STACK_SIZE = 5              # positions per stack (a spare one is still decoded, so it can't pass for another)
 BATTERY_CHANNEL = 0                                                   # A0: the pack, through its divider
 STACK_NAMES = {1: "top row", 2: "d-pad and push", 3: "side buttons"}
+# What a button can be given (Control mapping). "" = nothing: the button is ignored.
+ASSIGNABLE = (SOFT[0], SOFT[1], SOFT[2], SOFT[3], BUTTON5, UP, DOWN, LEFT, RIGHT, SELECT, BACK, HOME, HOLD,
+              LOG, TAG)
 # The kernel's codes for each action (the gpio-key overlays' codes for the same buttons), for Doom:
 # while it has the screen, the stacks reach it as a keyboard (``doom_controls.ButtonKeys``).
 KEYCODES = {SOFT[0]: 59, SOFT[1]: 60, SOFT[2]: 61, SOFT[3]: 62, BUTTON5: 63, UP: 103, DOWN: 108, LEFT: 105,
             RIGHT: 106, SELECT: 28, BACK: 1, HOLD: 119, LOG: 67, TAG: 68}
 SYS_IIO = "/sys/bus/iio/devices"
 LOST_S = 2.0                # every read failing this long: the ADC has gone (``ButtonAdc.lost``)
+# Flood guard: a stack that isn't wired (no pull-up, the input floating) or has a bad joint reads
+# a wandering voltage that decodes as presses one after another. A stack doing that is ignored
+# until it settles (``ButtonAdc.flooding``), so it can't drive the screens.
+FLOOD_WINDOW = 2.0          # seconds looked at
+FLOOD_CHANGES = 16          # this many changes in the window is more than a hand does on one stack
+FLOOD_SOME = 6              # ... or this many with at least FLOOD_UNSURE of the readings between buttons
+FLOOD_UNSURE = 0.2           # (a real press reads between buttons only for a sample or so at its edges)
+FLOOD_QUIET = 3.0           # settled: no changes for this long, readings back on a level or at rest
+LOG_KEPT = 60
+
+
+def pos_key(ch: int, pos: int) -> str:
+    """Settings key of a stack position: "2.3" is A2, button 3 (1-based)."""
+    return f"{ch}.{pos}"
+
+
+def stack_actions(button_map: dict | None = None) -> dict:
+    """{channel: [action per position]}: ``BUTTON_STACKS`` with the Control mapping's changes
+    (``device.button_map``, {"2.3": "left"}; "" ignores a button)."""
+    m = button_map or {}
+    out = {}
+    for ch, acts in BUTTON_STACKS.items():
+        acts = list(acts) + [""] * (STACK_SIZE - len(acts))
+        out[ch] = [m.get(pos_key(ch, i + 1), a) for i, a in enumerate(acts)]
+    return out
+
+
+def stack_levels(levels, ch: int, tuning: dict | None = None) -> list[float]:
+    """One stack's volts per position: the shared levels, with any taken for this stack's
+    buttons on the Control mapping page (``device.button_tuning``, {"2.3": 1.21})."""
+    levels = list(levels)[:STACK_SIZE]
+    t = tuning or {}
+    return [float(t.get(pos_key(ch, i + 1), v)) for i, v in enumerate(levels)]
 
 
 class ButtonAdc:
     """The button ADC on its own thread (a conversion takes milliseconds, which the screen's loop
     shouldn't wait for): every stack read ``hz`` times a second, the battery every ``battery_s``.
     ``poll()`` (from the UI) returns the [("down" / "up", action)] since the last call;
-    ``battery`` is the last battery input reading in ADC volts (None until there is one)."""
+    ``battery`` is the last battery input reading in ADC volts (None until there is one).
+
+    A stack in ``muted`` (switched off on the Control mapping page) or ``flooding`` (see
+    ``FLOOD_WINDOW``) is still read and decoded, so the page can show it, but sends nothing.
+    ``log`` keeps the last presses as (time, channel, position 1-5, "down" / "up")."""
 
     def __init__(self, stacks: dict, battery=None, hz: float = 40.0, battery_s: float = 2.0,
-                 clock=time.monotonic, start: bool = True):
+                 clock=time.monotonic, start: bool = True, muted=()):
         self.stacks, self.read_battery = dict(stacks), battery
         self.period, self.battery_s, self.clock = 1.0 / hz, battery_s, clock
+        self.muted = {int(c) for c in muted}
+        self.flooding: set[int] = set()
         self.battery: float | None = None
+        self.log: deque = deque(maxlen=LOG_KEPT)
         self._battery_at = -1e9
         self._ok_at = clock()
+        self._sent: dict[int, str | None] = {ch: None for ch in self.stacks}    # action held down, per stack
+        self._changes: dict[int, deque] = {ch: deque() for ch in self.stacks}
+        self._samples: dict[int, deque] = {ch: deque() for ch in self.stacks}   # (time, between buttons)
         self._events: list = []
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -286,12 +343,30 @@ class ButtonAdc:
 
     def step(self):
         """One pass over every stack (and the battery when it's due)."""
+        now = self.clock()
         got, any_ok = [], False
-        for lad in self.stacks.values():
+        for ch, lad in self.stacks.items():
             v = lad.read_volts() if lad.read_volts else None
             any_ok |= v is not None
-            got += lad.update(v)
-        now = self.clock()
+            before = lad.pressed
+            lad.update(v)
+            if lad.pressed != before:
+                self._changes[ch].append(now)
+                if before is not None:
+                    self.log.append((now, ch, before + 1, "up"))
+                if lad.pressed is not None:
+                    self.log.append((now, ch, lad.pressed + 1, "down"))
+            self._samples[ch].append((now, v is not None and v < lad.rest and lad.decode(v) is None))
+            self._guard(ch, now)
+            want = None
+            if ch not in self.muted and ch not in self.flooding and lad.pressed is not None:
+                want = lad.actions[lad.pressed] or None
+            if want != self._sent[ch]:
+                if self._sent[ch]:
+                    got.append(("up", self._sent[ch]))
+                if want:
+                    got.append(("down", want))
+                self._sent[ch] = want
         if self.read_battery is not None and now - self._battery_at >= self.battery_s:
             self._battery_at = now
             v = self.read_battery()
@@ -303,6 +378,25 @@ class ButtonAdc:
         if got:
             with self._lock:
                 self._events += got
+
+    def _guard(self, ch: int, now: float):
+        changes, samples = self._changes[ch], self._samples[ch]
+        while changes and now - changes[0] > max(FLOOD_WINDOW, FLOOD_QUIET):
+            changes.popleft()
+        while samples and now - samples[0][0] > FLOOD_WINDOW:
+            samples.popleft()
+        recent = sum(1 for t in changes if now - t <= FLOOD_WINDOW)
+        unsure = sum(1 for _, u in samples if u) / max(1, len(samples))
+        if ch not in self.flooding:
+            if recent >= FLOOD_CHANGES or (recent >= FLOOD_SOME and unsure >= FLOOD_UNSURE):
+                self.flooding.add(ch)
+        elif (not changes or now - changes[-1] >= FLOOD_QUIET) and unsure < 0.1:
+            self.flooding.discard(ch)
+
+    def presses(self, seconds: float = 5.0) -> int:
+        """Presses ("down"s) on every stack in the last ``seconds``: a flood shows as a big number."""
+        now = self.clock()
+        return sum(1 for t, _c, _p, kind in list(self.log) if kind == "down" and now - t <= seconds)
 
     @property
     def lost(self) -> bool:
@@ -322,22 +416,24 @@ class ButtonAdc:
         self._stop.set()
 
 
-def button_adc(levels, sys_iio: str = SYS_IIO, stacks: dict | None = None, **kw) -> "ButtonAdc | None":
+def button_adc(levels, sys_iio: str = SYS_IIO, stacks: dict | None = None, tuning: dict | None = None,
+               muted=(), **kw) -> "ButtonAdc | None":
     """The stacks and the battery on the buttons' ADS1115 (0x49), reading on their own thread, or
-    None when that ADC isn't there (yet: the app tries again)."""
+    None when that ADC isn't there (yet: the app tries again). ``stacks``: {channel: [action per
+    position]} (``stack_actions``); ``tuning``: levels taken per position (``stack_levels``)."""
     from ..core import hardware
     folder = hardware.find_iio(hardware.ADC_NAMES, hardware.BUTTON_ADC, sys_iio)
     if folder is None:
         return None
-    levels = list(levels)
     ladders = {}
-    for ch, acts in (BUTTON_STACKS if stacks is None else stacks).items():
+    for ch, acts in (stack_actions() if stacks is None else stacks).items():
         raw = os.path.join(folder, f"in_voltage{ch}_raw")
-        n = min(len(acts), len(levels))
+        lv = stack_levels(levels, ch, tuning)
+        n = min(len(acts), len(lv))
         if os.path.exists(raw) and n:
-            ladders[ch] = LadderButtons(levels[:n], list(acts)[:n], iio_volts_reader(raw))
+            ladders[ch] = LadderButtons(lv[:n], list(acts)[:n], iio_volts_reader(raw))
     bat = os.path.join(folder, f"in_voltage{BATTERY_CHANNEL}_raw")
-    return ButtonAdc(ladders, iio_volts_reader(bat) if os.path.exists(bat) else None, **kw)
+    return ButtonAdc(ladders, iio_volts_reader(bat) if os.path.exists(bat) else None, muted=muted, **kw)
 
 
 def iio_volts_reader(raw_path: str):

@@ -5,6 +5,15 @@ on an older one, `git checkout v0.3.2` in its checkout.
 
 ## Unreleased
 
+- **Control mapping.** A new home tile: every button (grouped by the button ADC's input, or by
+  GPIO) and the encoder, live, with the voltage each stack reads and what each button does. While
+  **Testing** is on, presses only light up there, so a miswired button can't run through the
+  screens. Select a button to give it another job (F1 and F3 wired the wrong way round), ignore
+  it, or take its voltage as its level; switch a stack that isn't wired yet off; reverse the
+  encoder. Also from **System > Controls**.
+- **Presses nobody made are ignored.** A button stack whose input floats (no pull-up, or not wired)
+  reads as press after press. The handheld now spots that, says so, and ignores that stack until
+  it reads steady again.
 - **Buttons and battery on a second ADC.** With the Waveshare HAT taking GPIO18-21 and 24, every
   button moves to resistor stacks on a second ADS1115 at 0x49 (**System > Installed options >
   Buttons and battery ADC**): the top row on A1, the d-pad and encoder push on A2, the side buttons

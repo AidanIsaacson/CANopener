@@ -1799,6 +1799,10 @@ class _FakeButtons:
     def __init__(self):
         self.events, self.lost, self.battery, self.stopped = [], False, None, False
         self.read_battery = object()
+        self.flooding, self.muted, self.stacks, self.log = set(), set(), {}, []
+
+    def presses(self, seconds=5.0):
+        return 0
 
     def poll(self):
         out, self.events = self.events, []
@@ -1816,7 +1820,7 @@ def test_button_adc_buttons_battery_and_doom(app_for, monkeypatch):
     from canopener.device import app as app_mod
     from canopener.device import doom_controls
     fake = _FakeButtons()
-    monkeypatch.setattr(inp, "button_adc", lambda levels: fake)
+    monkeypatch.setattr(inp, "button_adc", lambda *a, **k: fake)
     app = app_for()
     ctx = app.ctx
     ctx.hardware.set_state("button_adc", "yes")
@@ -1836,7 +1840,7 @@ def test_button_adc_buttons_battery_and_doom(app_for, monkeypatch):
     app.poll_hardware()
     assert len(app.stack) == depth - 1                                  # held: Back
     monkeypatch.undo()
-    monkeypatch.setattr(inp, "button_adc", lambda levels: fake)
+    monkeypatch.setattr(inp, "button_adc", lambda *a, **k: fake)
     fake.battery = 18.9 / (115 / 15)                                     # ADC volts for an 18.9 V pack
     app.poll_hardware()
     assert ctx.battery.state == batt.OK and fake.battery is None
@@ -1869,3 +1873,93 @@ def test_button_adc_buttons_battery_and_doom(app_for, monkeypatch):
     assert sent == [(103, True), (59, True)]
     keys.stop()                                                         # what's still down is let go
     assert sent[2:] == [(59, False), (103, False), "closed"]
+
+
+def test_control_mapping_tests_and_remaps_the_buttons(app_for, monkeypatch):
+    """The Control mapping tile: every stack position live with what it does; while testing, the
+    hardware only lights up there (touch still works); a position or a GPIO key given another job
+    takes effect at once; a stack can be switched off; a flood is said on screen; Reset undoes it."""
+    from canopener.device import modes
+    from canopener.device.screens.controls import ControlMapScreen
+    volts = {1: 3.3, 2: 3.3, 3: 3.3}
+    made = []
+
+    def fake_adc(levels, stacks=None, tuning=None, muted=()):
+        lads = {ch: inp.LadderButtons(inp.stack_levels(levels, ch, tuning), stacks[ch], lambda ch=ch: volts[ch])
+                for ch in stacks}
+        made.append(inp.ButtonAdc(lads, start=False, muted=muted))
+        return made[-1]
+    monkeypatch.setattr(inp, "button_adc", fake_adc)
+    app = app_for()
+    ctx, s = app.ctx, app.ctx.settings
+    assert any(m.id == "controls" for m in modes.shown(ctx))
+    ctx.hardware.set_state("button_adc", "yes")
+    ctx.hardware.set_state("controls", "yes")
+    app.open_mode("controls")
+    scr = app.top
+    assert isinstance(scr, ControlMapScreen) and scr.testing
+
+    def press(ch, v):
+        volts[ch] = v
+        for _ in range(2):
+            app.buttons.step()
+        app.poll_hardware()
+    app.poll_hardware()
+    press(2, 1.18)                                          # Left: lights its row, does nothing
+    assert app.top is scr and app.buttons.stacks[2].pressed == 2
+    app.step([])
+    labels = [r.label for r in scr.rows.rows]
+    assert "Input A2" in labels and labels.count("Button 5") == 3
+    a2 = next(r for r in scr.rows.rows if r.label == "Input A2")
+    assert "1.18 V, button 3" in a2.value_text()
+    assert any(r.label == "A2 button 3 down" for r in scr.rows.rows)
+    press(2, 3.3)
+    # wired F1 and F3 the wrong way round: give each the other's job
+    scr._apply_position("1.1", 1, 1, "map", inp.SOFT[2])
+    scr._apply_position("1.3", 1, 3, "map", inp.SOFT[0])
+    assert s.get("device.button_map") == {"1.1": inp.SOFT[2], "1.3": inp.SOFT[0]} and app.buttons is None
+    app.poll_hardware()
+    assert app.buttons.stacks[1].actions[:3] == [inp.SOFT[2], inp.SOFT[1], inp.SOFT[0]]
+    # take a level: A2 button 4 reads 1.70 V on this build
+    volts[2] = 1.70
+    for _ in range(2):
+        app.buttons.step()
+    scr._apply_position("2.4", 2, 4, "take", None)
+    assert s.get("device.button_tuning") == {"2.4": 1.7}
+    app.poll_hardware()
+    volts[2] = 3.3
+    # the keyboard / GPIO buttons and the encoder go to the page while testing
+    app.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE, mod=0))
+    assert app.top is scr and "escape" in scr.keys_down
+    app.handle_event(pygame.event.Event(pygame.KEYUP, key=pygame.K_ESCAPE, mod=0))
+    scr.capture("encoder", 3)
+    assert scr.steps == 3
+    # a stack off, a flood said
+    scr._toggle_stack(3)
+    assert s.get("device.stacks_off") == [3]
+    app.poll_hardware()
+    assert app.buttons.muted == {3}
+    app.buttons.flooding.add(1)
+    app.poll_hardware()
+    assert "presses on its own" in ctx.current_toast()
+    app.buttons.flooding.discard(1)
+    app.poll_hardware()
+    # testing off: the remapped spot works for real (F1's spot is soft key 3 now)
+    scr._toggle_testing()
+    hit = []
+    monkeypatch.setattr(app, "action", lambda a, n=1: hit.append(a))
+    press(1, 0.0)
+    assert hit == [inp.SOFT[2]]
+    press(1, 3.3)
+    monkeypatch.undo()
+    # GPIO keys: remap one, set one to nothing
+    scr._edit_key("f2", "F2")
+    app.top._pick(next(i for i, (_l, v) in enumerate(app.top.options) if v == inp.SOFT[3]))
+    assert app.keymap.action("f2") == inp.SOFT[3]
+    scr._edit_key("f4", "F4")
+    app.top._pick(len(app.top.options) - 1)
+    assert app.keymap.action("f4") is None
+    scr._reset()
+    app.top._answer(True)
+    assert not s.get("device.button_map") and not s.get("device.stacks_off") and app.keymap.action("f2") == inp.SOFT[1]
+    app.step([])

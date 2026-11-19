@@ -307,7 +307,10 @@ the end of `/boot/firmware/config.txt`; the rest of the file isn't touched.
 - [ ] `i2cdetect -y 1` shows 48 and 49 (both shown as `UU` once their drivers have them), and
       **System > Installed options** shows both ADCs found: *ADC on the Pi* on 0x48, *Buttons and
       battery ADC* on 0x49 [verify: the ads1115 overlay loaded twice, once per address].
-- [ ] Every button does its job, the encoder turns the list, and holding the encoder's push is Back.
+- [ ] On the **Control mapping** tile, every button lights its own row and each input reads about
+      3.3 V with nothing pressed. A button on the wrong spot: give it the right job there
+      ([DEVICE.md](../DEVICE.md#control-mapping)). Then, with Testing off, every button does its job,
+      the encoder turns the list, and holding the encoder's push is Back.
 - [ ] The status strip shows the battery's charge, and **System > Power > Battery** shows about the
       pack's voltage on your meter (within a few tenths of a volt).
 - [ ] **System > Meters > ADC input divider** is **21.04 (1M / 49.9k)**, and a probe on a 12 V

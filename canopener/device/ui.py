@@ -786,7 +786,19 @@ def _builder_line(ui, r, c):
     g.stroke([(21, 6.5), (15.5, 16.5), (15, 19.5), (17.6, 17.8), (23, 7.8)], closed=True)
 
 
+def _controls_line(ui, r, c):
+    """A d-pad beside a knob: the buttons and the encoder (Control mapping)."""
+    g = _Grid(ui, r, c)
+    g.stroke([(5, 7), (8, 7), (8, 4), (11, 4), (11, 7), (14, 7), (14, 10), (11, 10), (11, 13), (8, 13),
+              (8, 10), (5, 10)], closed=True)
+    g.circle(17, 17, 4.5)
+    g.stroke([(17, 17), (19.5, 14.5)])
+    g.circle(5.5, 18.5, 1.6, fill=True)
+    g.circle(10.5, 18.5, 1.6, fill=True)
+
+
 icon_builder = _icon(_builder_line, _builder_line)
+icon_controls = _icon(_controls_line, _controls_line)
 icon_can = _icon(_can, _can_line)
 icon_meter = _icon(_meter, _meter_line)
 icon_settings = _icon(_settings, _settings_line)

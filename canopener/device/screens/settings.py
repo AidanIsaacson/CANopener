@@ -237,6 +237,8 @@ class SettingsScreen(Screen):
             self._row("Button 5 does", "device.button5", BUTTON5),
             self._row("Hold Select for Back", "device.long_press_s", LONG_PRESS),
             Row("Key map", select=self._keymap, hint="which key / button does what"),
+            Row("Control mapping", select=lambda: self.app.open_mode("controls"), kind="menu",
+                hint="test every button and the encoder live, and fix what each does"),
         ]
 
     def _page_sound(self):

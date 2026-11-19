@@ -77,7 +77,8 @@ the encoder does nothing.
 | **Meter** | Each measurement channel as a big readout with min / max and a trace; **Hold** freezes the readings, min / max and traces on the screen (the meter and the data log keep running); **double-tap** a channel to enlarge it, with the others stacked beside it (double-tap it again, or Back, puts the grid back; it stays enlarged after another screen or a restart); each source's status ("not detected, retrying"). **Inputs** switches off an input with nothing on it, so it isn't shown, charted or recorded, and leads to meter setup. |
 | **Data log** | Start / stop, timestamps (planned list or as-you-go), undo, save, trim to the stretch around the timestamps, copy to a USB stick, recover a log a power cut interrupted, **Open** a saved one again. Records the bus **and every meter channel**. **Machine** picks what's being logged from what the bus reports or a recent machine; **Upload** sends a saved log to your upload server or a private GitHub repository ([USAGE.md](USAGE.md#machine-details-and-uploading-captures)); **More** has Trim, Copy to USB and Upload to…. |
 | **Profile builder** | For a machine nothing describes yet: it asks what the machine is (kind, fuel, aftertreatment, hydraulic controls, mast height sensing), then walks you through its controls and functions one at a time, key on first and the engine after. After each step it shows what moved, live: work the control again and tick the value that follows it. Save adds the values to the profile in use (or a profile on top of it) or makes a new one built on it, and switches it on. The page also lists the known profiles that fit this bus (**Load**), and **Explore the bus** lists every value live, named or not, to pick one and name it yourself ([USAGE.md](USAGE.md#working-out-a-machine-from-what-its-bus-does)). It only listens. |
-| **System** | A short menu; each group opens its own page. **Display** (theme and accent colour, [below](#themes); brightness, screen size, picture rotation). **Controls** (which edge the buttons are on, 4 or 5 buttons, what button 5 does, the key map). **Units** (changed right on the menu). **Sound** ([below](#sound)). **Meters** (USB / serial meter, the Pi's ADC). **Simulators** (a pretend machine, car and meter, and which car the Bluetooth OBD simulator plays). **Installed options**. **Storage** (logs folder, copy to USB). **Software** (check for updates, plugins, desktop app instead). **About this device** (temperature, uptime, IP), and exit to desktop / restart / power off. |
+| **Control mapping** | Every button and the encoder, live, and what each does ([below](#control-mapping)). |
+| **System** | A short menu; each group opens its own page. **Display** (theme and accent colour, [below](#themes); brightness, screen size, picture rotation). **Controls** (which edge the buttons are on, 4 or 5 buttons, what button 5 does, the key map, a way into Control mapping). **Units** (changed right on the menu). **Sound** ([below](#sound)). **Meters** (USB / serial meter, the Pi's ADC). **Simulators** (a pretend machine, car and meter, and which car the Bluetooth OBD simulator plays). **Installed options**. **Storage** (logs folder, copy to USB). **Software** (check for updates, plugins, desktop app instead). **About this device** (temperature, uptime, IP), and exit to desktop / restart / power off. |
 
 ![System: Display, Controls, Units, Sound, Meters, ... each opening its own page](images/device-system.png)
 
@@ -490,6 +491,41 @@ or buttons on spare GPIOs on a build without the HAT) need no setting:
 
 With a dedicated Back button, set **System > Controls > Button 5 does** to **Soft key 5**, so the
 fifth top button is one more context-dependent key. (Button 5 can also be Hold.)
+
+## Control mapping
+
+The **Control mapping** tile tests the buttons and the encoder, and fixes in software what the
+wiring got wrong. It has one row for every input that's installed:
+
+* With the button ADC, the rows are grouped by input. Each input row (**Input A1** ... **A3**)
+  shows the voltage it reads and the button that voltage means. Under it are that stack's five
+  buttons, each with its voltage and what it does.
+* With buttons on GPIO, there's one row per button (F1 ... F5, the d-pad, the push), with its GPIO.
+* The encoder: steps counted as you turn it, and **Direction**.
+* **Last presses**: the latest presses with how long ago, and, with the button ADC, how many there
+  were in the last 5 seconds.
+
+A lit dot is a button that's down right now.
+
+**Testing** is on when the page opens. While it is, the buttons and the encoder only light up on
+this page and don't do anything else, so you can press anything safely. Touch still works
+everything (the back arrow in the status strip leaves the page). Tap **Testing** to use the
+buttons normally again.
+
+* **A button doing the wrong thing** (F1 and F3 wired the wrong way round): select it and pick
+  what it should do, or **Nothing** to ignore it.
+* **A button that reads as its neighbour** (a different resistor): hold it down and, with the
+  other hand, select it and pick **Take its level now**. **Back to the usual level** undoes it.
+* **A stack that isn't wired yet**: select its input row to switch the whole stack off.
+* **The encoder runs backwards**: select **Direction**.
+* **Reset** puts everything back the usual way.
+
+**Presses nobody made.** An input with nothing pulling it up (the stack's 10 kΩ pull-up missing,
+or the stack not wired at all) floats. Its voltage wanders through the buttons' levels and reads
+as press after press. The handheld spots a stack doing that, says so on screen and ignores it
+until it reads steady again, so it can't run through the screens. On this page, its input row
+shows the voltage wandering. Wire the pull-up, or switch the stack off until you do. With nothing
+pressed, an input should read about 3.3 V.
 
 ## Displays
 

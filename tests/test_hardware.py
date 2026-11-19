@@ -381,7 +381,7 @@ def test_button_adc_reads_the_stacks_and_the_battery(tmp_path):
     assert inp.button_adc(levels, sys_iio=str(tmp_path / "none")) is None
     clock = [100.0]
     b = inp.button_adc(levels, sys_iio=str(iio), start=False, clock=lambda: clock[0])
-    assert sorted(b.stacks) == [1, 2, 3] and len(b.stacks[3].actions) == 4
+    assert sorted(b.stacks) == [1, 2, 3] and b.stacks[3].actions[4] == ""           # a spare 5th side spot
     b.step()
     b.step()
     assert b.poll() == [] and abs(b.battery - 2.4875) < 1e-6 and not b.lost
@@ -424,3 +424,58 @@ def test_battery_monitor_warns_once_and_powers_off_when_flat():
     quiet = batt.BatteryMonitor(power_off=False)
     events = {quiet.update(14.0 / quiet.divider, t) for t in range(0, 60)}
     assert batt.EMPTY not in events and batt.VERY_LOW in events
+
+
+def test_button_stacks_follow_the_mapping_and_ignore_a_flood():
+    """Control mapping: a position given another job, a level taken for one, a stack switched off,
+    and a stack whose input wanders (not wired) ignored until it settles."""
+    from canopener.device import input as inp
+    acts = inp.stack_actions({"1.1": inp.SOFT[2], "1.3": inp.SOFT[0], "2.5": ""})
+    assert acts[1][:3] == [inp.SOFT[2], inp.SOFT[1], inp.SOFT[0]] and acts[2][4] == "" and len(acts[3]) == 5
+    levels = [0.0, 0.60, 1.18, 1.80, 2.41]
+    assert inp.stack_levels(levels, 2, {"2.3": 1.25}) == [0.0, 0.60, 1.25, 1.80, 2.41]
+    volts = {1: 3.3, 2: 3.3, 3: 3.3}
+    t = [0.0]
+    stacks = {ch: inp.LadderButtons(inp.stack_levels(levels, ch, {"2.3": 1.25}), acts[ch], lambda ch=ch: volts[ch])
+              for ch in acts}
+    b = inp.ButtonAdc(stacks, start=False, clock=lambda: t[0], muted=(3,))
+
+    def run(n=2):
+        for _ in range(n):
+            t[0] += 0.025
+            b.step()
+        return b.poll()
+    run()
+    volts[1] = 0.0                                          # wired to F1's spot: does soft key 3 now
+    assert run() == [("down", inp.SOFT[2])]
+    volts[1] = 3.3
+    assert run() == [("up", inp.SOFT[2])]
+    volts[2] = 1.26                                         # the level taken for A2 button 3
+    assert run() == [("down", inp.LEFT)] and b.log[-1][1:] == (2, 3, "down")
+    volts[2] = 2.41                                         # ignored position: decoded, sends nothing
+    assert run() == [("up", inp.LEFT)] and b.stacks[2].pressed == 4
+    volts[3] = 0.0                                          # A3 is switched off
+    assert run() == [] and b.stacks[3].pressed == 0
+    volts[2] = 3.3
+    run()
+    # A1 not wired: its input wanders through every level and between them
+    wander = [0.0, 0.3, 0.6, 0.9, 1.18, 1.5, 1.8, 2.1, 2.41, 2.0, 1.4, 0.9]
+    got = []
+    for i in range(120):
+        volts[1] = wander[(i // 2) % len(wander)]
+        got += run(1)
+    assert 1 in b.flooding
+    downs = [a for k, a in got if k == "down"]
+    assert len(downs) < 8 and (not got or got[-1][0] == "up" or b._sent[1] is None)   # stopped early, let go
+    assert b.presses() > 8                                  # the page still sees them
+    volts[1] = 3.3                                          # wired up: settles
+    run(int(inp.FLOOD_QUIET / 0.025) + 90)
+    assert 1 not in b.flooding
+    volts[1] = 0.6
+    assert run() == [("down", inp.SOFT[1])]
+
+
+def test_keymap_key_set_to_nothing():
+    from canopener.device import input as inp
+    km = inp.KeyMap({"f1": "soft3", "f3": "soft1", "f2": "none"})
+    assert km.action("f1") == "soft3" and km.action("f3") == "soft1" and km.action("f2") is None

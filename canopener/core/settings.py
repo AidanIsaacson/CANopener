@@ -88,6 +88,10 @@ DEFAULTS: dict = {
     # volts per button on the button ADC's stacks (10 k pull-up; 0, 2.2 k, 5.6 k, 12 k, 27 k to ground),
     # in each stack's order: top row F1-F5 / up, down, left, right, push / Back, Hold, Record, Timestamp
     "device.button_levels": [0.0, 0.60, 1.18, 1.80, 2.41],
+    "device.button_map": {},            # Control mapping: stack position ("2.3" = A2 button 3) -> action ("" = ignore)
+    "device.button_tuning": {},         # Control mapping: volts taken for a position, instead of button_levels
+    "device.stacks_off": [],            # Control mapping: stacks switched off (not wired yet): 1, 2, 3
+    "device.encoder_reverse": False,    # Control mapping: the encoder turns the other way (A and B swapped)
     "battery.divider": 115 / 15,        # pack volts per volt on the button ADC's A0 (100 k over 15 k)
     "battery.cells": 5,                 # Li-ion cells in series (a 20V MAX pack: 5)
     "battery.power_off": True,          # power off when the pack is flat (packs don't all cut off themselves)
