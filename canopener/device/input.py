@@ -284,6 +284,7 @@ FLOOD_SOME = 6              # ... or this many with at least FLOOD_UNSURE of the
 FLOOD_UNSURE = 0.2           # (a real press reads between buttons only for a sample or so at its edges)
 FLOOD_QUIET = 3.0           # settled: no changes for this long, readings back on a level or at rest
 LOG_KEPT = 60
+FAST_RATE = 475             # samples a second: below this an input slows every pass (860 is the chip's best)
 
 
 def pos_key(ch: int, pos: int) -> str:
@@ -327,6 +328,8 @@ class ButtonAdc:
         self.muted = {int(c) for c in muted}
         self.flooding: set[int] = set()
         self.battery: float | None = None
+        self.rates: dict[int, int] = {}         # samples a second each input is set to (button_adc fills it in)
+        self.pass_s: float | None = None        # how long one pass over the stacks takes, smoothed
         self.log: deque = deque(maxlen=LOG_KEPT)
         self._battery_at = -1e9
         self._ok_at = clock()
@@ -404,8 +407,19 @@ class ButtonAdc:
         return self.clock() - self._ok_at >= LOST_S
 
     def _run(self):
-        while not self._stop.wait(self.period):
+        """A pass every ``period``: the time the pass took comes off the wait, so a slow ADC isn't
+        made slower still."""
+        while not self._stop.is_set():
+            t0 = self.clock()
             self.step()
+            took = self.clock() - t0
+            self.pass_s = took if self.pass_s is None else self.pass_s * 0.8 + took * 0.2
+            self._stop.wait(max(0.002, self.period - took))
+
+    @property
+    def slow(self) -> list[int]:
+        """Inputs set to fewer than ``FAST_RATE`` samples a second: each switch to one waits for it."""
+        return sorted(ch for ch, r in self.rates.items() if r < FAST_RATE)
 
     def poll(self) -> list[tuple[str, str]]:
         with self._lock:
@@ -433,7 +447,14 @@ def button_adc(levels, sys_iio: str = SYS_IIO, stacks: dict | None = None, tunin
         if os.path.exists(raw) and n:
             ladders[ch] = LadderButtons(lv[:n], list(acts)[:n], iio_volts_reader(raw))
     bat = os.path.join(folder, f"in_voltage{BATTERY_CHANNEL}_raw")
-    return ButtonAdc(ladders, iio_volts_reader(bat) if os.path.exists(bat) else None, muted=muted, **kw)
+    b = ButtonAdc(ladders, iio_volts_reader(bat) if os.path.exists(bat) else None, muted=muted, **kw)
+    for ch in range(4):
+        try:
+            with open(os.path.join(folder, f"in_voltage{ch}_sampling_frequency")) as f:
+                b.rates[ch] = int(float(f.read()))
+        except (OSError, ValueError):
+            pass
+    return b
 
 
 def iio_volts_reader(raw_path: str):

@@ -20,6 +20,7 @@ cd ~/CANopener
 | `config-controls.txt` | `config.txt` lines for the handheld's buttons, d-pad and rotary encoder ([docs/DEVICE.md](../../docs/DEVICE.md#controls-wiring)). |
 | `71-canopener-backlight.rules` | udev rule: the `video` group may set the screen brightness. Installed by `install.sh --device`. |
 | `72-canopener-uinput.rules` | Installed by `--device`: lets the `input` group make input devices, which is how CAN signals play the handheld's optional Doom ([Games](../../docs/DEVICE.md#games-hidden)). Leave it out if you don't want that. |
+| `73-canopener-adc.rules` | Installed by `--device`: sets every input of the ADS1115s (the probe ADC and the button ADC) to 860 samples a second, so the buttons on the button ADC answer at once. |
 | `canopener.sudoers` | Lets your user run **only** `ip link set canN up/down/type can ...`, `canopener-boot-config` and the two `apt-get` commands of the handheld's optional Doom download without a password. Without it, interface setup asks for a password (pkexec), which a kiosk can't answer. |
 | `canopener-boot-config` | The boot-settings helper behind **System > Installed options**: writes the lines for the parts marked fitted (its own fixed table, the same as `config-hardware.txt`) into one marked block at the end of `config.txt`, and loads the drivers that can be loaded without a restart. Installed root-owned in `/usr/local/sbin` by `install.sh`; nothing else it's given gets in. |
 | `canopener.service` | systemd **user** service: start at login, restart on crash. |

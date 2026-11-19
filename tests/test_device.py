@@ -1841,8 +1841,9 @@ def test_button_adc_buttons_battery_and_doom(app_for, monkeypatch):
     assert len(app.stack) == depth - 1                                  # held: Back
     monkeypatch.undo()
     monkeypatch.setattr(inp, "button_adc", lambda *a, **k: fake)
-    fake.battery = 18.9 / (115 / 15)                                     # ADC volts for an 18.9 V pack
-    app.poll_hardware()
+    for _ in range(batt.CONFIRM_READINGS):                               # ADC volts for an 18.9 V pack
+        fake.battery = 18.9 / (115 / 15)
+        app.poll_hardware()
     assert ctx.battery.state == batt.OK and fake.battery is None
     app.step([])                                                        # the strip draws the percentage
     from canopener.device.screens.settings import SettingsScreen

@@ -5,6 +5,14 @@ on an older one, `git checkout v0.3.2` in its checkout.
 
 ## Unreleased
 
+- **Buttons on the button ADC answer at once.** They took half a second to a second: the Pi's
+  firmware cuts config.txt lines at 98 characters, so the ADS1115 line lost its last input's
+  settings, leaving A3 at 8 samples a second, and every pass over the stacks waited for it. The
+  boot lines are short now (and rewritten on the next **Set up**), the base settings come before the
+  overlays, `install.sh --device` adds a rule that runs every ADC input at 860 a second whatever the
+  boot lines say, and **Control mapping** shows how often the stacks are read.
+- **The battery only counts once it reads like a real pack**, so an input with no divider on it
+  yet (floating) can't pass for a flat pack and power the handheld off.
 - **Control mapping.** A new home tile: every button (grouped by the button ADC's input, or by
   GPIO) and the encoder, live, with the voltage each stack reads and what each button does. While
   **Testing** is on, presses only light up there, so a miswired button can't run through the

@@ -11,6 +11,8 @@
 #
 # Lines marked [verify] are from the docs, not yet run on this hardware: check each with
 # `dtoverlay -h <name>` on the Pi before relying on it.
+# Keep every line to 98 characters or fewer: the firmware cuts longer ones off without a word (an
+# ADS1115 line that ran on lost its last channel's settings that way).
 
 # --- Stage 1: CAN stack A (MCP2518FD on SPI0 CE0, INT on GPIO25, 20 MHz crystal) -> can0 ---
 dtparam=spi=on
@@ -25,12 +27,13 @@ dtoverlay=mcp251xfd,spi0-0,oscillator=20000000,interrupt=25
 #dtparam=i2c_arm=on
 #dtoverlay=ads1115,addr=0x48,cha_enable,chb_enable,chc_enable,chd_enable
 
-# --- Buttons and battery: a second ADS1115, ADDR to 3.3 V -> address 0x49 (option button_adc) [verify] ---
+# --- Buttons and battery: a second ADS1115, ADDR to 3.3 V -> address 0x49 (option button_adc) ---
 # A0 the battery pack through a 100k / 15k divider; A1-A3 the button stacks (docs/DEVICE.md). The
-# ads1115 overlay is loaded twice, once per address: `ls /sys/bus/iio/devices/` should then show two
-# devices, one under 1-0048 and one under 1-0049 (`readlink -f /sys/bus/iio/devices/iio:device*`).
+# ads1115 overlay is loaded twice, once per address (works: seen on the prototype), and shows as two
+# IIO devices named ads1015, one under 1-0048 and one under 1-0049. 73-canopener-adc.rules (install.sh
+# --device) sets every input to 860 samples a second.
 #dtparam=i2c_arm=on
-#dtoverlay=ads1115,addr=0x49,cha_enable,cha_cfg=4,chb_enable,chb_cfg=5,chc_enable,chc_cfg=6,chd_enable,chd_cfg=7
+#dtoverlay=ads1115,addr=0x49,cha_enable,chb_enable,chc_enable,chd_enable
 
 # --- Stage 5: CAN stack B (MCP2518FD on SPI0 CE1, INT on GPIO20) -> can1 ---
 #dtoverlay=mcp251xfd,spi0-1,oscillator=20000000,interrupt=20

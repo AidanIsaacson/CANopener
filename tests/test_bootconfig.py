@@ -198,3 +198,47 @@ def test_button_adc_takes_the_buttons_off_the_gpios(tmp_path, cfg):
     assert h.main(["--dry-run", "live", "button_adc"]) == 0
     hw.set_state("button_adc", hardware.NO)
     assert bootconfig.wanted(hw)[0] == "controls:enc=7"                             # back to gpio-key buttons
+
+
+def test_every_line_fits_the_firmware_and_base_params_come_first(tmp_path, cfg):
+    """The Pi's firmware cuts config.txt lines at 98 characters (an ADS1115 line once lost its A3
+    settings that way, leaving A3 at 8 samples a second), and a dtparam after a dtoverlay line is
+    taken as that overlay's parameter."""
+    h = _helper()
+    for part in bootconfig.PARTS:
+        for enc in bootconfig.ENCODER_PINS:
+            for osc, spi in ((20000000, 0), (40000000, 1000000)):
+                for line in bootconfig.lines(part, osc, spi, True, enc) + bootconfig.lines(part, osc, spi, False, enc):
+                    assert len(line) <= bootconfig.MAX_LINE == h.MAX_LINE, line
+    assert "chd_enable" in bootconfig.lines("button_adc")[1] and "chd_enable" in bootconfig.lines("adc_pi")[1]
+    assert h.main(["--config", str(cfg), "set", "can_hat", "adc_pi", "button_adc"]) == 0
+    block = cfg.read_text().split(bootconfig.BEGIN)[1].split(bootconfig.END)[0].splitlines()
+    rows = [r for r in block if r and not r.startswith("#") and r != "[all]"]
+    first_overlay = next(i for i, r in enumerate(rows) if r.startswith("dtoverlay="))
+    assert all(not r.startswith("dtparam=") for r in rows[first_overlay:])
+    assert rows[:first_overlay] == ["dtparam=spi=on", "dtparam=i2c_arm=on"]
+
+
+def test_a_block_written_by_an_older_version_is_rewritten(tmp_path, cfg):
+    s = Settings(str(tmp_path / "settings.json"))
+    hw = hardware.Hardware(s, hardware.Probe(str(tmp_path)))
+    for oid in ("can_hat", "adc_pi", "button_adc"):
+        hw.set_state(oid, hardware.YES)
+    old = ("dtoverlay=ads1115,addr=0x49,cha_enable,cha_cfg=4,chb_enable,chb_cfg=5,chc_enable,chc_cfg=6,"
+           "chd_enable,chd_cfg=7")
+    cfg.write_text(cfg.read_text() + "\n".join(["", bootconfig.BEGIN, "# options: can_hat adc_pi button_adc", "[all]",
+                                                "# button_adc", old, bootconfig.END, ""]))
+    assert bootconfig.stale(["can_hat", "adc_pi", "button_adc"], str(cfg)) == [old]
+    p = bootconfig.plan(hw, str(cfg))
+    assert p.add == ["can_hat", "adc_pi", "button_adc"] and not p.empty
+    h = _helper()
+    assert h.main(["--config", str(cfg), "set", *p.tokens]) == 0
+    assert bootconfig.plan(hw, str(cfg)).empty and old not in cfg.read_text()
+
+
+def test_a_chip_loaded_by_hand_outside_the_block_isnt_loaded_again(cfg):
+    h = _helper()
+    cfg.write_text(cfg.read_text() + "dtparam=i2c_arm=on\ndtoverlay=ads1115,addr=0x48,cha_enable,cha_cfg=4\n")
+    assert h.main(["--config", str(cfg), "set", "adc_pi", "button_adc"]) == 0
+    text = cfg.read_text()
+    assert text.count("addr=0x48") == 1 and "addr=0x49" in text

@@ -411,19 +411,40 @@ def test_battery_monitor_warns_once_and_powers_off_when_flat():
     from canopener.core import battery as batt
     assert batt.percent(21.0) == 100 and batt.percent(15.0) == 0 and 40 < batt.percent(18.4) < 60
     m = batt.BatteryMonitor(divider=115 / 15, cells=5)
-    assert m.update(19.5 / m.divider, 0) is None and m.battery.state == batt.OK
-    assert m.battery.text.endswith("%") and m.battery.level == "ok"
-    assert m.update(0.3, 1) is None and m.battery.state == batt.ABSENT     # 2.3 V: nothing on the divider
-    assert m.update(17.4 / m.divider, 2) == batt.LOW and "17.4 V" in m.message(batt.LOW)
-    assert m.update(17.4 / m.divider, 3) is None                           # said once
-    for t in range(4, 40):
+    for t in range(batt.CONFIRM_READINGS - 1):                          # believed after a few steady readings
+        assert m.update(19.5 / m.divider, t) is None and not m.battery.shown
+    assert m.update(19.5 / m.divider, 9) is None and m.battery.state == batt.OK and m.confirmed
+    assert m.battery.text.endswith("%") and m.battery.level == "ok" and m.battery.shown
+    said = [m.update(17.4 / m.divider, t) for t in range(10, 40)]       # smoothed: it gets there
+    assert said.count(batt.LOW) == 1 and said[0] is None                  # said once, not on one reading
+    assert "17.4 V" in m.message(batt.LOW)
+    for t in range(40, 100):
         ev = m.update(14.8 / m.divider, t)
         if ev == batt.EMPTY:
             break
-    assert ev == batt.EMPTY and t >= 4 + batt.EMPTY_HOLD_S and m.battery.level == "bad"
+    assert ev == batt.EMPTY and t >= 40 + batt.EMPTY_HOLD_S and m.battery.level == "bad"
+    m.update(14.8 / m.divider, 99)
+    assert m.update(0.3, 120) is None and m.battery.state == batt.ABSENT and not m.confirmed  # divider off
     quiet = batt.BatteryMonitor(power_off=False)
-    events = {quiet.update(14.0 / quiet.divider, t) for t in range(0, 60)}
+    events = {quiet.update(v / quiet.divider, t) for t, v in enumerate([17.0] * 5 + [14.0] * 60)}
     assert batt.EMPTY not in events and batt.VERY_LOW in events
+
+
+def test_a_floating_battery_input_never_powers_off():
+    """No divider fitted: the input floats and reads anything. It's never taken as a flat pack."""
+    import random
+
+    from canopener.core import battery as batt
+    m = batt.BatteryMonitor()
+    rnd = random.Random(1)
+    events = set()
+    for t in range(600):
+        events.add(m.update(rnd.uniform(0.0, 2.2), t))          # wanders: up to about 17 V's worth
+    for t in range(600, 700):
+        events.add(m.update(0.6 + rnd.uniform(-0.01, 0.01), t))  # or sits still, below a pack's worth
+    for t in range(700, 800):
+        events.add(m.update(1.8 + rnd.uniform(-0.01, 0.01), t))  # or still at 13.8 V's worth: not a charged pack
+    assert events == {None} and not m.confirmed and not m.battery.shown
 
 
 def test_button_stacks_follow_the_mapping_and_ignore_a_flood():

@@ -1,0 +1,7 @@
+# The ADS1115s on the Pi's I2C (the probes' 0x48, the buttons' 0x49): every input at 860 samples a
+# second, the chip's fastest. Installed by install.sh --device.
+#
+# An input the boot settings didn't configure stays at the chip's default of 8 a second. The kernel
+# driver then waits about 140 ms each time it switches to or from that input, which makes the
+# buttons on the button ADC slow to answer. The kernel calls both chips ads1015.
+ACTION=="add", SUBSYSTEM=="iio", ATTR{name}=="ads1015|ads1115", ATTR{in_voltage0_sampling_frequency}="860", ATTR{in_voltage1_sampling_frequency}="860", ATTR{in_voltage2_sampling_frequency}="860", ATTR{in_voltage3_sampling_frequency}="860"

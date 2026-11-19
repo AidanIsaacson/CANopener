@@ -50,9 +50,12 @@ CAN_HAT = ("dtparam=spi=on", "dtoverlay=spi0-1cs", "dtoverlay=mcp251xfd,spi0-0,o
 # encoder is on GPIO (A 17, B 27: physical pins 11 and 13, ground on 14).
 ENCODERS = {24: (24, 4, True), 7: (7, 4, True), 17: (17, 27, False)}
 ENCODER_PINS = tuple(ENCODERS)
-BUTTON_ADC = ("dtparam=i2c_arm=on",
-              "dtoverlay=ads1115,addr=0x49,cha_enable,cha_cfg=4,chb_enable,chb_cfg=5,chc_enable,chc_cfg=6,"
-              "chd_enable,chd_cfg=7")
+# The Pi's firmware cuts config.txt lines at 98 characters (MAX_LINE), so the ADS1115 lines name only
+# what isn't the overlay's default: each channel is already its own input against ground (A0-A3),
+# 860 samples a second, +/-4.096 V.
+MAX_LINE = 98
+ADC_PI = ("dtparam=i2c_arm=on", "dtoverlay=ads1115,addr=0x48,cha_enable,chb_enable,chc_enable,chd_enable")
+BUTTON_ADC = ("dtparam=i2c_arm=on", "dtoverlay=ads1115,addr=0x49,cha_enable,chb_enable,chc_enable,chd_enable")
 
 
 def lines(option: str, osc: int = 20000000, spi: int = 0, pi5: bool = True, enc: int = 24) -> list[str]:
@@ -74,9 +77,7 @@ def lines(option: str, osc: int = 20000000, spi: int = 0, pi5: bool = True, enc:
     if option == "sync":
         return ["dtoverlay=pps-gpio,gpiopin=21"]
     if option == "adc_pi":
-        return ["dtparam=i2c_arm=on",
-                "dtoverlay=ads1115,addr=0x48,cha_enable,cha_cfg=4,chb_enable,chb_cfg=5,chc_enable,chc_cfg=6,"
-                "chd_enable,chd_cfg=7"]
+        return list(ADC_PI)
     if option == "button_adc":
         return list(BUTTON_ADC)
     if option == "esp32":
@@ -156,20 +157,40 @@ def block_tokens(block: list[str]) -> list[str]:
 
 
 def render(tokens: list[str], outside: list[str], pi5: bool) -> list[str]:
-    """The block for these tokens (empty: no block). Lines already active outside it are skipped."""
+    """The block for these tokens (empty: no block). Lines already active outside it are skipped.
+    The base dtparam lines (spi, i2c_arm, uart0) come first: after a dtoverlay line the firmware
+    would take a dtparam as that overlay's parameter."""
     if not tokens:
         return []
     have = {r.strip() for r in outside if r.strip() and not r.strip().startswith("#")}
-    out, seen = [BEGIN, TOKENS_PREFIX + " " + " ".join(tokens), "[all]"], set()
-    for tok in tokens:
-        name, osc, spi, enc = parse_token(tok)
+    loaded = {_chip(r) for r in have} - {None}        # overlays at an address already loaded outside the block
+    parts = []
+    for t in tokens:
+        name, osc, spi, enc = parse_token(t)
+        parts.append((name, lines(name, osc, spi, pi5, enc)))
+    base = []
+    for _name, rows in parts:
+        base += [r for r in rows if r.startswith("dtparam=") and r not in base and r not in have]
+    out = [BEGIN, TOKENS_PREFIX + " " + " ".join(tokens), "[all]"] + base
+    seen = set(base)
+    for name, rows in parts:
         out.append(f"# {name}")
-        for line in lines(name, osc, spi, pi5, enc):
-            if line in seen or line in have:
+        for line in rows:
+            if line in seen or line in have or _chip(line) in loaded:
                 continue
             seen.add(line)
             out.append(line)
     return out + [END]
+
+
+def _chip(line: str):
+    """('ads1115', '0x48') for an overlay line naming an address, else None: the same chip loaded
+    twice (by hand outside the block, and in it) would make two drivers for one device."""
+    if not line.startswith("dtoverlay="):
+        return None
+    name, *params = line[len("dtoverlay="):].split(",")
+    addr = next((p.partition("=")[2] for p in params if p.startswith("addr=")), None)
+    return (name, addr.lower()) if addr else None
 
 
 def write(path: str, text: str):

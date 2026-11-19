@@ -441,6 +441,12 @@ through its own resistor. The same five resistors on every stack, so the voltage
 | A2: d-pad and push | Up | Down | Left | Right | Encoder push (Select; hold for Back) |
 | A3: side | Back | Hold | Record | Timestamp | (none) |
 
+Each stack is read about 40 times a second, so a press shows within about 50 ms. That needs every
+input of the ADC at its full 860 samples a second: `install.sh --device` adds a rule that sets it.
+An input left at the chip's default (8 a second) slows every stack to a few reads a second, and
+presses come half a second late. **Control mapping** shows how often the stacks are read and
+names any slow input.
+
 Buttons on different stacks work together (an arrow while holding a soft key). Two on the same
 stack don't: the input reads as one or the other, or neither. That means no diagonals on the
 d-pad. 1% or 5% resistors both work. Different values? Put each button's voltage in
@@ -466,7 +472,10 @@ when very low (8%), each said once on screen with a tone (**System > Sound > Ton
 Battery low**). Power-tool packs don't all switch themselves off when they're flat, so when the
 pack has sat at 3.0 V a cell (15 V) for 30 s, the handheld saves a running log and **powers off**.
 **System > Power > Battery** shows the charge and volts, and turns the power-off on or off. A
-reading under 5 V means nothing is on the divider, and is never taken as a flat pack.
+input with no divider on it floats and can read anything, so the battery only counts once the
+input has read like a charged pack (3.3 V a cell or more) steadily for a few readings. Until then
+nothing shows in the status strip, nothing warns, and nothing powers off. Below 10 V it goes back
+to that.
 
 If the button ADC stops answering, the screen says so, and touch still works.
 **System > Installed options** says what to check.

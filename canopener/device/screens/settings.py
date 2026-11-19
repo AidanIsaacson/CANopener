@@ -196,7 +196,7 @@ class SettingsScreen(Screen):
         if b is None:
             return "not read yet" + off
         if b.state == "absent":
-            return f"no pack on the input ({b.volts:.1f} V){off}"
+            return f"no pack read yet ({b.volts:.1f} V){off}"
         return f"{b.percent}%, {b.volts:.1f} V{off}"
 
     def _battery_off(self):

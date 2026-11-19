@@ -45,9 +45,12 @@ CAN_HAT = ("dtparam=spi=on", "dtoverlay=spi0-1cs", "dtoverlay=mcp251xfd,spi0-0,o
 # encoder is on GPIO (A 17, B 27: physical pins 11 and 13, ground on 14).
 ENCODERS = {24: (24, 4, True), 7: (7, 4, True), 17: (17, 27, False)}
 ENCODER_PINS = tuple(ENCODERS)
-BUTTON_ADC = ("dtparam=i2c_arm=on",
-              "dtoverlay=ads1115,addr=0x49,cha_enable,cha_cfg=4,chb_enable,chb_cfg=5,chc_enable,chc_cfg=6,"
-              "chd_enable,chd_cfg=7")
+# The Pi's firmware cuts config.txt lines at 98 characters (MAX_LINE), so the ADS1115 lines name only
+# what isn't the overlay's default: each channel is already its own input against ground (A0-A3),
+# 860 samples a second, +/-4.096 V.
+MAX_LINE = 98
+ADC_PI = ("dtparam=i2c_arm=on", "dtoverlay=ads1115,addr=0x48,cha_enable,chb_enable,chc_enable,chd_enable")
+BUTTON_ADC = ("dtparam=i2c_arm=on", "dtoverlay=ads1115,addr=0x49,cha_enable,chb_enable,chc_enable,chd_enable")
 
 
 def lines(option: str, osc: int = 20000000, spi: int = 0, pi5: bool = True, enc: int = 24) -> list[str]:
@@ -69,9 +72,7 @@ def lines(option: str, osc: int = 20000000, spi: int = 0, pi5: bool = True, enc:
     if option == "sync":
         return ["dtoverlay=pps-gpio,gpiopin=21"]
     if option == "adc_pi":
-        return ["dtparam=i2c_arm=on",
-                "dtoverlay=ads1115,addr=0x48,cha_enable,cha_cfg=4,chb_enable,chb_cfg=5,chc_enable,chc_cfg=6,"
-                "chd_enable,chd_cfg=7"]
+        return list(ADC_PI)
     if option == "button_adc":
         return list(BUTTON_ADC)
     if option == "esp32":
@@ -171,11 +172,42 @@ class Plan:
         return out
 
 
+def block_lines(path: str | None = None) -> list[str]:
+    """The setting lines in the managed block now (no comments or markers)."""
+    try:
+        with open(path or config_path(), errors="replace") as f:
+            rows = f.read().splitlines()
+    except OSError:
+        return []
+    if BEGIN not in rows:
+        return []
+    out = []
+    for row in rows[rows.index(BEGIN) + 1:]:
+        if row == END:
+            break
+        if row.strip() and not row.startswith("#") and row.strip() != "[all]":
+            out.append(row.strip())
+    return out
+
+
+def stale(tokens: list[str], path: str | None = None, pi5: bool = True) -> list[str]:
+    """Lines in the block that these options don't write any more (an older version wrote them):
+    such a block is rewritten even though the options haven't changed."""
+    want = set()
+    for tok in tokens:
+        name, osc, spi, enc = _parse(tok)
+        if name in hardware.BY_ID:
+            want.update(lines(name, osc, spi, pi5, enc))
+    return [r for r in block_lines(path) if r not in want]
+
+
 def plan(hw: "hardware.Hardware", path: str | None = None) -> Plan:
     tokens, old = wanted(hw), current(path)
     old_by = {_parse(t)[0]: t for t in old}
     new_by = {_parse(t)[0]: t for t in tokens}
     add = [t for n, t in new_by.items() if old_by.get(n) != t]
+    if tokens and stale(old, path, is_pi5()):           # same options, out-of-date lines: write them again
+        add = list(tokens)
     remove = [n for n in old_by if n not in new_by]
     return Plan(tokens, add, remove, old)
 

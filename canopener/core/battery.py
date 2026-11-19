@@ -8,8 +8,12 @@ pack volts per ADC volt, ``battery.cells`` the cells in series.
 Power-tool packs don't all cut off by themselves when they're flat (some leave that to the
 tool), so ``BatteryMonitor`` warns at low charge and, while ``battery.power_off`` is on, asks for
 a power-off once the pack has sat at or below ``EMPTY_CELL_V`` per cell for ``EMPTY_HOLD_S``.
-A reading below ``ABSENT_V`` means nothing is on the divider (bench supply, input not wired) and
-is never taken as a flat pack.
+
+An input with no divider on it floats, and a floating input can read anything. So nothing counts
+until the input has read like a real, charged pack (``CONFIRM_CELL_V`` per cell or more) for
+``CONFIRM_READINGS`` readings in a row, all close together. Until then the battery isn't shown,
+nothing warns and nothing powers off. A reading below ``ABSENT_V`` (the divider taken off) goes
+back to that.
 
 Standard library only; the handheld app feeds it readings (``device/input.ButtonAdc``).
 """
@@ -23,7 +27,10 @@ CELL_CURVE = [(3.00, 0), (3.30, 5), (3.50, 15), (3.60, 25), (3.70, 45), (3.80, 6
 LOW_PCT, VERY_LOW_PCT = 20, 8
 EMPTY_CELL_V = 3.0              # at or below this per cell, the pack needs to rest
 EMPTY_HOLD_S = 30.0             # for this long (a dip while something starts up isn't empty)
-ABSENT_V = 5.0                  # below this the pack can't be what's powering the Pi
+ABSENT_V = 10.0                 # below this the pack can't be what's powering the Pi
+CONFIRM_CELL_V = 3.3            # a pack is believed once it has read at least this per cell ...
+CONFIRM_READINGS = 5            # ... this many readings in a row ...
+CONFIRM_SPREAD = 0.3            # ... within this many volts of each other
 SMOOTH = 0.2                    # each reading's share of the shown value (the rest is the last one)
 
 OK, LOW, VERY_LOW, EMPTY, ABSENT = "ok", "low", "very low", "empty", "absent"
@@ -55,6 +62,11 @@ class Battery:
     def text(self) -> str:
         return f"{self.percent}%" if self.state != ABSENT else "no pack"
 
+    @property
+    def shown(self) -> bool:
+        """Worth a place in the status strip (not while nothing's believed to be on the input)."""
+        return self.state != ABSENT
+
 
 class BatteryMonitor:
     """Feed it ADC readings (``update``); it keeps ``battery`` and says once when something needs
@@ -63,8 +75,10 @@ class BatteryMonitor:
     def __init__(self, divider: float = 115 / 15, cells: int = 5, power_off: bool = True):
         self.divider, self.cells, self.power_off = divider or 1.0, cells or 5, power_off
         self.battery: Battery | None = None
+        self.confirmed = False          # the input has read like a real pack (see the module notes)
         self._said = OK
         self._empty_since: float | None = None
+        self._recent: list[float] = []
 
     def update(self, adc_v: float | None, now: float) -> str | None:
         if adc_v is None:
@@ -72,8 +86,16 @@ class BatteryMonitor:
         pack = adc_v * self.divider
         if pack < ABSENT_V:
             self.battery = Battery(round(pack, 2), 0, ABSENT)
-            self._empty_since = None
+            self._empty_since, self.confirmed, self._recent = None, False, []
             return None
+        if not self.confirmed:
+            self._recent = (self._recent + [pack])[-CONFIRM_READINGS:]
+            r = self._recent
+            if (len(r) < CONFIRM_READINGS or min(r) < CONFIRM_CELL_V * self.cells
+                    or max(r) - min(r) > CONFIRM_SPREAD):
+                self.battery = Battery(round(pack, 2), 0, ABSENT)
+                return None
+            self.confirmed = True
         old = self.battery
         v = pack if old is None or old.state == ABSENT else old.volts + (pack - old.volts) * SMOOTH
         pct = percent(v, self.cells)

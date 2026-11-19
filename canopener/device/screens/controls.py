@@ -21,6 +21,7 @@ from .. import input as inp
 from .base import InfoDialog, Row, RowList, Screen, SoftKey, choose, confirm
 
 LIT_S = 0.4                 # the encoder's dot stays lit this long after a step
+SLOW_PASS_MS = 40           # a pass longer than this makes presses feel late
 LOG_ROWS = 6
 HELP = ["Every button and the encoder, live. A lit dot is a button down right now.",
         "", "While Testing is on, presses only light up here (they don't do anything), so you can test "
@@ -109,6 +110,13 @@ class ControlMapScreen(Screen):
                     level=lambda: "bad" if b.flooding else "idle",
                     hint="a big number with nothing pressed is a stack wired wrong" if not b.flooding else
                     "ignored: " + ", ".join(f"A{c}" for c in sorted(b.flooding)))]
+        if b.pass_s is not None:
+            ms = b.pass_s * 1000
+            rows.append(Row(f"Reads every stack every {max(ms, b.period * 1000):.0f} ms", kind="info",
+                            level=lambda: "bad" if b.slow or ms > SLOW_PASS_MS else "ok",
+                            hint=("slow inputs: " + ", ".join(f"A{c} at {b.rates[c]} a second" for c in b.slow)
+                                  + " (install.sh --device fixes it)") if b.slow else
+                            "a press shows within two reads"))
         for ch in sorted(b.stacks):
             lad = b.stacks[ch]
             rows.append(Row(f"A{ch}: {inp.STACK_NAMES.get(ch, '')}", kind="header"))

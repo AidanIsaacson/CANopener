@@ -74,12 +74,15 @@ for arg in "$@"; do
         echo "   starts at next login; 'systemctl --user start canopener' to start now"
         ;;
     --device)
-        echo "== Handheld: rotary encoder (input group), screen brightness (video group + udev rule)"
+        echo "== Handheld: rotary encoder (input group), screen brightness (video group + udev rule), ADC speed"
         sudo usermod -aG input,video "$USER"
         sudo install -m 644 "$HERE/71-canopener-backlight.rules" /etc/udev/rules.d/71-canopener-backlight.rules
         # optional games extra: CAN signals as Doom's controls (see the rule file)
         sudo install -m 644 "$HERE/72-canopener-uinput.rules" /etc/udev/rules.d/72-canopener-uinput.rules
+        # the ADS1115s: every input at full speed (the button ADC's buttons answer late otherwise)
+        sudo install -m 644 "$HERE/73-canopener-adc.rules" /etc/udev/rules.d/73-canopener-adc.rules
         sudo udevadm control --reload-rules
+        sudo udevadm trigger --subsystem-match=iio --action=add || true
         sudo udevadm trigger --subsystem-match=backlight || true
         sudo udevadm trigger --subsystem-match=misc --sysname-match=uinput || true
         echo "   log out and in again for the groups to apply"

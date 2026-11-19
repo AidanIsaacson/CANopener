@@ -547,7 +547,7 @@ class DeviceApp:
         right = rect.right - t.pad
         right = u.text(time.strftime("%H:%M"), (right, rect.centery), "body", "dim", align="right").left - t.pad
         b = ctx.battery
-        if b is not None:               # the pack, from the button ADC: dim while fine, coloured when it isn't
+        if b is not None and b.shown:   # the pack, from the button ADC: dim while fine, coloured when it isn't
             role = {"ok": "dim", "wait": "warn", "bad": "bad"}.get(b.level, "dim")
             right = u.text(b.text, (right, rect.centery), "body", role, align="right").left - t.pad
         if ctx.recording:

@@ -294,7 +294,8 @@ breadboard, set **CAN stack A SPI speed** to **1 MHz** (just below the part on t
 From SSH: `canopener-cli hardware --stage 3 --apply`.
 
 The [Pi installer](raspberry-pi.md) sets up the small helper that's allowed to change the boot
-settings (run it once more after updating, so the helper knows the button ADC). The lines it writes are the
+settings (run it once more after updating, with `--sudoers --device`, so the helper knows the
+button ADC and the ADCs run at full speed). The lines it writes are the
 ones in [`config-hardware.txt`](../../deploy/raspberry-pi/config-hardware.txt), in a marked block at
 the end of `/boot/firmware/config.txt`; the rest of the file isn't touched.
 
