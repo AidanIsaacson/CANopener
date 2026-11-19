@@ -1964,3 +1964,32 @@ def test_control_mapping_tests_and_remaps_the_buttons(app_for, monkeypatch):
     app.top._answer(True)
     assert not s.get("device.button_map") and not s.get("device.stacks_off") and app.keymap.action("f2") == inp.SOFT[1]
     app.step([])
+
+
+def test_soft_key_5_has_a_job_on_each_screen(app_for):
+    """With Back on a button of its own (Button 5 does: Soft key 5) the fifth button gets a job of
+    the page's own: Codes reads Full scan / Active / Stored / Clear / Live data, Live and Bus start
+    the log, Home opens the Meter; a page with nothing for it gets Home; a dialog gets nothing."""
+    from canopener.device.screens.base import ConfirmDialog
+    from canopener.device.screens.can import CodesPage
+    app = app_for(**{"device__button5": "soft"})
+    labels = lambda: [k.label if k else None for k in app.softkey_slots()]  # noqa: E731
+    assert labels()[4] == "Meter"
+    app.open_mode("can")
+    app.top.show_page(CodesPage)
+    assert labels() == ["Full scan", "Active", "Stored", "Clear...", "Live data"]
+    app.top._go(2)                                          # Live
+    assert labels()[4] == "Start log"
+    app.top._go(3)                                          # Bus
+    assert labels()[4] == "Start log"
+    app.open_mode("settings")
+    assert labels()[4] == "Home"
+    app.push(ConfirmDialog(app, "Sure?", "Really?", "Yes", lambda: None))
+    assert labels()[4] is None
+    app.pop()
+    app.open_mode("meter")
+    assert labels()[4] == "CAN"
+    app.ctx.settings.set("device.button5", "back")          # Back on button 5: the usual four, then Back
+    app.open_mode("can")
+    app.top.show_page(CodesPage)
+    assert labels() == ["Active", "Stored", "More...", "Live data", "Back"]

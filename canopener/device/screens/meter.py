@@ -83,6 +83,12 @@ class MeterScreen(Screen):
                 SoftKey("Reset min/max", ctx.meter_live.reset_minmax),         # where Live has it
                 SoftKey("Stop log" if ctx.recording else "Start log", ctx.toggle_log, active=ctx.recording)]
 
+    def key5(self):
+        """Recording: mark the moment. Otherwise across to the CAN side."""
+        if self.ctx.recording:
+            return SoftKey("Timestamp", self.ctx.tag)
+        return SoftKey("CAN", lambda: self.app.open_mode("can"))
+
     def use_sim(self):
         self.ctx.settings.set("meters.sim", True)
         self.ctx.apply_meters()

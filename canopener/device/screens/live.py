@@ -199,6 +199,11 @@ class LivePage(Screen):
             keys.append(SoftKey("Clear picks", self.clear_picks, enabled=bool(self.picked())))
         return keys
 
+    def key5(self):
+        """Watching values is when a log is wanted."""
+        ctx = self.ctx
+        return SoftKey("Stop log" if ctx.recording else "Start log", ctx.toggle_log, active=ctx.recording)
+
     def toggle_big(self):
         self.big = not self.big
 

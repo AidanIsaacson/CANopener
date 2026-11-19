@@ -49,6 +49,12 @@ class LogScreen(Screen):
         return self.ctx.capture
 
     # --- actions ---
+    def key5(self):
+        """Recording: freeze the screen to read something off it (the log carries on)."""
+        if self.c.state == cap.RECORDING:
+            return SoftKey("Hold", self.ctx.toggle_hold, active=self.ctx.held)
+        return None
+
     def softkeys(self):
         ctx, c = self.ctx, self.c
         busy = bool(ctx.busy)

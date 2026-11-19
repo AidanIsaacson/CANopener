@@ -5,6 +5,12 @@ on an older one, `git checkout v0.3.2` in its checkout.
 
 ## Unreleased
 
+- **Soft key 5 does something on every page.** With **Button 5 does** set to **Soft key 5** (Back on
+  a button of its own), the fifth button gets a job of the page's own: Codes is **Full scan /
+  Active / Stored / Clear... / Live data**, Live and Bus start or stop the log, Connect jumps to
+  Codes once connected, the Meter marks a timestamp while recording (otherwise goes to CAN), Home
+  opens the Meter, a recording log gets Hold, and any other page gets **Home**. The full list is
+  in DEVICE.md.
 - **Buttons on the button ADC answer at once.** They took half a second to a second: the Pi's
   firmware cuts config.txt lines at 98 characters, so the ADS1115 line lost its last input's
   settings, leaving A3 at 8 samples a second, and every pass over the stacks waited for it. The

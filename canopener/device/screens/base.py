@@ -32,6 +32,19 @@ class Screen:
     def softkeys(self) -> list:
         return []
 
+    def softkeys5(self) -> list:
+        """The keys when the fifth button is a soft key too (System > Controls > Button 5 does: Soft
+        key 5, with Back on a button of its own): the usual four, then ``key5()``. A screen whose
+        keys read better in another order with five overrides this."""
+        keys = list(self.softkeys() or [])
+        if len(keys) >= 5:
+            return keys[:5]
+        return (keys + [None] * 4)[:4] + [self.key5()]
+
+    def key5(self):
+        """The fifth button's job on this screen (None: the app puts Home there)."""
+        return None
+
     def on_action(self, action: str, n: int = 1) -> bool:
         return False
 

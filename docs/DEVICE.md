@@ -499,7 +499,18 @@ or buttons on spare GPIOs on a build without the HAT) need no setting:
 | Timestamp | F10 (68) | Tag a timestamp in the running log, from any screen |
 
 With a dedicated Back button, set **System > Controls > Button 5 does** to **Soft key 5**, so the
-fifth top button is one more context-dependent key. (Button 5 can also be Hold.)
+fifth top button is one more context-dependent key. (Button 5 can also be Hold.) What it does:
+
+| Screen | Five soft keys |
+|---|---|
+| CAN > Codes (J1939) | **Full scan**, **Active**, **Stored**, **Clear...**, **Live data** (no More... menu needed) |
+| CAN > Codes (OBD-II) | the usual four, then **Start log** / **Stop log** |
+| CAN > Connect | the usual keys, then **Codes** once connected |
+| CAN > Live, CAN > Bus | the usual keys, then **Start log** / **Stop log** |
+| Data log, while recording | Stop, Timestamp, Undo tag, then **Hold** |
+| Meter | the usual four, then **Timestamp** while recording, otherwise **CAN** |
+| Home | Connect, Codes, Live data, Start log, then **Meter** |
+| Any other page | its own keys, then **Home** |
 
 ## Control mapping
 

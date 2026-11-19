@@ -256,9 +256,11 @@ class DeviceApp:
     def softkey_slots(self) -> list:
         """What each hardware button does right now: SoftKey or None, one per button."""
         n = 5 if int(self.ctx.settings.get("device.buttons") or 5) >= 5 else 4
-        keys = list(self.top.softkeys() or [])
-        five_soft = self.keymap.button5 == inp.SOFT[4]
-        slots = (keys + [None] * 5)[: (5 if n == 5 and five_soft else 4)]
+        five_soft = n == 5 and self.keymap.button5 == inp.SOFT[4]
+        keys = list((self.top.softkeys5() if five_soft else self.top.softkeys()) or [])
+        slots = (keys + [None] * 5)[: (5 if five_soft else 4)]
+        if five_soft and slots[4] is None and not self.top.modal and len(self.stack) > 1:
+            slots[4] = SoftKey("Home", self.home)           # nothing of the page's own: a way home
         if n == 5 and not five_soft:
             b5 = self.keymap.button5
             if b5 == inp.BACK:

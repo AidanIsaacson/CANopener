@@ -207,11 +207,22 @@ class ConnectPage(Screen):
                                 active=ctx.finding, enabled=not ctx.busy))
         return keys
 
+    def key5(self):
+        """Connected: straight to the codes."""
+        if self.ctx.connection is None:
+            return None
+        return SoftKey("Codes", lambda: self.parent.show_page(CodesPage))
+
     def on_action(self, action, n=1):
         return self.rows.on_action(action, n)
 
     def draw(self, ui, rect):
         self.rows.draw(ui, rect)
+
+
+def _log_key(ctx) -> SoftKey:
+    """Start / stop the data log: the fifth button's job where watching is what the page is for."""
+    return SoftKey("Stop log" if ctx.recording else "Start log", ctx.toggle_log, active=ctx.recording)
 
 
 # ----------------------------------------------------------------------------
@@ -264,6 +275,21 @@ class CodesPage(Screen):
         return [SoftKey("Active", lambda: ctx.read_codes("active"), enabled=can),
                 SoftKey("Stored", lambda: ctx.read_codes("stored"), enabled=can),
                 SoftKey("More...", self.more, enabled=can), live]
+
+    def softkeys5(self):
+        """Five buttons: everything the codes page does without a menu."""
+        ctx = self.ctx
+        can = ctx.live and not ctx.busy
+        live = SoftKey("Live data", self.show_live, enabled=self._has_live(self.focused()))
+        if self.obd:
+            return [SoftKey("Read codes", lambda: ctx.read_codes(), enabled=can),
+                    SoftKey("More...", self.more_obd, enabled=can),
+                    SoftKey("Clear...", self.clear_obd, enabled=can and ctx.can_transmit), live,
+                    _log_key(ctx)]
+        return [SoftKey("Full scan", lambda: ctx.read_codes("full"), enabled=can),
+                SoftKey("Active", lambda: ctx.read_codes("active"), enabled=can),
+                SoftKey("Stored", lambda: ctx.read_codes("stored"), enabled=can),
+                SoftKey("Clear...", self.clear_j1939, enabled=can), live]     # says why in listen-only
 
     def more(self):
         def pick(what):
@@ -451,6 +477,9 @@ class BusPage(Screen):
                 SoftKey("CAN IDs", lambda: setattr(self, "monitor", True), active=self.monitor),
                 SoftKey("Clear", self.ids.clear, enabled=self.monitor)]
 
+    def key5(self):
+        return _log_key(self.ctx)
+
     def on_action(self, action, n=1):
         if action in (inp.UP, inp.DOWN, inp.ROTATE):
             self.view.move(n if action == inp.ROTATE else (-1 if action == inp.UP else 1), len(self.lines))
@@ -563,6 +592,9 @@ class CanScreen(Screen):
 
     def softkeys(self):
         return self.page.softkeys()
+
+    def softkeys5(self):
+        return self.page.softkeys5()
 
     def on_action(self, action, n=1):
         if action in (inp.LEFT, inp.RIGHT):

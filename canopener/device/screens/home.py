@@ -77,6 +77,9 @@ class HomeScreen(Screen):
                 SoftKey("Live data", lambda: self._can("Live")),
                 SoftKey("Stop log" if ctx.recording else "Start log", ctx.toggle_log, active=ctx.recording)]
 
+    def key5(self):
+        return SoftKey("Meter", lambda: self.app.open_mode("meter"))
+
     def _can(self, page: str):
         self.app.open_mode("can")
         can = self.app.top
