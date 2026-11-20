@@ -5,6 +5,12 @@ on an older one, `git checkout v0.3.2` in its checkout.
 
 ## Unreleased
 
+- **New built-in profile: Generic ZAPI/Chinese AC Truck** (unconfirmed). Chinese-built AC
+  forklifts on ZAPI controllers: battery (pack voltage and current, remaining Ah, all 16 cell
+  voltages and 12 temperatures from the lithium BMS), seat, pedals, direction, park brake, both
+  drive motors, lift / tilt and the pump, controller temperatures, hour meters and the active
+  error code (79 Incorrect start confirmed on the truck). Worked out from timestamped captures of
+  one truck, most of it found by the Profile builder.
 - **Soft key 5 does something on every page.** With **Button 5 does** set to **Soft key 5** (Back on
   a button of its own), the fifth button gets a job of the page's own: Codes is **Full scan /
   Active / Stored / Clear... / Live data**, Live and Bus start or stop the log, Connect jumps to

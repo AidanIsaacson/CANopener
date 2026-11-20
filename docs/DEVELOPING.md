@@ -94,7 +94,9 @@ instead of `"addresses"`). [`sim-canopen.json`](../canopener/profiles/sim-canope
 worked example for the CANopen simulator, and
 [`zapi-combiacx.json`](../canopener/profiles/zapi-combiacx.json) one for a real machine (a Zapi
 COMBIACX pallet truck, decoded from bus captures; marked Unconfirmed until it's been checked on
-more trucks). Fields still being worked out end in `?`, and raw bytes sit in a "Raw (for
+more trucks). [`zapi-chinese-ac.json`](../canopener/profiles/zapi-chinese-ac.json) is another,
+mostly found by the Profile builder: a Chinese-built AC forklift on ZAPI drive master / slave and
+pump controllers with a lithium BMS on plain 11-bit IDs. Fields still being worked out end in `?`, and raw bytes sit in a "Raw (for
 decoding)" group.
 
 Each of those is also a field in the app's **Label…** dialog. A profile signal at the same place as a built-in one replaces it, so a profile can rename and
