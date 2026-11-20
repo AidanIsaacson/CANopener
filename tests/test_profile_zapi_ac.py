@@ -75,3 +75,18 @@ def test_hydraulics():
     assert _sig(p, "Lift").decode(pump) == 1
     assert _sig(p, "Pump command ?").decode(pump) == 100
     assert _sig(p, "Pump motor speed ?").decode(pump) == -2181
+
+
+def test_zapi_alarm_and_emcy_codes():
+    """Code text is from ZAPI's ACE2 2uC manual (AF2ZP0DA, section 10.1), reworded."""
+    p = profiles.find("zapi-chinese-ac")
+    alarms = dict(_sig(p, "Traction alarm code").enum)
+    assert alarms[221] == "221 Drive requested with the handbrake on"   # flashed before 79 on the truck
+    assert alarms[224] == "224 Waiting for another node on the bus"     # the blip at key-on
+    assert alarms[79] == "79 Incorrect start"
+    assert dict(_sig(p, "Pump alarm code").enum) == alarms == dict(_sig(p, "Active error code").enum)
+    handbrake = bytes.fromhex("0800DD2E000C0000")         # ZAPI code 221, MDI / LED number 46
+    assert _sig(p, "Traction alarm code").decode(handbrake) == 221
+    assert _sig(p, "Traction alarm (MDI / LED number)").decode(handbrake) == 46
+    assert p.emcy[0xFF4F] == "Incorrect start" and p.emcy[0xFFDD] == "Drive requested with the handbrake on"
+    assert 0x0000 not in p.emcy
