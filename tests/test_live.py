@@ -61,3 +61,38 @@ def test_load_history_from_a_log(tmp_path, sim_session):
     live.load_history(offline)
     rpm = live.find_spn(190)
     assert rpm is not None and len(live.rows[rpm].points) >= 5
+
+
+def test_sections_group_rows_by_controller_or_group(sim_session):
+    from canopener.core import live as lv
+    session, _sim = sim_session
+    live = LiveData()
+    deadline = time.time() + 3
+    while time.time() < deadline and len({r.sa for r in live.rows.values()}) < 2:
+        live.sample(session)
+        time.sleep(0.1)
+    by_src = lv.sections(live, lv.GROUP_SOURCE)
+    assert len(by_src) >= 2
+    sas = [live.rows[sec.keys[0]].sa for sec in by_src]
+    assert sas == sorted(sas)                          # the engine (00) first
+    assert all(len({live.rows[k].sa for k in sec.keys}) == 1 for sec in by_src)
+    assert sorted(k for sec in by_src for k in sec.keys) == sorted(live.order)
+    assert by_src[0].title == live.source_label(sas[0]) and by_src[0].id == f"source:{sas[0]}"
+    by_group = lv.sections(live, lv.GROUP_KIND)
+    titles = [sec.title for sec in by_group]
+    assert "Engine" in titles and (lv.OTHER not in titles or titles[-1] == lv.OTHER)
+    assert lv.sections(live, lv.GROUP_NONE)[0].keys == live.order
+    picked = live.order[:3]
+    assert sum(len(sec.keys) for sec in lv.sections(live, lv.GROUP_SOURCE, picked)) == 3
+    assert lv.grouping_label(lv.GROUP_SOURCE, live) == "By source"
+
+    folded = lv.Collapsed()
+    assert folded.toggle(lv.GROUP_SOURCE, "source:0") and folded.is_folded(lv.GROUP_SOURCE, "source:0")
+    assert not folded.is_folded(lv.GROUP_KIND, "source:0")     # per grouping
+    again = lv.Collapsed(folded.to_dict())
+    assert again.is_folded(lv.GROUP_SOURCE, "source:0")
+    again.fold_all(lv.GROUP_SOURCE, ["source:0", "source:39"])
+    assert again.is_folded(lv.GROUP_SOURCE, "source:39")
+    again.fold_all(lv.GROUP_SOURCE, [], folded=False)
+    assert again.to_dict() == {}
+    assert lv.Collapsed({"source": "junk"}).to_dict() == {}

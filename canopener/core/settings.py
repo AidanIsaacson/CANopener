@@ -98,6 +98,7 @@ DEFAULTS: dict = {
     "device.games": False,              # Games on the home screen (System > About, seven times)
     "device.tile_order": [],            # home tiles as dragged into place (mode ids; device/modes.py)
     "device.live_view": {},             # CAN > Live: picks, grid, the enlarged value (device/screens/live.py)
+    "device.live_group": "none",        # CAN > Live: none / source / group headings (core.live.sections)
     "device.meter_zoom": None,          # Meter: the enlarged channel's row key
     "games.harness_best": 0,
     "games.cargo_best": 0,
@@ -119,6 +120,10 @@ DEFAULTS: dict = {
     "upload.github_branch": "captures",  # the branch captures go on (made with no history of its own)
     "plugins.sources": [],              # GitHub repos to install plugins from (core.plugin_repos)
     "github.client_id": "",             # GitHub App for sign-in ("" = core.github.DEFAULT_CLIENT_ID)
+    "plugins.bundled": [],              # bundled plugins switched on (plugins.BUNDLED: "zapi_console", ...)
+    "zapi.console_port": "",            # Zapi console mode: the tap on the console's transmit wire
+    "zapi.controller_port": "",         # ... and on the controller's
+    "zapi.framing": "9600 8N1",         # a starting guess until a logic capture measures it
 }
 
 

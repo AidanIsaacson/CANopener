@@ -304,6 +304,47 @@ def test_confirm_defaults_to_no(app_for):
     assert said == ["yes"]
 
 
+def test_live_list_groups_by_controller_and_folds(app_for):
+    from canopener.core.live import GROUP_SOURCE
+    from canopener.device.screens.live import VIEW, Head
+    app = app_for(meters__sim=True, device__live_group=GROUP_SOURCE)
+    ctx = app.ctx
+    ctx.connect("sim")
+    assert ctx.wait_idle()
+    app.open_mode("can")
+    can = app.top
+    press(app, pygame.K_RIGHT)
+    assert can.page.title == "Live"
+    for _ in range(20):
+        app.step([])
+        time.sleep(0.03)
+    live = can.page
+    heads = [e for e in live.entries if isinstance(e, Head)]
+    assert len(heads) >= 3                                # several controllers, and the meters
+    assert isinstance(live.entries[0], Head)
+    can_heads = [h for h in heads if h.model is ctx.can_model]
+    assert len({h.section.id for h in can_heads}) == len(can_heads) >= 2
+    first = live.entries[0]
+
+    def values_under_first():
+        return [k for e in live.entries if not isinstance(e, Head) and e[0] is first.model
+                for k in [e[1]] if k in first.section.keys]
+    assert values_under_first()
+    live.view.focus = 0
+    press(app, pygame.K_RETURN)                           # Select on a heading folds it, picks nothing
+    assert not live.picked() and values_under_first() == [] and live.entries[0].id == first.id
+    app.step([])
+    assert ctx.settings.get(VIEW)["collapsed"][GROUP_SOURCE] == [first.id]    # kept for next time
+    press(app, pygame.K_RETURN)                           # and unfolds it again
+    assert values_under_first()
+    live.view.focus = 1
+    press(app, pygame.K_RETURN)                           # a value under it is picked as usual
+    assert len(live.picked()) == 1
+    ctx.settings.set("device.live_group", "none")
+    app.step([])
+    assert not any(isinstance(e, Head) for e in live.entries)
+
+
 def test_can_mode_against_the_simulator(app_for):
     app = app_for(meters__sim=True)
     ctx = app.ctx

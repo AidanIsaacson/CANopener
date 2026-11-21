@@ -55,6 +55,11 @@ class PluginsScreen(Screen):
         if srcs:
             rows += [Row("Check all for updates", select=self._check_all),
                      Row("Update all", select=self._update_all, hint="download and install, then restart")]
+        rows.append(Row("Built in", kind="header"))
+        on = plugins.bundled_enabled(self.ctx.settings)
+        for b in plugins.BUNDLED:
+            rows.append(Row(b.name, select=lambda b=b: self._toggle_bundled(b.id), check=lambda b=b: b.id in on,
+                            hint=b.about))
         rows.append(Row("Loaded now", kind="header"))
         found = plugins.discover()
         if not found:
@@ -63,6 +68,11 @@ class PluginsScreen(Screen):
             rows.append(Row(p.name or p.id, p.version if not p.error else "failed to load", kind="info",
                             level=(lambda: "bad") if p.error else (lambda: "ok"), hint=p.error or ""))
         return rows
+
+    def _toggle_bundled(self, plugin_id: str):
+        on = plugin_id not in plugins.bundled_enabled(self.ctx.settings)
+        plugins.set_bundled(self.ctx.settings, plugin_id, on)
+        offer_restart(self.app, "Switched on." if on else "Switched off.")
 
     # --- sign-in ---
     def _sign_out(self):

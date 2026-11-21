@@ -344,7 +344,26 @@ def write_live_csv(a: _Analysis, path: str):
             w.writerow(row)
 
 
-def summary_text(a: _Analysis) -> str:
+def serial_summary(report) -> list[str]:
+    """The summary's serial section: what each line carried, in brief (serial_analysis.txt has it all)."""
+    L = ["", "-- Serial lines (serial_analysis.txt has the full analysis) --"]
+    meta = {d.get("line"): d for d in report.lines_meta}
+    for line in sorted(set(report.bytes_by_line) | set(meta)):
+        d = meta.get(line, {})
+        what = ", ".join(x for x in (d.get("label", ""), d.get("port", ""), d.get("framing", "")) if x)
+        n = sum(1 for m in report.messages if m.line == line)
+        L.append(f"  {line:<10} {report.bytes_by_line.get(line, 0):>8} bytes {n:>7} messages   {what}")
+    if report.hint:
+        L.append(f"  !! {report.hint}")
+    if report.checksums:
+        L.append(f"  checksum: {report.checksums[0].text()}")
+    if report.master:
+        L.append(f"  line {report.master} asks most often (probably the console)")
+    return L
+
+
+def summary_text(a: _Analysis, serial=None) -> str:
+    """``serial``: the capture's ``serial_analysis.Report``, when it recorded serial lines."""
     c = a.c
     L = [f"=== Capture: {c.name.strip() or '(unnamed)'} ==="]
     if c.started:
@@ -362,7 +381,7 @@ def summary_text(a: _Analysis) -> str:
                  f"{fmt_elapsed(tr['original_stop'] - tr['original_start'])[1:]} recording "
                  f"({_when(tr['original_start'])} -> {_when(tr['original_stop'])}, "
                  f"{tr.get('dropped_frames', 0)} frames cut{full})")
-    quiet = nothing_heard_lines(a.frames - len(a.errors), a.heard, a.errors)
+    quiet = _quiet(a, serial)
     if quiet:
         L += [""] + [f"!! {line}" for line in quiet]
     for ecu in sorted(a.thin):
@@ -409,6 +428,8 @@ def summary_text(a: _Analysis) -> str:
                 L.append(f"  {a.obd.label(ecu)} answered: no codes ({', '.join(kinds) or 'stored'})")
 
     L += measurement_summary(a)
+    if serial is not None:
+        L += serial_summary(serial)
 
     L += ["", "-- ECUs --"]
     ecus = [e for e in a.session.ecu_list() if e.sa < 0xF8]
@@ -437,7 +458,14 @@ def write_traffic_csv(rows: list, path: str):
                         "yes" if r.decoded else "no", f"{r.first:.6f}", f"{r.last:.6f}"])
 
 
-def bus_summary(a: _Analysis, rows: list) -> dict:
+def _quiet(a: _Analysis, serial=None) -> list[str]:
+    """``nothing_heard_lines``, except for a serial-only capture (no bus was recorded at all)."""
+    if serial is not None and not a.frames:
+        return []
+    return nothing_heard_lines(a.frames - len(a.errors), a.heard, a.errors)
+
+
+def bus_summary(a: _Analysis, rows: list, serial=None) -> dict:
     """What capture_readme shows: identity heard, senders, undecoded traffic (JSON-friendly)."""
     und = [r for r in rows if not r.decoded]
     return {
@@ -445,7 +473,7 @@ def bus_summary(a: _Analysis, rows: list) -> dict:
                                        + list(a.c.meta.get("identity_before") or []))),
         "ecus": [{"name": sa_name(e.sa), "frames": e.frames} for e in a.session.ecu_list() if e.sa < 0xF8],
         "heard_frames": a.heard,
-        "quiet": nothing_heard_lines(a.frames - len(a.errors), a.heard, a.errors),
+        "quiet": _quiet(a, serial),
         "thin": [a.obd.label(ecu) for ecu in sorted(a.thin)],
         "traffic_count": len(rows),
         "undecoded_count": len(und),
@@ -459,9 +487,15 @@ def bus_summary(a: _Analysis, rows: list) -> dict:
 def write_outputs(capture: Capture, system: str = units.METRIC, progress=None) -> _Analysis:
     a = analyze(capture, system, progress)
     write_live_csv(a, os.path.join(capture.folder, LIVE_CSV))
+    serial = None
+    if capture.serial_path and os.path.exists(capture.serial_path):
+        from .serial_analysis import SERIAL_ANALYSIS_TXT, analyze_capture
+        serial = analyze_capture(capture.folder)
+        with open(os.path.join(capture.folder, SERIAL_ANALYSIS_TXT), "w") as f:
+            f.write("\n".join(serial.lines()) + "\n")
     with open(os.path.join(capture.folder, SUMMARY_TXT), "w") as f:
-        f.write(summary_text(a))
+        f.write(summary_text(a, serial))
     rows = identity.traffic(a.session)
     write_traffic_csv(rows, os.path.join(capture.folder, TRAFFIC_CSV))
-    capture.meta["bus"] = bus_summary(a, rows)
+    capture.meta["bus"] = bus_summary(a, rows, serial)
     return a

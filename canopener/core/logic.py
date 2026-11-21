@@ -115,6 +115,33 @@ def rising_edges(data: bytes, unitsize: int, bit: int) -> list[int]:
     return out
 
 
+def transitions(data: bytes, unitsize: int, bit: int) -> list[int]:
+    """Sample numbers where ``bit`` changes, either way."""
+    byte, mask = divmod(bit, 8)
+    mask = 1 << mask
+    out, prev = [], None
+    for i in range(byte, len(data), unitsize):
+        v = data[i] & mask
+        if prev is not None and v != prev:
+            out.append(i // unitsize)
+        prev = v
+    return out
+
+
+def pulse_widths(path: str, name: str) -> list[float]:
+    """Seconds between each change of channel ``name`` (a sigrok name like D3, or its wired
+    name) in a capture: what ``serialline.framing.guess_baud`` reads a baud rate from."""
+    sr = read_sr(path)
+    wired = CHANNELS.get(name.upper(), name)
+    bit = next((sr["bits"][n] for n in (name, name.replace(" ", "_"), wired.replace(" ", "_"))
+                if n in sr["bits"]), None)
+    if bit is None:
+        raise ValueError(f"no channel {name!r} in {path} (it has {', '.join(sr['bits'])})")
+    edges = transitions(sr["data"], sr["unitsize"], bit)
+    rate = sr["samplerate"]
+    return [(b - a) / rate for a, b in zip(edges, edges[1:])]
+
+
 def sync_edges(path: str, name: str = CHANNELS[SYNC]) -> tuple[list[int], float]:
     """(SYNC rising-edge sample numbers, samplerate) of a capture, for ``core.sync.fit_edges``."""
     sr = read_sr(path)

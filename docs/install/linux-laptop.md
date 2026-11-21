@@ -33,7 +33,8 @@ normal. The installer:
 2. installs the **USB CAN adapter drivers** (`gs_usb` and `slcan`; on Ubuntu/Mint it adds the
    `linux-modules-extra` package if your kernel doesn't include them) and a plug-in rule so a
    **CANable** becomes `can0` by itself, whichever firmware it has (see
-   [the adapter section](#your-usb-adapter-canable-20--20-pro));
+   [the adapter section](#your-usb-adapter-canable-20--20-pro)), and adds you to the `dialout`
+   group so USB-serial adapters work too (from your next log-in);
 3. installs CANopener and its GUI library (~100 MB) into `~/CANopener/.venv`, kept separate from
    the rest of your system;
 4. lets CANopener bring the CAN interface up **without asking for a password**. This only allows

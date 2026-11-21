@@ -23,6 +23,12 @@ class FlowLayout(QtWidgets.QLayout):
     def addItem(self, item):
         self._items.append(item)
 
+    def insertWidget(self, index: int, widget):
+        """Like QBoxLayout.insertWidget: put ``widget`` at ``index`` in the row."""
+        self.addChildWidget(widget)
+        self._items.insert(index, QtWidgets.QWidgetItem(widget))
+        self.invalidate()
+
     def count(self):
         return len(self._items)
 

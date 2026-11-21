@@ -26,13 +26,14 @@ Dev setup and the profile format are in [DEVELOPING.md](DEVELOPING.md).
 │       replay, ELM327 (Bluetooth  │   │ (IDs, codes, transport, signals)  │
 │       OBD); candump read/write   │   │                                   │
 └──────────────────────────────────┘   └───────────────────────────────────┘
+  serialline/  serial ports (pyserial, opt.), reader threads, serial.log: a console port's bytes
                 ▲
           sim/  simulated machine, car and battery truck (another user of the same bus)
 ```
 
 Rules that keep it reusable:
 
-* **`j1939/`, `obd/`, `uds/`, `canopen/` and `can/` never import from `core/`, `gui/` or `sim/`.** They are
+* **`j1939/`, `obd/`, `uds/`, `canopen/`, `can/` and `serialline/` never import from `core/`, `gui/` or `sim/`.** They are
   plain protocol libraries with no state beyond lookup tables (`obd/` = OBD-II J1979 + ISO-TP,
   `uds/` = UDS ISO 14229; both reuse the ISO-TP reassembler and carry no OEM identifiers). Their
   live clients (`core/obd.py`, `core/uds.py`, `core/canopen.py`) drive a `Session` the same way
@@ -43,7 +44,11 @@ Rules that keep it reusable:
 * **Front-ends hold no protocol logic.** The Qt app and the Pygame handheld call the same
   `scan.run_preset()`, `session.current_lamps()`, `session.latest_for(pgn)`, `core/live.py` and
   `core/capture.py`, so a fix in core reaches all three front-ends.
-* **Standard library only** below `gui/` and `device/`. That keeps the Pi image small and boot fast.
+* **Few dependencies, and optional ones loaded late.** Below `gui/` and `device/` it's the standard
+  library, plus two optional extras imported only when used: python-can (`can/pythoncan.py`, an
+  adapter Linux can't show as can0) and pyserial (`serialline/port.py`, a serial line). A new one
+  needs a compelling reason and a library that rarely needs patching. That keeps the Pi image
+  small and boot fast.
 
 ## Plugins
 
@@ -57,6 +62,12 @@ live in separate, private packages while this repository stays generic. On the h
 plugin's logic in Qt- and Pygame-free modules with a thin view per front-end, so both can share it.
 A plugin can also add somewhere for saved captures to go: `core.upload.register_uploader`
 (or `PluginApi.register_uploader`), next to the built-in HTTPS uploader.
+
+**Bundled plugins** (`canopener/addons/`, `plugins.BUNDLED`) ship in this repository but load only
+when switched on (`plugins.bundled`). The Zapi console mode (`addons/zapi_console/`) is the first:
+`console.Console` (listening, message joining, analysis; no UI toolkit) under a handheld mode and
+a desktop tab. While it listens it sets the context's `serial` to its `Sniffer`, which both Log
+tools pass to `Capture.start(serial=...)`.
 
 ### Captures leaving the unit
 
@@ -301,6 +312,19 @@ Usage, wiring and status are in [DEVICE.md](DEVICE.md).
   a logic analyzer or scope later, and plugins through `register_device(api)`.
 * `frontends.py` switches between the desktop GUI and the handheld UI (shared `ui` setting).
 
+### Serial lines
+
+`serialline/` is the transport for controllers whose service console talks over a serial line
+(RS-232, logic level, or a current loop through an optocoupler tap: [SERIAL-SNIFFING.md](SERIAL-SNIFFING.md)).
+`framing.Framing` is the baud rate and framing; `port.Tap` reads one port on a thread and stamps
+each chunk with `time.time()`, like `CanFrame`; `port.Sniffer` is one tap per direction of a link.
+A capture records a sniffer to `serial.log` (`serialline/log.py`, `Capture.start(serial=...)`),
+and `core/serial_analysis.py` rebuilds messages from the chunks and reports message kinds, byte
+roles (`changes._byte_kind`), checksums that fit, exchanges, text and what moved at each
+timestamp (`serial_analysis.txt` at save, `canopener-cli serial analyze`). Writing to a line is
+off unless a tap is opened with `allow_write=True`; the front-end confirms each send first. The
+Zapi console mode ([ZAPI-CONSOLE.md](ZAPI-CONSOLE.md)) is the first user.
+
 ### Measurements on the CAN timeline
 
 `core/measure.py` (channels, samples, `MeasurementHub`, `ClockMapper`, `MeasurementLiveData`) and
@@ -362,8 +386,9 @@ these by name.
   transmit (confirm-first, default No, never in listen-only), the logic analyzer (`core/logic.py`
   has the command and channel names, no UI yet) and Component Test (ELECTRONICS.md 6.7).
 * **CANopen:** read PDO mappings (0x1A00..) to suggest signal layouts.
-* **Transmit:** more actions on the confirm-first path (saved frame replay); machine-changing OEM
-  commands stay in private plugins.
+* **Transmit:** more actions on the confirm-first path (saved frame replay). Machine-changing OEM
+  commands we worked out ourselves can live here (with their evidence, CLAUDE.md "Provenance");
+  ones from dealer tools stay in private plugins.
 * **Bluetooth OBD adapters:** check everything against a real adapter and vehicles, then
   multi-PID requests and the non-CAN Mode 06 decoder: [BLUETOOTH-OBD.md](BLUETOOTH-OBD.md#gaps-to-fill).
 * **Ideas from the first thin K-line machine (2026-11-13), not done yet.** That day's work is in
@@ -402,6 +427,10 @@ these by name.
     request and a request can be missing (non-CAN vehicles); the adapter trace header says
     "protocol not found yet" and gives the ELM version rather than the STN chip; the probe's
     "(n bytes)" counts are off by one for answers that don't echo their option byte.
+* **Serial lines on the screens.** Recording and analysis are CLI-only so far, plus the Zapi
+  console mode: the Log tool on both front-ends should offer serial lines next to the meters, and
+  `Hardware` could list a USB-serial adapter as an installed option. A live version of the
+  analysis (kinds and checksums as you record) would help at the machine.
 * **Handheld text entry.** The handheld picks machine details from the bus or the recent list but
   can't type them (or the concern / question): an on-screen keyboard would cover those, the upload
   server's address and token, and naming timestamps.

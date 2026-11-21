@@ -9,10 +9,14 @@ The desktop Live Data tab is a view over this; the on-device Live Data page (Pyg
 docs/ARCHITECTURE.md) can use the same model: call ``sample(session)`` each frame, then draw
 ``rows`` filtered with ``matches()``. ``selected`` is the "picked signals" list (plotted on the
 desktop, the large-value grid on the device).
+
+``sections`` groups rows for a view: by the controller that sends them (``GROUP_SOURCE``) or by
+the profile's group (``GROUP_KIND``), and ``Collapsed`` remembers which sections are folded, so
+both front-ends group and collapse the same way.
 """
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .. import obd
 from ..j1939.ids import parse_id
@@ -310,3 +314,83 @@ class ObdLiveData(LiveData):
             if (r.sa, r.sig.pid) not in out:
                 out.append((r.sa, r.sig.pid))
         return out
+
+
+# ----------------------------------------------------------------------
+# Sections: rows grouped by who sends them, or by the profile's groups
+# ----------------------------------------------------------------------
+GROUP_NONE, GROUP_SOURCE, GROUP_KIND = "none", "source", "group"
+GROUPINGS = (GROUP_NONE, GROUP_SOURCE, GROUP_KIND)
+OTHER = "Other"                 # rows whose signal has no group
+
+
+@dataclass
+class Section:
+    id: str                     # stable across samples and restarts: "source:0", "group:Engine"
+    title: str
+    keys: list = field(default_factory=list)     # member row keys, in the model's order
+
+
+def grouping_label(by: str, model=None) -> str:
+    """What a grouping is called on screen ("By source", "By module" for OBD-II, ...)."""
+    if by == GROUP_SOURCE:
+        return f"By {(getattr(model, 'source_header', '') or 'Source').lower()}"
+    return {GROUP_KIND: "By group", GROUP_NONE: "No grouping"}.get(by, by)
+
+
+def section_of(model, key, by: str) -> tuple[str, str, tuple]:
+    """(id, title, sort key) of the section a row belongs to under ``by``."""
+    r = model.rows[key]
+    if by == GROUP_SOURCE:
+        return f"source:{r.sa}", model.source_label(r.sa), (0, r.sa if isinstance(r.sa, int) else 0, str(r.sa))
+    g = getattr(r.sig, "group", "") or ""
+    return f"group:{g or OTHER}", g or OTHER, (1 if not g else 0, 0, g.lower())
+
+
+def sections(model, by: str, keys=None) -> list[Section]:
+    """The rows (``keys``, default every row in first-seen order) in sections. Sources sort by
+    their number (a J1939 engine at 00 first), groups by name with the ungrouped last. Rows keep
+    the model's order inside a section. ``GROUP_NONE``: one section holding everything."""
+    keys = list(model.order if keys is None else keys)
+    if by not in (GROUP_SOURCE, GROUP_KIND):
+        return [Section("all", "All", keys)]
+    found: dict[str, tuple] = {}
+    for k in keys:
+        sid, title, order = section_of(model, k, by)
+        if sid not in found:
+            found[sid] = (order, Section(sid, title))
+        found[sid][1].keys.append(k)
+    return [sec for _, sec in sorted(found.values(), key=lambda x: x[0])]
+
+
+class Collapsed:
+    """Which sections are folded, per grouping. A plain dict of lists, so a front-end can keep it
+    in its settings as it is (``to_dict`` / ``Collapsed(saved)``)."""
+
+    def __init__(self, saved: dict | None = None):
+        self._by = {k: set(v) for k, v in (saved or {}).items() if isinstance(v, (list, tuple, set))}
+
+    def is_folded(self, by: str, sid: str) -> bool:
+        return sid in self._by.get(by, ())
+
+    def toggle(self, by: str, sid: str) -> bool:
+        """Fold or unfold one section; returns True when it's now folded."""
+        folded = self._by.setdefault(by, set())
+        if sid in folded:
+            folded.discard(sid)
+            return False
+        folded.add(sid)
+        return True
+
+    def set(self, by: str, sid: str, folded: bool):
+        if folded != self.is_folded(by, sid):
+            self.toggle(by, sid)
+
+    def fold_all(self, by: str, ids, folded: bool = True):
+        if folded:
+            self._by.setdefault(by, set()).update(ids)
+        else:
+            self._by[by] = set()
+
+    def to_dict(self) -> dict:
+        return {k: sorted(v) for k, v in self._by.items() if v}

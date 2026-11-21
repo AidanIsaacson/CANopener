@@ -22,6 +22,9 @@ device = ["pygame-ce>=2.4"]
 # slcan on a serial port ... (vendor drivers separately). gs_usb / candleLight without the Linux
 # driver: pip install "python-can[gs-usb]" (needs libusb). See can/pythoncan.py.
 adapters = ["python-can[serial]>=4.3"]
+# Serial lines (a controller's console port: canopener-cli serial, serialline/). pyserial (BSD-3)
+# is stable and already comes with python-can[serial]; it's imported only when a port is used.
+serial = ["pyserial>=3.5"]
 
 [project.scripts]
 canopener = "canopener.gui.app:main"

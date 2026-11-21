@@ -3,8 +3,31 @@
 What changed in each version, newest first. Versions are git tags (`v0.3.3`): to put a unit back
 on an older one, `git checkout v0.3.2` in its checkout.
 
-## Unreleased
+## 0.5.0 (2026-11-21)
 
+- **Live Data groups by controller.** **By source** on the desktop's Live Data (and the OBD-II
+  tab's) puts each value under a heading for the controller that sends it; **By group** uses the
+  profile's groups. Click a heading to fold it away, or **Collapse all**. On the handheld,
+  **System > Live data** picks the same, and Select or a tap on a heading folds it. The grouping and
+  which headings are folded are remembered.
+- **Serial console ports.** Controllers that talk to their service console over a serial line
+  (RS-232, logic level, or a current loop through an optocoupler tap) can be recorded:
+  `canopener-cli serial sniff` records one adapter per direction into an ordinary capture, with
+  timestamps, as `serial.log` on the same clock as the CAN log. `canopener-cli serial analyze`
+  (also `serial_analysis.txt` in the capture) rebuilds the messages and reports their kinds, what
+  each byte does, the checksum that fits (sums, XORs, CRC-8 / CRC-16), which message answers which,
+  any text, and what changed at each timestamp. `canopener-cli serial baud` measures the baud
+  rate from a logic capture of the line. How to tap a line without breaking it, and how we keep
+  what we learn publishable: [docs/SERIAL-SNIFFING.md](docs/SERIAL-SNIFFING.md).
+- **Zapi console mode (groundwork).** A built-in plugin, off until switched on (**System >
+  Software > Plugins > Built in** on the handheld, **Settings > Built-in plugins** on the desktop):
+  a home tile and a desktop tab that listen to a Zapi console talking to its controller, show each
+  message, record it with the data log (beside the CAN bus) and run the analysis. Nothing is sent.
+  The findings, and the recording each one came from, go in [docs/ZAPI-CONSOLE.md](docs/ZAPI-CONSOLE.md).
+- **Built-in plugins.** Plugins can ship inside CANopener (`canopener/addons/`) and be switched on
+  or off (`canopener-cli plugins enable / disable ID` too); they use the same hooks as installed ones.
+- **pyserial** is a new optional extra (`serial`), which the installers include; the laptop
+  installer also adds you to the `dialout` group so USB-serial adapters open without root.
 - **New built-in profile: Generic ZAPI/Chinese AC Truck** (unconfirmed). Chinese-built AC
   forklifts on ZAPI controllers: battery (pack voltage and current, remaining Ah, all 16 cell
   voltages and 12 temperatures from the lithium BMS), seat, pedals, direction, park brake, both

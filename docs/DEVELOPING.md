@@ -148,6 +148,13 @@ Bluetooth OBD adapters (`adapter_buses()`: adapter commands only). See
 changes a machine must confirm with the user first, and `Session.send_frame` refuses in
 listen-only mode.
 
+**Bundled plugins** live in `canopener/addons/` and are listed in `plugins.BUNDLED`; they load
+only when switched on (`plugins.bundled` in settings.json). They use exactly the same hooks, so
+one can move to its own repository unchanged: keep the logic in a Qt- and Pygame-free module and
+import the screens (`gui.py`, `device.py`) only from the hook that needs them.
+`canopener/addons/zapi_console/` is the example: a handheld mode and a desktop tab over one
+`console.Console`.
+
 A plugin can also give saved captures somewhere else to go: subclass `core.upload.Uploader` (an
 `id`, a `name`, `configured(settings)`, `upload(bundle, settings, progress)` returning
 `{"key", "url"}`, raising `UploadError` on failure) and call `core.upload.register_uploader(...)`
@@ -222,6 +229,7 @@ canopener/
   canopen/   CANopen (CiA 301) protocol: COB-IDs, NMT, EMCY, SDO, standard objects, passive sniffer
   can/       bus backends (SocketCAN, python-can (optional), virtual, log replay, ELM327 Bluetooth OBD
              adapters + their probe) and candump log files
+  serialline/ serial ports (pyserial, optional), reader threads, serial.log (docs/SERIAL-SNIFFING.md)
   core/      session engine, scans, live-data model, OBD/UDS clients, transmit, reports, profiles,
              units, link status + signal finder, sound cues, self-update; for the handheld:
              meters, installed options (hardware.py), SYNC clock (sync.py), logic Pico (logic.py)

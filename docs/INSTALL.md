@@ -78,6 +78,11 @@ The desktop app has no Plugins screen yet; use a terminal there: `canopener-cli 
 Setting up a plugin repository and its GitHub App:
 [DEVELOPING.md](DEVELOPING.md#private-plugins-installing-from-the-device-no-keyboard).
 
+**Built-in plugins** come with CANopener and are off until you switch them on: **System →
+Software → Plugins → Built in** on the handheld, **Settings → Built-in plugins** on the desktop,
+or `canopener-cli plugins enable ID`, then restart. The first one is the
+[Zapi console](ZAPI-CONSOLE.md) (`zapi_console`).
+
 ## Uninstalling
 
 Laptop: [Uninstalling](install/linux-laptop.md#uninstalling) in the Linux laptop guide. Your

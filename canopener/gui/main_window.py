@@ -361,6 +361,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.autoconnect_action.toggled.connect(
             lambda on: self.settings.setValue("connect_on_startup", on))
         st.addAction(self.autoconnect_action)
+        builtin = st.addMenu("&Built-in plugins")
+        self._bundled_actions = {}
+        from .. import plugins as _plugins
+        from ..core.settings import Settings as _Settings
+        on = _plugins.bundled_enabled(_Settings())
+        for b in _plugins.BUNDLED:
+            act = QtGui.QAction(b.name, self, checkable=True)
+            act.setChecked(b.id in on)
+            act.setToolTip(b.about)
+            act.toggled.connect(lambda checked, pid=b.id: self._set_bundled(pid, checked))
+            builtin.addAction(act)
+            self._bundled_actions[b.id] = act
         st.addSeparator()
         self.handheld_action = QtGui.QAction("Handheld (Pi) screen", self, checkable=True)
         self.handheld_action.setToolTip("Switch to the Raspberry Pi handheld's touch UI in a window, to try it "
@@ -1401,6 +1413,13 @@ class MainWindow(QtWidgets.QMainWindow):
             "each ask before sending. Tick Listen-only to send nothing.</p>"
             "<p>GPL-2.0-or-later. Generic OBD-II code descriptions from python-OBD.</p>"
             f"<p>Qt binding: {QT_API}</p>" + self._plugins_html())
+
+    def _set_bundled(self, plugin_id: str, on: bool):
+        from .. import plugins
+        from ..core.settings import Settings
+        plugins.set_bundled(Settings(), plugin_id, on)
+        self.statusBar().showMessage(f"{'Switched on' if on else 'Switched off'}: restart CANopener for it to "
+                                     f"{'appear' if on else 'go'}.", 8000)
 
     def _plugins_html(self) -> str:
         from .. import plugins

@@ -7,6 +7,11 @@ A plugin is a Python module named by an entry point in the ``canopener.plugins``
     [project.entry-points."canopener.plugins"]
     mytool = "mytool.canopener_plugin"
 
+**Bundled plugins** ship inside CANopener (``canopener/addons/``) and use the same hooks, so one
+could move to a repository of its own unchanged. They're off until switched on
+(``plugins.bundled`` in settings.json: System > Software > Plugins on the handheld, **Settings >
+Built-in plugins** on the desktop, ``canopener-cli plugins enable ID``). ``BUNDLED`` lists them.
+
 (For development, ``CANOPENER_PLUGINS=mod1,mod2`` loads modules by name without installing.
 ``CANOPENER_NO_INSTALLED_PLUGINS=1`` leaves the installed ones out: CANopener's own tests set it,
 so they give the same result on a machine that has a plugin installed.)
@@ -41,6 +46,38 @@ from importlib import metadata
 
 GROUP = "canopener.plugins"
 NO_INSTALLED_ENV = "CANOPENER_NO_INSTALLED_PLUGINS"
+BUNDLED_SETTING = "plugins.bundled"     # ids of the bundled plugins switched on
+
+
+@dataclass(frozen=True)
+class Bundled:
+    id: str
+    module: str
+    name: str
+    about: str
+
+
+BUNDLED = (
+    Bundled("zapi_console", "canopener.addons.zapi_console", "Zapi console",
+            "a mode for Zapi controllers' serial console port: listen, record, work out the protocol"),
+)
+
+
+def bundled_enabled(settings=None) -> list[str]:
+    """Ids of the bundled plugins switched on."""
+    if settings is None:
+        from .core.settings import Settings
+        settings = Settings()
+    on = settings.get(BUNDLED_SETTING) or []
+    return [b.id for b in BUNDLED if b.id in on]
+
+
+def set_bundled(settings, plugin_id: str, on: bool):
+    """Switch a bundled plugin on or off (it loads or goes at the next start)."""
+    if plugin_id not in {b.id for b in BUNDLED}:
+        raise ValueError(f"no bundled plugin {plugin_id!r} (there are: {', '.join(b.id for b in BUNDLED)})")
+    now = [i for i in (settings.get(BUNDLED_SETTING) or []) if i != plugin_id]
+    settings.set(BUNDLED_SETTING, now + [plugin_id] if on else now)
 
 
 @dataclass
@@ -70,6 +107,11 @@ def _targets() -> list[tuple[str, str]]:
             eps = metadata.entry_points().get(GROUP, [])
     for ep in eps:
         out.append((ep.name, ep.value))
+    try:
+        on = bundled_enabled()
+    except Exception:               # noqa: BLE001 - an unreadable settings file must not stop the app
+        on = []
+    out += [(b.id, b.module) for b in BUNDLED if b.id in on]
     for name in filter(None, (os.environ.get("CANOPENER_PLUGINS") or "").split(",")):
         out.append((name.strip(), name.strip()))
     return out

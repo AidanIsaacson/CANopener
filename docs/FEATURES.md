@@ -150,6 +150,11 @@ adapter isn't ([how](USAGE.md#bluetooth-obd-adapters)).
 **Any CAN bus:** a bus monitor with every raw frame, or one row per ID with the changing bytes
 highlighted, for figuring out proprietary data.
 
+**Serial console ports:** controllers that talk to their service console over a serial line
+(RS-232, logic level or current loop) can be recorded too, both directions on the same clock as the
+CAN bus, and CANopener works out what it can: the message shapes, the checksum, which message
+answers which, and any menu text ([how](USAGE.md#serial-lines)).
+
 All of it also works from the [command line](USAGE.md#command-line), over SSH if you like.
 
 **Colour themes:** Element Zero (amber on black), Graphite and Daylight on both the handheld and

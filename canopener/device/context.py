@@ -133,6 +133,8 @@ class DeviceContext:
         self.adapter = link.Status(link.OFF, "Adapter")
         self.bus = link.Status(link.OFF, "Bus: not connected")
         self.second = None                  # a second bus watched listen-only (a Connection), or None
+        self.serial = None                  # serial lines a mode is listening to (a serialline Sniffer, e.g. the
+        #                                     Zapi console's taps): the data log records them too
         self.second_port = None             # its hardware.CanPort
         self.second_bitrate = 0
         self.bus2 = link.Status(link.OFF, "Bus: not connected")
@@ -1026,7 +1028,7 @@ class DeviceContext:
         if self.recording:
             return True
         has_meters = bool(self.hub.sources())
-        if not self.live and not has_meters:
+        if not self.live and not has_meters and self.serial is None:
             self.toast("Nothing to record: connect to a bus or switch on a meter")
             return False
         c = self.capture
@@ -1038,7 +1040,8 @@ class DeviceContext:
         try:
             c.start(self.session if self.live else None, config.logs_dir(), self.capture_meta(),
                     measurements=self.hub if has_meters else None,
-                    second=self.second.session if self.second is not None and self.live else None)
+                    second=self.second.session if self.second is not None and self.live else None,
+                    serial=self.serial)
         except (OSError, ValueError) as e:
             self.toast(f"Can't start the log: {e}")
             return False
@@ -1046,7 +1049,8 @@ class DeviceContext:
         if stream and self.protocol == profiles.OBD2 and self.obd_streamer is not None \
                 and not self.obd_streamer.running:
             self.toggle_obd_stream()        # a car only talks when asked: keep it talking while logging
-        self.toast("Recording" if self.live else "Recording meters only: not connected to a bus, so no CAN data")
+        what = "meters only" if has_meters else "serial lines only"
+        self.toast("Recording" if self.live else f"Recording {what}: not connected to a bus, so no CAN data")
         self.cue("rec_start")
         return True
 

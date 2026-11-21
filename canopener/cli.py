@@ -15,6 +15,8 @@
     canopener-cli obd --elm                           # OBD-II through the picked Bluetooth OBD adapter
     canopener-cli bluetooth kline --out probe.txt     # older K-line vehicle: what answers besides generic OBD-II
     canopener-cli obd --elm sim --bench 10            # how fast an adapter answers (here: the simulated one)
+    canopener-cli serial sniff --line console=/dev/ttyUSB0 --line controller=/dev/ttyUSB1 --framing "9600 8N1"
+    canopener-cli serial analyze CAPTURE_FOLDER       # what the serial bytes look like (kinds, checksums, text)
 """
 
 import argparse
@@ -653,6 +655,16 @@ def cmd_plugins(a) -> int:
     from .core import github, plugin_repos
     from .core.settings import Settings
     st = Settings()
+    from . import plugins
+    if a.action in ("enable", "disable"):
+        try:
+            plugins.set_bundled(st, a.repo or "", a.action == "enable")
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            return 2
+        print(f"{a.repo} {'on' if a.action == 'enable' else 'off'}: it {'loads' if a.action == 'enable' else 'goes'} "
+              "the next time CANopener starts.")
+        return 0
     acct = github.load_account()
     token = acct.token if acct else None
     try:
@@ -688,6 +700,9 @@ def cmd_plugins(a) -> int:
             print("Removed from the list (its folder and package were left in place).")
             return 0
         srcs = plugin_repos.sources(st)
+        on = plugins.bundled_enabled(st)
+        for b in plugins.BUNDLED:
+            print(f"Built in: {b.id} ({b.name}): {'on' if b.id in on else 'off'}, {b.about}")
         print(f"GitHub: signed in as {acct.login}" if acct else "GitHub: not signed in")
         if not srcs:
             print("No plugin repositories yet: canopener-cli plugins add owner/name")
@@ -1038,6 +1053,125 @@ def _elm_tool(a, settings) -> int:
             sim.stop()
 
 
+def _serial_lines(specs: list[str]) -> list[tuple[str, str]]:
+    """["console=/dev/ttyUSB0", "/dev/ttyUSB1"] -> [("console", "/dev/ttyUSB0"), ("B", "/dev/ttyUSB1")]."""
+    out = []
+    for i, spec in enumerate(specs):
+        name, eq, port = spec.partition("=")
+        if not eq or "://" in name:
+            name, port = chr(ord("A") + i), spec
+        out.append((name.strip(), port.strip()))
+    return out
+
+
+def cmd_serial(a) -> int:
+    from .serialline import port as sp
+    from .serialline.framing import Framing, guess_baud
+    if a.action == "ports":
+        if not sp.available():
+            print(sp.INSTALL_HINT, file=sys.stderr)
+            return 1
+        ports = sp.list_ports()
+        if not ports:
+            print("No serial ports found. Plug the USB-serial adapter in and try again.")
+        for p in ports:
+            lat = sp.latency_ms(p.device)
+            note = f"   (latency timer {lat} ms: 1 ms keeps messages apart)" if lat and lat > 1 else ""
+            stable = sp.by_id(p.device)
+            print(f"{p.device:<16} {p.description or '?'}" + (f"\n{'':<16} {stable}" if stable != p.device else "")
+                  + note)
+        return 0
+    if a.action == "baud":
+        from .core import logic
+        if not a.target or not a.channel:
+            print("usage: canopener-cli serial baud CAPTURE.sr --channel D3", file=sys.stderr)
+            return 2
+        try:
+            widths = logic.pulse_widths(a.target, a.channel)
+        except (OSError, ValueError, KeyError) as e:
+            print(f"Can't read {a.target}: {e}", file=sys.stderr)
+            return 1
+        rate, std = guess_baud(widths)
+        if rate is None:
+            print(f"No steady bit width in {len(widths)} pulses: not a UART at this sample rate, or noise.")
+            return 1
+        print(f"About {rate:,.0f} baud" + (f": {std} is the standard rate" if std else " (no standard rate near it)"))
+        return 0
+    if a.action == "analyze":
+        from .core import serial_analysis
+        if not a.target:
+            print("usage: canopener-cli serial analyze CAPTURE_FOLDER (or serial.log)", file=sys.stderr)
+            return 2
+        try:
+            r = serial_analysis.analyze_capture(a.target, gap=a.gap / 1000 if a.gap else None, head=a.head)
+        except (OSError, ValueError) as e:
+            print(f"Can't read {a.target}: {e}", file=sys.stderr)
+            return 1
+        print("\n".join(r.lines()))
+        if a.json:
+            import json
+            with open(a.json, "w") as f:
+                json.dump(r.to_dict(), f, indent=2)
+        return 0
+
+    # sniff: record the lines into a capture, Enter tags a timestamp
+    import queue
+    import threading
+
+    from .core.capture import Capture
+    if not a.line:
+        print("Name at least one line: --line console=/dev/ttyUSB0 (one per direction of the link)", file=sys.stderr)
+        return 2
+    try:
+        framing = Framing.parse(a.framing)
+        sniffer = sp.Sniffer.open(_serial_lines(a.line), framing, labels=dict(x.split("=", 1) for x in a.label or []))
+    except (ValueError, sp.SerialError) as e:
+        print(e, file=sys.stderr)
+        return 1
+    if a.show:
+        def show(c):
+            print(f"{c.t:.3f} {c.line:>10} {c.data.hex(' ').upper()}", file=sys.stderr)
+        sniffer.add_listener(show)
+    cap = Capture(a.name or "Serial sniff", plan=[x.strip() for x in (a.plan or "").split(",") if x.strip()])
+    cap.start(None, root=a.dir, meta={"source": "serial", "front_end": "canopener-cli"}, serial=sniffer)
+    sniffer.start()
+    lines = ", ".join(f"{t.line}={t.device}" for t in sniffer.taps)
+    print(f"Recording {lines} at {framing}. Enter tags the next timestamp, text + Enter adds one with that "
+          "label, q + Enter (or Ctrl-C) stops.", file=sys.stderr)
+    typed: queue.Queue = queue.Queue()
+
+    def read_stdin():
+        for row in sys.stdin:
+            typed.put(row.rstrip("\n"))
+        typed.put(None)
+    if sys.stdin and sys.stdin.isatty():
+        threading.Thread(target=read_stdin, daemon=True).start()
+    end = time.time() + a.seconds if a.seconds else None
+    try:
+        while end is None or time.time() < end:
+            errors = sniffer.errors()
+            if errors:
+                print("Stopped: " + "; ".join(errors), file=sys.stderr)
+                break
+            try:
+                row = typed.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            if row is None or row.strip().lower() == "q":
+                break
+            i = cap.add_marker(row.strip()) if row.strip() else cap.tag_next()
+            print(f"  tagged {cap.title(i)}", file=sys.stderr)
+    except KeyboardInterrupt:
+        pass
+    cap.stop()
+    sniffer.close()
+    folder = cap.save(system=a.units)
+    print(f"{cap.serial_bytes:,} bytes saved in {folder}", file=sys.stderr)
+    with open(os.path.join(folder, "serial_analysis.txt")) as f:
+        print(f.read())
+    return 0
+
+
 def cmd_changes(a) -> int:
     """What changed between the phases of a capture (core.changes): no decoder needed."""
     import json
@@ -1233,6 +1367,25 @@ def main(argv=None) -> int:
     ch.add_argument("--top", type=int, default=15, help="changes listed per step (default 15)")
     ch.add_argument("--json", metavar="FILE", help="also write everything (every field, per phase) as JSON")
     ch.set_defaults(fn=cmd_changes)
+    sr = sub.add_parser("serial", help="serial lines (a controller's console port): ports (list them), sniff "
+                        "(record one or more lines into a capture, Enter tags a timestamp), analyze (what the bytes "
+                        "look like: message kinds, checksums, exchanges, text), baud (the rate from a logic capture)")
+    sr.add_argument("action", choices=["ports", "sniff", "analyze", "baud"])
+    sr.add_argument("target", nargs="?", help="analyze: a capture folder or serial.log; baud: a sigrok .sr file")
+    sr.add_argument("--line", action="append", metavar="NAME=PORT",
+                    help="sniff: a line to record (a port, or pyserial URL); repeat for each direction")
+    sr.add_argument("--label", action="append", metavar="NAME=TEXT", help="sniff: what a line carries")
+    sr.add_argument("--framing", default="9600 8N1", help="sniff: baud rate and framing (default 9600 8N1)")
+    sr.add_argument("--seconds", type=float, help="sniff: stop after this long")
+    sr.add_argument("--name", help="sniff: the capture's name")
+    sr.add_argument("--plan", help="sniff: the timestamps to tag, comma separated (\"connect,menu,tester\")")
+    sr.add_argument("--dir", help="sniff: where to save the capture (default: the logs folder)")
+    sr.add_argument("--show", action="store_true", help="sniff: print every chunk as it arrives")
+    sr.add_argument("--gap", type=float, help="analyze: ms of quiet that end a message (default 10)")
+    sr.add_argument("--head", type=int, default=1, help="analyze: leading bytes that name a message kind")
+    sr.add_argument("--json", metavar="FILE", help="analyze: also write everything as JSON")
+    sr.add_argument("--channel", help="baud: the logic channel the line is on (D3, Probe 1, ...)")
+    sr.set_defaults(fn=cmd_serial)
     b = sub.add_parser("bluetooth", help="Bluetooth OBD adapters (ELM327-style): list, scan, pair, rename, use, "
                        "test, forget, probe (what it can do), console (adapter commands), kline (read-only deep "
                        "probe of an older K-line vehicle: what answers besides generic OBD-II)")
@@ -1353,10 +1506,10 @@ def main(argv=None) -> int:
     up.set_defaults(fn=cmd_update)
 
     pl = sub.add_parser("plugins", help="plugins from GitHub repositories (private ones too): sign in, add, "
-                        "check, update")
+                        "check, update; enable / disable a built-in one (zapi_console)")
     pl.add_argument("action", nargs="?", default="list",
-                    choices=["list", "update", "add", "remove", "login", "logout", "repos"])
-    pl.add_argument("repo", nargs="?", help="owner/name (add, remove)")
+                    choices=["list", "update", "add", "remove", "login", "logout", "repos", "enable", "disable"])
+    pl.add_argument("repo", nargs="?", help="owner/name (add, remove), or a built-in plugin's id (enable, disable)")
     pl.add_argument("--dir", help="add: where to put the checkout (default ~/<name>)")
     pl.set_defaults(fn=cmd_plugins)
 

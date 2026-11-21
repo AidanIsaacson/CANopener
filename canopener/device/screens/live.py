@@ -8,6 +8,10 @@ in the grid enlarges it, with the others stacked beside it. The models are
 What's picked, the grid and the enlarged value are kept (``device.live_view`` in settings.json,
 ``SavedView``), so they're still there after another screen or a restart: a picked value comes
 back as soon as it's on the bus again.
+
+**System > Live data** groups the list under a heading per controller (who sends each value) or
+per group (``core.live.sections``). Select (or a tap) on a heading folds it away; which ones are
+folded is kept with the rest of the view.
 """
 
 import time
@@ -15,12 +19,26 @@ import time
 import pygame
 
 from ...core import profiles, units
+from ...core.live import GROUP_NONE, GROUP_SOURCE, Collapsed, sections
 from .. import input as inp
 from ..ui import GridView, ListView
 from .base import Screen, SoftKey
 
 TRACE_SECONDS = 60
-VIEW = "device.live_view"           # {"grid": bool, "picks": [[model, signal key, source], ...], "zoom": pick}
+VIEW = "device.live_view"           # {"grid": bool, "picks": [[model, signal key, source], ...], "zoom": pick,
+#                                      "collapsed": {grouping: [section id, ...]}}
+GROUPING = "device.live_group"      # none / source / group (System > Live data)
+
+
+class Head:
+    """A section heading in the list: the model it's from and its ``core.live.Section``."""
+
+    def __init__(self, model_id: str, model, section):
+        self.model_id, self.model, self.section = model_id, model, section
+
+    @property
+    def id(self) -> str:
+        return f"{self.model_id}:{self.section.id}"
 
 
 def _ident(model_id: str, key) -> tuple:
@@ -38,6 +56,7 @@ class SavedView:
         self.grid = bool(saved.get("grid"))
         self.zoom = tuple(saved["zoom"]) if saved.get("zoom") else None
         self.pending = [tuple(p) for p in saved.get("picks") or []]     # saved, not picked again yet
+        self.collapsed = Collapsed(saved.get("collapsed"))
 
     def restore(self, models: dict):
         """Pick again the saved values that have turned up. ``models``: id -> LiveData."""
@@ -59,6 +78,8 @@ class SavedView:
         self.grid = grid
         value = {"grid": grid, "picks": [list(p) for p in self.picks(models)],
                  "zoom": list(self.zoom) if self.zoom else None}
+        if self.collapsed.to_dict():
+            value["collapsed"] = self.collapsed.to_dict()
         if value != (self.settings.get(self.key) or {}):
             self.settings.set(self.key, value)
 
@@ -90,6 +111,16 @@ def trace_points(row, system: str) -> list:
     cut = (row.t or time.time()) - TRACE_SECONDS       # back from the newest value (a replayed log too)
     pts = list(row.points)[-TRACE_SECONDS * 20:]
     return [(t, units.convert(v, row.sig.unit, system)[0]) for t, v in pts if t >= cut]
+
+
+def draw_fold_arrow(ui, r, folded: bool, color="accent"):
+    """A heading's triangle: pointing right when folded, down when open (drawn: not every font
+    has the arrow characters)."""
+    if folded:
+        pts = [(r.left, r.top), (r.right, r.centery), (r.left, r.bottom)]
+    else:
+        pts = [(r.left, r.top + r.h * .2), (r.right, r.top + r.h * .2), (r.centerx, r.bottom - r.h * .1)]
+    pygame.draw.polygon(ui.surface, ui.color(color), pts)
 
 
 def draw_value_tile(ui, r, model, row, system: str, focused: bool = False, source: str = ""):
@@ -150,12 +181,25 @@ class LivePage(Screen):
             z = self.grid.zoom
             self.saved.zoom = self._ident_of(*items[z]) if z is not None and z < len(items) else None
 
+    @property
+    def grouping(self) -> str:
+        return self.ctx.settings.get(GROUPING) or GROUP_NONE
+
     def _entries(self):
+        """(model, key) per value, with a ``Head`` before each section when the list is grouped
+        (a folded section's values are left out)."""
+        by = self.grouping
         out = []
-        for m in self.models():
-            for k in list(m.order):
-                if not self.only_picked or k in m.selected:
-                    out.append((m, k))
+        for mid, m in self._by_id().items():
+            keys = [k for k in list(m.order) if not self.only_picked or k in m.selected]
+            if by == GROUP_NONE or not keys:
+                out += [(m, k) for k in keys]
+                continue
+            for sec in sections(m, by, keys):
+                head = Head(mid, m, sec)
+                out.append(head)
+                if not self.saved.collapsed.is_folded(by, head.id):
+                    out += [(m, k) for k in sec.keys]
         return out
 
     def picked(self):
@@ -223,7 +267,12 @@ class LivePage(Screen):
 
     def toggle(self, i):
         if 0 <= i < len(self.entries):
-            m, k = self.entries[i]
+            e = self.entries[i]
+            if isinstance(e, Head):         # a heading: fold or unfold its section
+                self.saved.collapsed.toggle(self.grouping, e.id)
+                self.entries = self._entries()
+                return
+            m, k = e
             m.select(k, k not in m.selected)
 
     def on_action(self, action, n=1):
@@ -280,9 +329,26 @@ class LivePage(Screen):
         t = ui.theme
 
         def draw_row(ui, i, r, focused):
-            m, k = self.entries[i]
-            row = m.rows[k]
+            e = self.entries[i]
             inner = r.inflate(-t.pad // 2, -t.pad // 3)
+            if isinstance(e, Head):
+                folded = self.saved.collapsed.is_folded(self.grouping, e.id)
+                ui.panel(inner, "panel2", t.radius)
+                if focused:
+                    ui.fill(inner, "focus", t.radius, max(2, t.pad // 3))
+                n = len(e.section.keys)
+                what = "value" if n == 1 else "values"
+                if e.model is self.ctx.meter_live and self.grouping != GROUP_SOURCE:
+                    what = "probe" if n == 1 else "probes"
+                count = ui.text(f"{n} {what}", (inner.right - t.pad, inner.centery), "small", "dim", align="right")
+                arrow = pygame.Rect(0, 0, t.touch * .3, t.touch * .3)
+                arrow.midleft = (inner.x + t.pad + t.touch * .1, inner.centery)
+                draw_fold_arrow(ui, arrow, folded)
+                ui.text(e.section.title, (arrow.right + t.pad, inner.centery), "body", "accent",
+                        max_w=count.left - arrow.right - 3 * t.pad)
+                return
+            m, k = e
+            row = m.rows[k]
             ui.panel(inner, "panel", t.radius)
             if focused:
                 ui.fill(inner, "focus", t.radius, max(2, t.pad // 3))
@@ -296,7 +362,8 @@ class LivePage(Screen):
                          max_w=round(inner.w * .3))
             name_w = vr.left - box.right - 3 * t.pad
             ui.text(row.sig.name, (box.right + t.pad, inner.y + inner.h * .36), "body", "text", max_w=name_w)
-            sub = m.source_label(row.sa) + (f"   {lohi}" if lohi else "")
+            src = "" if self.grouping == GROUP_SOURCE else m.source_label(row.sa)     # the heading says it
+            sub = "   ".join(x for x in (src, lohi) if x)
             ui.text(sub, (box.right + t.pad, inner.y + inner.h * .76), "small", "faint", max_w=name_w)
 
         self.view.draw(ui, rect, len(self.entries), round(t.row * 1.15), draw_row, self.toggle)

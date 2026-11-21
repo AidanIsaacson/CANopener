@@ -33,6 +33,7 @@ class AppContext(QtCore.QObject):
         self.capture = None                   # the Log tool's current capture (core.capture.Capture)
         from ..core.measure import MeasurementHub
         self.hub = MeasurementHub()           # measurements beside the bus (the OBD adapter's battery voltage)
+        self.serial = None                    # serial lines a tab listens to (a Sniffer): the Log records them
         self.saved_paths: list[str] = []      # captures / reports saved this session, for Export Logs
         # Set by the main window: the id of the user profile labels go into (it may ask the user
         # to name a new one), or None if they cancelled.

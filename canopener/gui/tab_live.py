@@ -3,12 +3,19 @@
 The screen only: values, min/max, history and the picked signals live in ``core.live.LiveData``
 (J1939 broadcast signals) or ``core.live.ObdLiveData`` (OBD-II PIDs), which the on-device UI
 shares. The OBD-II tab embeds a second instance of this tab over the OBD-II model.
+
+**Group by** puts the rows under a heading per controller (the source address / module) or per
+profile group (``core.live.sections``); clicking a heading folds it away (``core.live.Collapsed``).
+Both, and which headings are folded, are remembered.
 """
 
+import json
 import time
 
 from ..core import units
-from ..core.live import LiveData
+from ..core.live import GROUP_KIND, GROUP_NONE, GROUP_SOURCE, Collapsed, LiveData, grouping_label, sections
+from . import themes
+from .flow import FlowLayout
 from .qt import Qt, QtCore, QtGui, QtWidgets
 from .widgets import StripChart, item, setup_table
 
@@ -33,17 +40,30 @@ class LiveTab(QtWidgets.QWidget):
         self.rows, self.order, self.plotted = self.model.rows, self.model.order, self.model.selected
         lay = QtWidgets.QVBoxLayout(self)
 
-        bar = self.controls = QtWidgets.QHBoxLayout()
+        # wraps onto a second line on a narrow screen instead of pinning the window wide (gui/flow.py);
+        # the OBD-II tab adds its own buttons to it
+        bar = self.controls = FlowLayout(spacing=6)
         self.filter = QtWidgets.QLineEdit()
         self.filter.setPlaceholderText(filter_hint)
+        self.filter.setMinimumWidth(220)
         self.filter.textChanged.connect(self._apply_filter)
-        bar.addWidget(self.filter, 2)
+        bar.addWidget(self.filter)
         self.group = QtWidgets.QComboBox()
         self.group.addItem(ALL_GROUPS)
         self.group.setMinimumWidth(150)
         self.group.setToolTip("Show one group of parameters (groups come from the machine profile)")
         self.group.currentIndexChanged.connect(lambda _: self._apply_filter())
         bar.addWidget(self.group)
+        self.group_by = QtWidgets.QComboBox()
+        for by in (GROUP_NONE, GROUP_SOURCE, GROUP_KIND):
+            self.group_by.addItem(grouping_label(by, self.model), by)
+        self.group_by.setToolTip("Put the values under a heading per controller (who sends them) or per group; "
+                                 "click a heading to fold it away")
+        bar.addWidget(self.group_by)
+        self.fold_all = QtWidgets.QPushButton("Collapse all")
+        self.fold_all.setToolTip("Fold every heading away, or open them all again")
+        self.fold_all.clicked.connect(self._fold_all)
+        bar.addWidget(self.fold_all)
         reset = QtWidgets.QPushButton("Reset min/max")
         reset.clicked.connect(self._reset_minmax)
         bar.addWidget(reset)
@@ -74,7 +94,11 @@ class LiveTab(QtWidgets.QWidget):
             self.table.setColumnWidth(c, w)
         self.table.setColumnHidden(C_SPN, not cols[C_SPN])
         self.table.itemChanged.connect(self._item_changed)
+        self.table.cellClicked.connect(self._cell_clicked)
         split.addWidget(self.table)
+        # What each table row is: a value (row_of: key -> row) or a section heading (headers).
+        self.row_of: dict = {}
+        self.headers: dict = {}
         # The chart and its own controls, in one pane that "Hide plots" hides.
         self.chart_pane = QtWidgets.QWidget()
         cl = QtWidgets.QVBoxLayout(self.chart_pane)
@@ -107,6 +131,14 @@ class LiveTab(QtWidgets.QWidget):
         self.empty.setStyleSheet("color: gray")
         lay.addWidget(self.empty)
 
+        try:
+            self.collapsed = Collapsed(json.loads(settings.value(f"{self.prefix}/collapsed", "{}") or "{}"))
+        except (TypeError, ValueError):
+            self.collapsed = Collapsed()
+        saved_by = settings.value(f"{self.prefix}/group_by", GROUP_NONE)
+        self.group_by.setCurrentIndex(max(self.group_by.findData(saved_by), 0))
+        self.fold_all.setVisible(self.grouping != GROUP_NONE)
+        self.group_by.currentIndexChanged.connect(lambda _: self._grouping_changed())
         self.only_checked.setChecked(settings.value(f"{self.prefix}/only_checked", "false") in (True, "true"))
         self.hide_plots.setChecked(settings.value(f"{self.prefix}/hide_plots", "false") in (True, "true"))
         self._only_checked_toggled(self.only_checked.isChecked(), save=False)
@@ -125,6 +157,38 @@ class LiveTab(QtWidgets.QWidget):
         self._apply_filter()
         self.refresh(force=True)
 
+    @property
+    def grouping(self) -> str:
+        return self.group_by.currentData() or GROUP_NONE
+
+    def _grouping_changed(self):
+        QtCore.QSettings().setValue(f"{self.prefix}/group_by", self.grouping)
+        self.fold_all.setVisible(self.grouping != GROUP_NONE)
+        self._rebuild_table()
+
+    def _save_collapsed(self):
+        QtCore.QSettings().setValue(f"{self.prefix}/collapsed", json.dumps(self.collapsed.to_dict()))
+
+    def toggle_section(self, sid: str):
+        """Fold or unfold one heading (what clicking it does)."""
+        self.collapsed.toggle(self.grouping, sid)
+        self._save_collapsed()
+        self._apply_filter()
+        self.refresh(force=True)
+
+    def _fold_all(self):
+        ids = [sec.id for sec in self.headers.values()]
+        fold = not all(self.collapsed.is_folded(self.grouping, i) for i in ids)
+        self.collapsed.fold_all(self.grouping, ids, fold)
+        self._save_collapsed()
+        self._apply_filter()
+        self.refresh(force=True)
+
+    def _cell_clicked(self, row: int, _col: int):
+        sec = self.headers.get(row)
+        if sec is not None:
+            self.toggle_section(sec.id)
+
     def _hide_plots_toggled(self, on: bool, save: bool = True):
         self.hide_plots.setText("Show plots" if on else "Hide plots")
         self.chart_pane.setVisible(not on)
@@ -134,6 +198,7 @@ class LiveTab(QtWidgets.QWidget):
     def _session_changed(self, session):
         self.model.clear()
         self.table.setRowCount(0)
+        self.row_of, self.headers = {}, {}
         self.chart.follow_data = bool(session and session.offline)
         if session is not None and session.offline:
             self._load_history(session)
@@ -160,8 +225,34 @@ class LiveTab(QtWidgets.QWidget):
     def _rebuild_table(self):
         t = self.table
         t.blockSignals(True)
-        t.setRowCount(len(self.order))
-        for i, key in enumerate(self.order):
+        t.clearSpans()
+        display: list = []              # (section or None, key or None) per table row
+        if self.grouping == GROUP_NONE:
+            display = [(None, k) for k in self.order]
+        else:
+            for sec in sections(self.model, self.grouping):
+                display.append((sec, None))
+                display += [(sec, k) for k in sec.keys]
+        self.row_of, self.headers = {}, {}
+        t.setRowCount(len(display))
+        bg, fg = themes.tint("muted")
+        bold = QtGui.QFont(t.font())
+        bold.setBold(True)
+        for i, (sec, key) in enumerate(display):
+            if key is None:             # a section heading, across the whole row
+                self.headers[i] = sec
+                head = QtWidgets.QTableWidgetItem(sec.title)
+                head.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                head.setFont(bold)
+                head.setBackground(bg)
+                head.setForeground(fg)
+                head.setToolTip("Click to fold or unfold")
+                t.setItem(i, 0, head)
+                for c in range(1, t.columnCount()):
+                    t.setItem(i, c, None)
+                t.setSpan(i, 0, 1, t.columnCount())
+                continue
+            self.row_of[key] = i
             r = self.rows[key]
             chk = QtWidgets.QTableWidgetItem()
             if getattr(r.sig, "is_text", False):        # a message, not a number: nothing to plot
@@ -202,8 +293,10 @@ class LiveTab(QtWidgets.QWidget):
         sysu = self.ctx.units
         t = self.table
         t.blockSignals(True)
-        for i, key in enumerate(self.order):
-            r = self.rows[key]
+        for key, i in self.row_of.items():
+            r = self.rows.get(key)
+            if r is None or t.isRowHidden(i):
+                continue
             sig = r.sig
             val, unit = units.convert(r.value, sig.unit, sysu)
             lo = units.convert(r.lo, sig.unit, sysu)[0]
@@ -259,13 +352,27 @@ class LiveTab(QtWidgets.QWidget):
         group = self.group.currentText()
         group = None if group == ALL_GROUPS else group
         only = self.only_checked.isChecked()
-        for i, key in enumerate(self.order):
-            self.table.setRowHidden(i, not self.model.matches(key, q, group, only))
+        shown = {key: self.model.matches(key, q, group, only) for key in self.row_of}
+        for i, sec in self.headers.items():
+            folded = self.collapsed.is_folded(self.grouping, sec.id)
+            n = sum(1 for k in sec.keys if shown.get(k))
+            self.table.setRowHidden(i, n == 0)
+            for k in sec.keys:
+                self.table.setRowHidden(self.row_of[k], folded or not shown.get(k))
+            text = f"{'▸' if folded else '▾'}  {sec.title}   ·   {n} value{'s' if n != 1 else ''}"
+            it = self.table.item(i, 0)
+            if it is not None and it.text() != text:
+                it.setText(text)
+        if not self.headers:
+            for key, i in self.row_of.items():
+                self.table.setRowHidden(i, not shown[key])
 
     def _item_changed(self, it):
         if it.column() != C_PLOT:
             return
         key = it.data(Qt.ItemDataRole.UserRole)
+        if key is None:                 # a heading
+            return
         self.model.select(key, it.checkState() == Qt.CheckState.Checked)
         self._sync_chart()
         if self.only_checked.isChecked():
@@ -307,10 +414,19 @@ class LiveTab(QtWidgets.QWidget):
             self.model.select(k)
         self._rebuild_table()
         self._sync_chart()
-        i = self.order.index(keys[0])
+        self._show_row(keys[0])
+        return True
+
+    def _show_row(self, key):
+        """Select a value's row, unfolding its heading first."""
+        for sec in self.headers.values():
+            if key in sec.keys and self.collapsed.is_folded(self.grouping, sec.id):
+                self.collapsed.set(self.grouping, sec.id, False)
+                self._save_collapsed()
+                self._apply_filter()
+        i = self.row_of[key]
         self.table.selectRow(i)
         self.table.scrollToItem(self.table.item(i, C_NAME))
-        return True
 
     def focus_spn(self, spn: int):
         """Select and plot the row for an SPN (from the Fault Codes tab)."""
@@ -323,9 +439,7 @@ class LiveTab(QtWidgets.QWidget):
                 self.model.select(key)
                 self._rebuild_table()
                 self._sync_chart()
-            i = self.order.index(key)
-            self.table.selectRow(i)
-            self.table.scrollToItem(self.table.item(i, C_NAME))
+            self._show_row(key)
             return True
         self.ctx.status_message.emit(f"SPN {spn} is not being broadcast right now")
         return False

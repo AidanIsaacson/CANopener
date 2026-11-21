@@ -19,6 +19,11 @@ clock as the frames in ``capture.log``. The channels are listed in ``capture.jso
 "channels"), and the report puts them in ``live_data.csv`` and the summary next to the CAN data.
 A capture can also record measurements with no bus connected (``session=None``).
 
+Serial lines (a controller's console port, ``serialline/``) record the same way: pass a
+``serialline.port.Sniffer`` to ``start()`` and every chunk of bytes goes to ``serial.log`` on the
+same clock; ``capture.json`` (``meta`` "serial") says which port each line was and its framing.
+``core/serial_analysis.py`` works out what the bytes mean.
+
 Machine details (``machine``: make, model, serial, ... see ``MACHINE_FIELDS``) say what was
 logged, and ``question`` says what to look at. Both can be edited at any time; ``README.md`` (see
 ``capture_readme``) is rewritten with ``capture.json``, so a capture folder explains itself to
@@ -48,10 +53,12 @@ META_JSON = "capture.json"
 LIVE_CSV = "live_data.csv"
 FULL_LOG = "capture_full.log"       # the untrimmed log, when trimming keeps it
 FULL_MEASUREMENTS = "measurements_full.csv"
+FULL_SERIAL = "serial_full.log"
 SUMMARY_TXT = "summary.txt"
 ADAPTER_TRACE = "adapter_trace.txt"     # a Bluetooth OBD adapter's own text, while recording through one
 README_MD = "README.md"
 TRAFFIC_CSV = "traffic.csv"
+SERIAL_LOG = "serial.log"           # serial lines heard while recording (serialline/log.py), same clock
 PENDING_PREFIX = ".recording_"
 
 IDLE, RECORDING, STOPPED, SAVED = "idle", "recording", "stopped", "saved"
@@ -115,6 +122,8 @@ class Capture:
         self._session = None
         self._second = None
         self._mlog: MeasurementLog | None = None
+        self._slog = None                   # serialline.log.SerialLog while recording serial lines
+        self.serial_bytes = 0
 
     # ------------------------------------------------------------------
     # markers
@@ -288,6 +297,13 @@ class Capture:
             if keep_full:
                 shutil.copyfile(mpath, os.path.join(self.folder, FULL_MEASUREMENTS))
             self.samples = trim_measurements(mpath, lo, hi)[0]
+        spath = self.serial_path
+        if spath and os.path.exists(spath):
+            if keep_full:
+                shutil.copyfile(spath, os.path.join(self.folder, FULL_SERIAL))
+            from ..serialline.log import trim_serial_log
+            self.serial_bytes = trim_serial_log(spath, lo, hi)[0]
+            self.meta.setdefault("serial", {})["bytes"] = self.serial_bytes
         if keep_full:
             os.replace(src, os.path.join(self.folder, FULL_LOG))
         os.replace(tmp, src)
@@ -324,15 +340,20 @@ class Capture:
     def measurements_path(self) -> str | None:
         return os.path.join(self.folder, MEASUREMENTS_CSV) if self.folder else None
 
+    @property
+    def serial_path(self) -> str | None:
+        return os.path.join(self.folder, SERIAL_LOG) if self.folder else None
+
     def start(self, session, root: str | None = None, meta: dict | None = None, measurements=None,
-              second=None):
+              second=None, serial=None):
         """Start recording ``session`` (None: measurements only) and, when given, every reading
         from the ``measurements`` hub (a ``core.measure.MeasurementHub``). ``second`` is another
-        session watched at the same time (a second bus): its frames go to ``capture-can2.log``."""
+        session watched at the same time (a second bus): its frames go to ``capture-can2.log``.
+        ``serial`` is a ``serialline.port.Sniffer``: its lines go to ``serial.log``."""
         if self.state != IDLE:
             raise RuntimeError(f"capture is {self.state}")
-        if session is None and measurements is None:
-            raise ValueError("nothing to record: no bus and no meters")
+        if session is None and measurements is None and serial is None:
+            raise ValueError("nothing to record: no bus, no meters and no serial lines")
         self.root = root or self.root or config.logs_dir()
         self.started = time.time()
         stamp = datetime.datetime.fromtimestamp(self.started).strftime("%Y%m%d_%H%M%S")
@@ -352,6 +373,10 @@ class Capture:
         if measurements is not None:
             self._mlog = MeasurementLog(self.measurements_path, measurements)
             self.meta["channels"] = [c.to_dict() for c in self._mlog.channels.values()]
+        if serial is not None:
+            from ..serialline.log import SerialLog
+            self._slog = SerialLog(self.serial_path, serial)
+            self.meta["serial"] = {"lines": serial.lines()}
         self._session = session
         self._second = second
         if second is not None:
@@ -374,6 +399,10 @@ class Capture:
             self.samples = self._mlog.close()
             self.meta["channels"] = [c.to_dict() for c in self._mlog.channels.values()]
             self._mlog = None
+        if self._slog is not None:
+            self.serial_bytes = self._slog.close()
+            self.meta.setdefault("serial", {})["bytes"] = self.serial_bytes
+            self._slog = None
         self.stopped = time.time()
         self.state = STOPPED
         self._write_state()
@@ -406,6 +435,10 @@ class Capture:
     @property
     def recorded_samples(self) -> int:
         return self._mlog.count if self._mlog is not None else self.samples
+
+    @property
+    def recorded_serial_bytes(self) -> int:
+        return self._slog.bytes if self._slog is not None else self.serial_bytes
 
     def default_folder_name(self) -> str:
         stamp = datetime.datetime.fromtimestamp(self.started or time.time()).strftime("%Y%m%d_%H%M%S")
@@ -459,7 +492,7 @@ class Capture:
             "name": self.name, "notes": self.notes, "machine": dict(self.machine), "question": self.question,
             "state": self.state,
             "started": self.started, "stopped": self.stopped, "frames": self.recorded_frames,
-            "samples": self.recorded_samples,
+            "samples": self.recorded_samples, "serial_bytes": self.recorded_serial_bytes,
             "markers": [asdict(m) for m in self.markers], "meta": self.meta,
         }
 
@@ -492,6 +525,7 @@ class Capture:
         c.started, c.stopped = d.get("started"), d.get("stopped")
         c.frames = d.get("frames", 0)
         c.samples = d.get("samples", 0)
+        c.serial_bytes = d.get("serial_bytes", 0)
         c.meta = d.get("meta", {})
         c.folder = folder
         c.root = os.path.dirname(os.path.abspath(folder))

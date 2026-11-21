@@ -17,6 +17,7 @@ from .capture import (
     CAPTURE_LOG,
     FULL_LOG,
     FULL_MEASUREMENTS,
+    FULL_SERIAL,
     LIVE_CSV,
     MACHINE_FIELDS,
     MARKERS_CSV,
@@ -24,6 +25,7 @@ from .capture import (
     README_MD,
     SAVED,
     SECOND_LOG,
+    SERIAL_LOG,
     SUMMARY_TXT,
     TRAFFIC_CSV,
     Capture,
@@ -43,6 +45,10 @@ FILES = {
     MARKERS_CSV: "the timestamps (wall clock and seconds since the start)",
     TRAFFIC_CSV: "every PGN / source and 11-bit ID: frame count, rate, length, and whether it decoded",
     MEASUREMENTS_CSV: "meter readings (wall-clock times, same clock as capture.log)",
+    SERIAL_LOG: "bytes heard on serial lines, one chunk per row: `(epoch seconds) line HEX BYTES`, same clock "
+                "as capture.log (each line's port and framing: the `# line` comments, and `serial` in capture.json)",
+    "serial_analysis.txt": "what the serial bytes look like: message kinds, checksums that fit, exchanges, text, "
+                           "and what changed at each timestamp",
     ADAPTER_TRACE: "the Bluetooth OBD adapter's own text (commands sent, every reply line): on a non-CAN "
                    "vehicle (K-line, J1850) the frames in capture.log are rebuilt from this, so a reply "
                    "that didn't parse only shows here",
@@ -54,6 +60,7 @@ FILES = {
     "report.txt": "the scan report (fault codes, machine info) from when this was recorded",
     FULL_LOG: "the untrimmed log (this capture was trimmed to the stretch around its timestamps)",
     FULL_MEASUREMENTS: "the untrimmed meter readings",
+    FULL_SERIAL: "the untrimmed serial log",
 }
 
 
@@ -75,7 +82,8 @@ def render(c: Capture) -> str:
     if c.started:
         long = fmt_elapsed((c.stopped or c.started) - c.started)[1:]
         rows.append(("Recorded", f"{_when(c.started)} to {_when(c.stopped or c.started)} ({long})"))
-    counts = f"{c.frames:,} CAN frames" + (f", {c.samples:,} meter readings" if c.samples else "")
+    counts = f"{c.frames:,} CAN frames" + (f", {c.samples:,} meter readings" if c.samples else "") \
+        + (f", {c.serial_bytes:,} serial bytes" if c.serial_bytes else "")
     rows.append(("Recorded data", counts))
     meta = c.meta or {}
     for key, label in (("source", "Connection"), ("interface", "Interface"), ("bitrate", "Bitrate"),
@@ -86,6 +94,9 @@ def render(c: Capture) -> str:
             rows.append((label, meta[key]))
     if meta.get("plugins"):
         rows.append(("Plugins", ", ".join(meta["plugins"])))
+    for d in (meta.get("serial") or {}).get("lines") or []:
+        what = ", ".join(x for x in (d.get("label", ""), d.get("port", ""), d.get("framing", "")) if x)
+        rows.append((f"Serial line {d.get('line', '?')}", what or "?"))
     tr = meta.get("trimmed")
     if tr:
         rows.append(("Trimmed", f"{tr.get('before_s', 0) / 60:g} min before the first timestamp to "

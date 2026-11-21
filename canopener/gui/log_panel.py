@@ -292,7 +292,10 @@ class LogPanel(QtWidgets.QDockWidget):
 
     def start(self):
         s = self.ctx.session
-        if s is None or s.offline:
+        serial = getattr(self.ctx, "serial", None)
+        if s is not None and s.offline:
+            s = None
+        if s is None and serial is None:
             self._message("Connect to a bus (or the simulator) first")
             return
         if self.capture.state == cap.STOPPED:
@@ -306,8 +309,8 @@ class LogPanel(QtWidgets.QDockWidget):
         try:
             hub = getattr(self.ctx, "hub", None)
             self.capture.start(s, config.logs_dir(), self.meta_fn(),
-                               measurements=hub if hub is not None and hub.sources() else None)
-        except OSError as e:
+                               measurements=hub if hub is not None and hub.sources() else None, serial=serial)
+        except (OSError, ValueError) as e:
             QtWidgets.QMessageBox.critical(self, "Start capture", str(e))
             return
         self.settings.setValue("log/plan", self.capture.plan_labels())

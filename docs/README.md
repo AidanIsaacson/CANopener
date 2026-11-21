@@ -30,6 +30,8 @@
 | [DEVELOPING.md](DEVELOPING.md) | Dev setup, simulators, machine profile format, plugins, project layout |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the software is built, what maps to the handheld, open work |
 | [BLUETOOTH-OBD.md](BLUETOOTH-OBD.md) | Bluetooth OBD adapters: **gaps to fill**, adapters tried, how to test it yourself |
+| [SERIAL-SNIFFING.md](SERIAL-SNIFFING.md) | Serial console ports: tapping a line (current loop too), recording, the analysis, keeping findings publishable |
+| [ZAPI-CONSOLE.md](ZAPI-CONSOLE.md) | The Zapi console mode: what it does so far, the findings and where each came from |
 | [../deploy/linux/README.md](../deploy/linux/README.md) | The Linux installer's files and adapter rules |
 | [../deploy/upload-server/README.md](../deploy/upload-server/README.md) | The capture upload server: setup (Docker, nginx, Cloudflare tunnel), reading captures back, its API |
 | [../CLAUDE.md](../CLAUDE.md) | Project rules (written for Claude Code, useful for anyone) |

@@ -67,6 +67,12 @@ fi
 echo "== USB CAN adapter drivers"
 sudo "$HERE/adapter-setup.sh"
 
+# USB-serial adapters (/dev/ttyUSB*, a controller's console port) belong to the dialout group.
+if getent group dialout >/dev/null && ! id -nG "$USER" | tr ' ' '\n' | grep -qx dialout; then
+    echo "== Serial ports: adding $USER to the dialout group (takes effect at the next log-in)"
+    sudo usermod -aG dialout "$USER"
+fi
+
 echo "== CANopener in $VENV"
 if [ -e "$VENV" ] && ! "$VENV/bin/python" -c 'import sys' >/dev/null 2>&1; then
     echo "   the old environment no longer runs (system Python upgraded?) - rebuilding it"
@@ -74,8 +80,9 @@ if [ -e "$VENV" ] && ! "$VENV/bin/python" -c 'import sys' >/dev/null 2>&1; then
 fi
 [ -x "$VENV/bin/python" ] || python3 -m venv "$VENV"
 "$VENV/bin/python" -m pip install --quiet --upgrade pip
-# device: the handheld UI (Pygame); adapters: python-can, for adapters Linux doesn't show as can0
-"$VENV/bin/python" -m pip install --upgrade -e "${REPO}[gui,device,adapters]"
+# device: the handheld UI (Pygame); adapters: python-can, for adapters Linux doesn't show as can0;
+# serial: pyserial, for serial lines (a controller's console port)
+"$VENV/bin/python" -m pip install --upgrade -e "${REPO}[gui,device,adapters,serial]"
 if ! err="$("$VENV/bin/python" -c 'from canopener.gui.qt import QtWidgets' 2>&1)"; then
     echo "   WARNING: the GUI library doesn't load:" >&2
     echo "$err" >&2

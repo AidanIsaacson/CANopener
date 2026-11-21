@@ -665,6 +665,69 @@ def test_live_data_view_toggles(app, tmp_path):
     w2.close()
 
 
+def test_live_data_groups_by_controller_and_folds(app, tmp_path):
+    from canopener.core import connection
+    from canopener.core.live import GROUP_KIND, GROUP_NONE, GROUP_SOURCE
+    from canopener.gui.main_window import MainWindow
+
+    qt.QtCore.QSettings.setDefaultFormat(qt.QtCore.QSettings.Format.IniFormat)
+    qt.QtCore.QSettings.setPath(qt.QtCore.QSettings.Format.IniFormat, qt.QtCore.QSettings.Scope.UserScope,
+                                str(tmp_path))
+    w = MainWindow()
+    w.show()
+    w.source.setCurrentIndex(w.source.findData(connection.SIMULATOR))
+    w.connect()
+    pump(app, 1.5)
+    live = w.live
+    w.tabs.setCurrentWidget(live)
+    live.sample()
+    assert live.grouping == GROUP_NONE and not live.headers and not live.fold_all.isVisible()
+
+    live.group_by.setCurrentIndex(live.group_by.findData(GROUP_SOURCE))
+    assert live.fold_all.isVisible()
+    heads = dict(live.headers)
+    assert len(heads) >= 2                             # the simulator has several controllers
+    titles = [live.table.item(i, 0).text() for i in heads]
+    assert all(t.startswith("▾") and " value" in t for t in titles)
+    assert any("Engine" in t for t in titles)
+    # every value sits under the heading of the controller that sends it
+    for i, sec in heads.items():
+        srcs = {live.rows[k].sa for k in sec.keys}
+        assert len(srcs) == 1 and all(live.row_of[k] > i for k in sec.keys)
+    assert sorted(live.row_of) == sorted(live.order)
+
+    first_row, first = next(iter(heads.items()))
+    live._cell_clicked(first_row, 3)                   # a click on the heading folds it
+    assert all(live.table.isRowHidden(live.row_of[k]) for k in first.keys)
+    assert live.table.item(first_row, 0).text().startswith("▸") and not live.table.isRowHidden(first_row)
+    live.filter.setText("zzz-no-such-signal")          # headings with nothing to show go too
+    assert all(live.table.isRowHidden(i) for i in heads)
+    live.filter.clear()
+
+    live.fold_all.click()                              # one still open: fold every one
+    assert all(live.table.isRowHidden(i) for i in live.row_of.values())
+    assert live.focus_spn(190)                         # a code's value unfolds its heading
+    assert not live.table.isRowHidden(live.row_of[live.model.find_spn(190)])
+    live.fold_all.click()
+    live.fold_all.click()                              # all folded -> all open
+    assert not any(live.table.isRowHidden(i) for i in live.row_of.values())
+    live._cell_clicked(first_row, 0)
+
+    live.group_by.setCurrentIndex(live.group_by.findData(GROUP_KIND))
+    assert {sec.title for sec in live.headers.values()} >= {"Engine"}
+    live.group_by.setCurrentIndex(live.group_by.findData(GROUP_SOURCE))
+    w.disconnect()                                     # the rows go, and the tab carries on refreshing
+    assert not live.row_of and not live.headers and live.table.rowCount() == 0
+    live.refresh(force=True)
+    w.close()
+
+    w2 = MainWindow()                                  # the grouping and the folded heading are remembered
+    w2.show()
+    assert w2.live.grouping == GROUP_SOURCE
+    assert w2.live.collapsed.is_folded(GROUP_SOURCE, first.id)
+    w2.close()
+
+
 def test_connect_brings_up_a_down_interface(app, tmp_path, monkeypatch):
     from canopener.core import interfaces
     from canopener.gui.main_window import MainWindow

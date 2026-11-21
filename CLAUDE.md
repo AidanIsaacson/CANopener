@@ -15,6 +15,7 @@ canopener --sim                  # GUI against the simulator
 canopener-cli scan --sim --full  # CLI against the simulator
 canopener-cli canopen --sim --info --errors   # CANopen CLI against the CANopen simulator
 canopener-device --sim           # the handheld UI (Pygame) against the simulator + a simulated meter
+canopener-cli serial analyze CAPTURE   # a recorded serial line: message kinds, checksums, exchanges
 ```
 
 Headless or minimal Linux needs `libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libxcb-cursor0` for Qt.
@@ -33,6 +34,8 @@ renaming a heading means fixing its links.
 * The handheld: `docs/DEVICE.md` (UI), `docs/DESIGN.md` and `docs/ELECTRONICS.md` (the owner's
   hardware notes; edit only what a change makes stale), `hardware/`, `firmware/`.
 * Code: `docs/DEVELOPING.md`, `docs/ARCHITECTURE.md` (move an item out of "Open work" when it lands).
+* Serial console ports: `docs/SERIAL-SNIFFING.md` (tapping, recording, analysis, provenance); the Zapi
+  console mode and its findings table (the evidence for every protocol fact): `docs/ZAPI-CONSOLE.md`.
 * Screenshots: `docs/images/`, retaken by `scripts/readme_screenshots.py` (which runs
   `scripts/device_screenshots.py` for the handheld's), in the Element Zero theme.
 
@@ -47,22 +50,38 @@ renaming a heading means fixing its links.
   (warning text: `warning_nmt` / `warning_clear`), and the composable frames in `core/transmit.py`. Every front-end confirms with the user before
   sending one (state what it changes, default No), and nothing transmits in listen-only. The
   Transmit window (`gui/transmit_dialog.py`) stays off by default and confirms each frame.
-  **OEM/proprietary** commands (routines, I/O controls, DIDs from dealer tools) still belong in the
-  separately installed plugin, which registers them via `register_action` /
-  `PluginApi.register_transmit_action`.
+  **OEM/proprietary** commands are welcome here too when **we worked them out ourselves** (see
+  "Provenance" below), behind the same confirmation. Ones from dealer tools (routines, I/O
+  controls, DIDs taken from their data) belong in the separately installed plugin, which registers
+  them via `register_action` / `PluginApi.register_transmit_action`.
+* **Provenance: everything protocol-specific must be defensible.** What's in this repo has to hold
+  up if someone asks where it came from. Fine: our own captures of our own machines and tools
+  (CAN or serial, e.g. sniffing a console talking to its controller), a maker's freely published
+  documents (cite them by name), and public standards worded by us. Never: decompiled,
+  disassembled or extracted dealer/PC software or firmware, licensed or NDA manuals, leaked
+  documents, however reworded. A finding records its evidence where it lands: the capture folder,
+  machine and action (a mode's findings table, e.g. `docs/ZAPI-CONSOLE.md#findings`, or a
+  profile's `"description"`), and stays marked unconfirmed (`?`) until a recording confirms it.
+  `docs/SERIAL-SNIFFING.md` ("Keeping it clean") is the long version.
 * **This repo is public: no OEM dealer-tool data** (extracted fault tables, PID dictionaries,
   node maps, OEM text). It lives in the private plugin repo or `~/.config/canopener/profiles/`.
+  What we observed ourselves is not dealer-tool data (see "Provenance").
   `tests/test_repo_hygiene.py` enforces file names and markers; keep its lists current.
-* **Layering.** `j1939/`, `canopen/` and `can/` must not import `core/`, `gui/` or `sim/` (a test checks
-  `canopen/`). `core/` must not import
+* **Layering.** `j1939/`, `canopen/`, `can/` and `serialline/` must not import `core/`, `gui/` or
+  `sim/` (tests check `canopen/` and `serialline/`). `core/` must not import
   Qt or Pygame. Front-ends: the desktop GUI (`gui/`, Qt), the CLI, and the handheld UI (`device/`,
   Pygame; docs/DEVICE.md). In `device/`, only `app.py`, `ui.py` and `screens/` import Pygame:
   `context.py` and `input.py` stay Pygame-free (a test checks). Logic both UIs need goes in `core/`.
   `frontends.py` switches between the two graphical UIs (the shared `ui` setting).
-* **No new runtime dependencies below `gui/` / `device/`.** Standard library only, so it stays light
-  on a Pi. Pygame is the `device` extra, like PySide6 is the `gui` extra. python-can is the optional
-  `adapters` extra: `can/pythoncan.py` imports it only when an `interface:channel` adapter is opened,
-  and Linux interfaces (can0) always use the built-in `SocketCanBackend`. Keep it that way.
+* **No new dependencies without a compelling reason**, and only mature ones that rarely need
+  patching: every library is one more to keep compatible. Below `gui/` / `device/` that means the
+  standard library unless a library does the job clearly better, and then as an optional extra
+  imported only where it's used, so it stays light on a Pi. Pygame is the `device` extra, like
+  PySide6 is the `gui` extra. python-can is the `adapters` extra: `can/pythoncan.py` imports it only
+  when an `interface:channel` adapter is opened, and Linux interfaces (can0) always use the
+  built-in `SocketCanBackend`. pyserial is the `serial` extra, imported only in
+  `serialline/port.py` when a port is listed or opened. The installers (`deploy/linux/install.sh`,
+  `deploy/raspberry-pi/install.sh`) and `core/updates.py` install every extra; keep them in step.
 * **Settings both UIs share** (connection, units, profile, sound, meters, the handheld's controls)
   live in `core/settings.py` (`settings.json`); the desktop GUI still keeps its own in `QSettings`.
 * **Installed options** (`core/hardware.py`): a feature that needs on-deck hardware checks
@@ -122,6 +141,15 @@ renaming a heading means fixing its links.
 * Plugins installed from GitHub (`core/plugin_repos.py`, sign-in `core/github.py`): standard library
   only, no root, git pull --ff-only, and the token goes to git only through `github.git_env` (never argv
   or `.git/config`). Never name a private repository in this public repo.
+* **Bundled plugins** (`canopener/addons/`, listed in `plugins.BUNDLED`) are off until switched on
+  (`plugins.bundled`) and use only the public plugin hooks, so each could move to its own repo.
+  Logic in Qt/Pygame-free modules; `gui.py` / `device.py` imported only from their hooks. The Zapi
+  console (`addons/zapi_console/`): a decoder in `protocol.py` lands together with its row in
+  `docs/ZAPI-CONSOLE.md#findings`.
+* **Serial lines** (`serialline/`, docs/SERIAL-SNIFFING.md): taps are listen-only unless opened with
+  `allow_write=True`, and a front-end confirms each send like any other transmit. Chunks carry
+  `time.time()` like `CanFrame`; a capture records them to `serial.log`, and the analysis lives in
+  `core/serial_analysis.py`. Test protocols in `tests/` are made up and say so.
 * Capture logic (tagging rules, saving, summaries) lives in `core/capture*.py` so the future
   on-device UI shares it; `gui/log_panel.py` is only the screen. Captures must stay recoverable:
   write `capture.json` / `markers.csv` on every change while recording.

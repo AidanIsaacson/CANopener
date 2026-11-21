@@ -147,7 +147,7 @@ the generic one.
 | Tab | What you get |
 |---|---|
 | **Fault Codes** | **Read Active** / **Read Stored** / **Pending / Emissions** / **Full Scan**. Each code with its description, occurrence count and the warning lamps. Tick *Include every code seen this session* to catch intermittent ones. **Show this parameter in Live Data** jumps to the sensor behind a code. **Clear Codes…** clears active (DM11) or stored (DM3) codes on every module, or the one picked under ECU, after asking. |
-| **Live Data** | Engine speed, temperatures, pressures, voltages, DPF / DEF and more, with min / max. Tick values to chart them. **Hide unticked** and **Hide plots** tidy a small screen. |
+| **Live Data** | Engine speed, temperatures, pressures, voltages, DPF / DEF and more, with min / max. Tick values to chart them. **Hide unticked** and **Hide plots** tidy a small screen. **By source** puts the values under a heading for each controller that sends them (**By group** for the profile's groups); click a heading to fold it away, or **Collapse all**. CANopen and OBD-II live data group the same way. |
 | **Bus Monitor** | Every raw frame, or one row per ID with changing bytes highlighted. **Find changes…** and **Label…** ([below](#naming-things-canopener-doesnt-know)). |
 | **Network** | Every module on the bus and what it sends. **Name this module…** gives one your own name. |
 | **Machine Info** | Component and software IDs, VIN, engine hours, fuel used. |
@@ -311,6 +311,25 @@ change, the unnamed ones only and everything; the list holds still for a moment 
 Each value in an observed profile keeps a note of how it was found and how sure it is, so someone
 else can check it. A log without timestamps is cut into four equal parts, which is better than
 nothing but much less telling than tagging.
+
+## Serial lines
+
+Some controllers talk to their service console over a serial line instead of CAN. With a
+USB-serial adapter on each direction of the link (how to tap one without breaking it:
+[SERIAL-SNIFFING.md](SERIAL-SNIFFING.md)), CANopener records the bytes as a capture, with
+timestamps, and works out what it can about them:
+
+```bash
+canopener-cli serial ports                      # the serial adapters it sees
+canopener-cli serial sniff --line console=/dev/ttyUSB0 --line controller=/dev/ttyUSB1 --framing "9600 8N1"
+canopener-cli serial analyze CAPTURE_FOLDER     # message kinds, checksums, who answers whom, text
+canopener-cli serial baud capture.sr --channel D3   # the baud rate, from a logic capture of the line
+```
+
+While sniffing, **Enter** tags the next timestamp, a label and Enter adds one with that label, and
+**q** stops and saves. The capture folder gets `serial.log` (every byte, on the same clock as the
+CAN log) and `serial_analysis.txt`. A Linux user needs to be in the `dialout` group to open a
+serial adapter; the laptop installer adds you.
 
 ## Recording a job (the Log tool)
 
@@ -486,6 +505,7 @@ canopener-cli interfaces                            # what adapters it sees, and
 canopener-cli decode capture.log --csv frames.csv   # decode a saved log (candump, Vector .asc, PEAK .trc)
 canopener-cli capture FOLDER --trim 5 2             # trim a capture: 5 min before, 2 min after its timestamps
 canopener-cli capture FOLDER --machine model=GTH-1056 --machine serial=AB123 --question "FF12 doesn't decode"
+canopener-cli serial sniff --line A=/dev/ttyUSB0 --line B=/dev/ttyUSB1   # record a serial link (Serial lines)
 canopener-cli upload --setup                        # the upload server's address and token
 canopener-cli upload FOLDER                         # upload a saved capture now (no folder: what's waiting)
 canopener-cli update                                # check for and install updates
