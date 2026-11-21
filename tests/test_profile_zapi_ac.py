@@ -46,11 +46,14 @@ def test_operator_inputs_and_traction():
     assert _sig(p, "Parking brake").decode(fwd_brake) == 1
     assert _sig(p, "Brake pedal").decode(fwd_brake) == 1
     assert _sig(p, "Reverse selected").decode(bytes.fromhex("0300000000260400")) == 1
-    driving = bytes.fromhex("366105D200080841")           # 0x05D2 high byte first = 1490
-    assert _sig(p, "Traction motor speed ?").decode(driving) == 1490
+    driving = bytes.fromhex("366105D200080841")           # 0x05D2 high byte first = 14.90 Hz
+    assert round(_sig(p, "Traction frequency ?").decode(driving), 2) == 14.9
     assert _sig(p, "Battery charge").decode(driving) == 97
     assert _sig(p, "Traction running").decode(driving) == 1
-    assert _sig(p, "Traction motor speed ?").decode(bytes.fromhex("2661F0CE00080841")) == -3890
+    assert round(_sig(p, "Traction frequency ?").decode(bytes.fromhex("2661F0CE00080841")), 2) == -38.9
+    wheels = bytes.fromhex("0081FFFFA2FEA3FE")            # both drive motors about 3.5 km/h in reverse
+    assert round(_sig(p, "Drive motor 1 speed ?").decode(wheels), 2) == -3.5
+    assert round(_sig(p, "Drive motor 2 speed ?").decode(wheels), 2) == -3.49
     assert _sig(p, "Travel speed").decode(bytes.fromhex("0028000000000000")) == 4.0   # the 4 km/h peak
 
 
@@ -69,12 +72,16 @@ def test_hydraulics():
     p = profiles.find("zapi-chinese-ac")
     lift = bytes.fromhex("0C030C036C033000")
     assert _sig(p, "Lift / lower lever ?").decode(lift) == 876
-    assert _sig(p, "Pump speed request ?").decode(lift) == 780
+    assert _sig(p, "Pump frequency request").decode(lift) == 78.0
     assert _sig(p, "Pump requested ?").decode(lift) == 1
     pump = bytes.fromhex("000040007BF76400")
     assert _sig(p, "Lift").decode(pump) == 1
-    assert _sig(p, "Pump command ?").decode(pump) == 100
-    assert _sig(p, "Pump motor speed ?").decode(pump) == -2181
+    assert _sig(p, "Lift speed command").decode(pump) == 100
+    assert _sig(p, "Pump motor speed").decode(pump) == 2181         # sent negative, shown positive
+    freq = bytes.fromhex("3632E18800080843")              # 0xE188 = -7800 -> 78.00 Hz = 2340 rpm on 4 poles
+    assert round(_sig(p, "Pump motor frequency").decode(freq), 2) == 78.0
+    assert _sig(p, "Tilt request").decode(bytes.fromhex("0000080000000000")) == 1
+    assert _sig(p, "Sideshift / accessory 1").decode(bytes.fromhex("0000100000000000")) == 1
 
 
 def test_zapi_alarm_and_emcy_codes():

@@ -1,7 +1,7 @@
 {
  "name": "Generic ZAPI/Chinese AC Truck",
  "protocol": "canopen",
- "description": "Unconfirmed. Chinese-built AC electric forklifts on ZAPI controllers: a drive master and slave (two traction motors), a pump controller, a display, a lithium BMS and a BMS translator box. Worked out from our own bus captures of one 48 V truck (16 LiFePO4 cells), mostly found by the Profile builder: seat, pedals, direction, park brake, lift / lower / tilt and a drive with the wheels turning, each timestamped. Checked against those actions: pack voltage (= the cells added up), cell voltages, battery % (= remaining / full Ah), seat, brake pedal, park brake, forward / reverse, accelerator, lift, and the active error code, which the display showed going 0 -> 221 -> 79 Incorrect start when the pedal was pressed with the handbrake on and no direction. Alarm and EMCY code text: ZAPI's ACE2 2uC user manual (AF2ZP0DA), section 10.1 (alarms from the master microcontroller), reworded; the alarm bytes carry the ZAPI code and the MDI / LED number. The message layout is the truck maker's setup, so another model may differ. Horn, lights and the mast height switch aren't on the bus. Travel speed read 4.0 km/h at the operator's estimated 4 km/h. Hour meters count tenths of a second. Which box sends which message is inferred from the data (the BMS runs before key-on; 0x190 / 0x210 / 0x490 / 0x510 look like the drive master-slave link; 0x196 / 0x396 / 0x496 / 0x497 the pump's; node 40 is probably a dealer-fitted access module, Hyster/Yale's VAM, not on every truck). Anything not confirmed ends in '?'.",
+ "description": "Unconfirmed. Chinese-built AC electric forklifts on ZAPI controllers: a drive master and slave (two traction motors), a pump controller, a display, a lithium BMS and a BMS translator box. Worked out from our own bus captures of one 48 V truck (16 LiFePO4 cells), mostly found by the Profile builder: seat, pedals, direction, park brake, lift / lower / tilt and a drive with the wheels turning, each timestamped. Checked against those actions: pack voltage (= the cells added up), cell voltages, battery % (= remaining / full Ah), seat, brake pedal, park brake, forward / reverse, accelerator, lift, and the active error code, which the display showed going 0 -> 221 -> 79 Incorrect start when the pedal was pressed with the handbrake on and no direction. Alarm and EMCY code text: ZAPI's ACE2 2uC user manual (AF2ZP0DA), section 10.1 (alarms from the master microcontroller), reworded; the alarm bytes carry the ZAPI code and the MDI / LED number. The message layout is the truck maker's setup, so another model may differ. Horn, lights and the mast height switch aren't on the bus. Pump speed: 0x394 is the motor's frequency and 0x233 its rpm (4-pole: rpm = 30 x Hz, which the capture shows to 1 %), both sent negative and shown positive. 0x388 and 0x38C carry the same traction frequency (about 10 Hz per km/h), not one per motor; 0x190 holds a speed per drive motor. Each controller has a controller and a motor temperature: which of each pair is which isn't known yet. Travel speed read 4.0 km/h at the operator's estimated 4 km/h. Hour meters count tenths of a second. Which box sends which message is inferred from the data (the BMS runs before key-on; 0x190 / 0x210 / 0x490 / 0x510 look like the drive master-slave link; 0x196 / 0x396 / 0x496 / 0x497 the pump's; node 40 is probably a dealer-fitted access module, Hyster/Yale's VAM, not on every truck). Anything not confirmed ends in '?'.",
  "nodes": {
   "0x08": "Drive motor controller (master)",
   "0x0C": "Drive motor controller (slave)",
@@ -582,23 +582,37 @@
    "group": "Traction"
   },
   {
-   "name": "Traction motor speed ?",
+   "name": "Drive motor 1 speed ?",
+   "id": "0x190",
+   "start": 4,
+   "length": 2,
+   "signed": true,
+   "scale": 0.01,
+   "unit": "km/h",
+   "decimals": 2,
+   "group": "Traction"
+  },
+  {
+   "name": "Drive motor 2 speed ?",
+   "id": "0x190",
+   "start": 6,
+   "length": 2,
+   "signed": true,
+   "scale": 0.01,
+   "unit": "km/h",
+   "decimals": 2,
+   "group": "Traction"
+  },
+  {
+   "name": "Traction frequency ?",
    "id": "0x388",
    "start": 2,
    "length": 2,
    "signed": true,
    "order": "big",
-   "unit": "rpm",
-   "group": "Traction"
-  },
-  {
-   "name": "Traction motor speed 2 ?",
-   "id": "0x38C",
-   "start": 2,
-   "length": 2,
-   "signed": true,
-   "order": "big",
-   "unit": "rpm",
+   "scale": 0.01,
+   "unit": "Hz",
+   "decimals": 1,
    "group": "Traction"
   },
   {
@@ -645,10 +659,13 @@
    "group": "Hydraulics"
   },
   {
-   "name": "Pump speed request ?",
+   "name": "Pump frequency request",
    "id": "0x497",
    "start": 0,
    "length": 2,
+   "scale": 0.1,
+   "unit": "Hz",
+   "decimals": 1,
    "group": "Hydraulics"
   },
   {
@@ -676,7 +693,7 @@
    "group": "Hydraulics"
   },
   {
-   "name": "Tilt ?",
+   "name": "Tilt request",
    "id": "0x233",
    "start": 2,
    "bit": 3,
@@ -688,7 +705,7 @@
    "group": "Hydraulics"
   },
   {
-   "name": "Tilt forward ?",
+   "name": "Sideshift / accessory 1",
    "id": "0x233",
    "start": 2,
    "bit": 4,
@@ -700,7 +717,7 @@
    "group": "Hydraulics"
   },
   {
-   "name": "Pump command ?",
+   "name": "Lift speed command",
    "id": "0x233",
    "start": 6,
    "length": 1,
@@ -708,12 +725,25 @@
    "group": "Hydraulics"
   },
   {
-   "name": "Pump motor speed ?",
+   "name": "Pump motor speed",
    "id": "0x233",
    "start": 4,
    "length": 2,
    "signed": true,
+   "scale": -1,
    "unit": "rpm",
+   "group": "Hydraulics"
+  },
+  {
+   "name": "Pump motor frequency",
+   "id": "0x394",
+   "start": 2,
+   "length": 2,
+   "signed": true,
+   "order": "big",
+   "scale": -0.01,
+   "unit": "Hz",
+   "decimals": 1,
    "group": "Hydraulics"
   },
   {
@@ -1061,7 +1091,7 @@
    "group": "Faults"
   },
   {
-   "name": "Temperature node 0C (traction) ?",
+   "name": "Drive controller A temperature ?",
    "id": "0x28C",
    "start": 5,
    "length": 1,
@@ -1069,7 +1099,7 @@
    "group": "Temperatures"
   },
   {
-   "name": "Temperature node 0D (traction) ?",
+   "name": "Drive motor A temperature ?",
    "id": "0x28D",
    "start": 5,
    "length": 1,
@@ -1077,7 +1107,7 @@
    "group": "Temperatures"
   },
   {
-   "name": "Temperature node 10 (traction) ?",
+   "name": "Drive controller B temperature ?",
    "id": "0x290",
    "start": 5,
    "length": 1,
@@ -1085,7 +1115,7 @@
    "group": "Temperatures"
   },
   {
-   "name": "Temperature node 11 (traction) ?",
+   "name": "Drive motor B temperature ?",
    "id": "0x291",
    "start": 5,
    "length": 1,
@@ -1093,7 +1123,7 @@
    "group": "Temperatures"
   },
   {
-   "name": "Temperature node 14 (pump) ?",
+   "name": "Pump controller temperature ?",
    "id": "0x294",
    "start": 5,
    "length": 1,
@@ -1101,7 +1131,7 @@
    "group": "Temperatures"
   },
   {
-   "name": "Temperature node 15 (pump) ?",
+   "name": "Pump motor temperature ?",
    "id": "0x295",
    "start": 5,
    "length": 1,
@@ -1189,19 +1219,15 @@
    "group": "Raw (for decoding)"
   },
   {
-   "name": "Wheel motor speed L ?",
-   "id": "0x190",
-   "start": 4,
+   "name": "Traction frequency (0x38C) ?",
+   "id": "0x38C",
+   "start": 2,
    "length": 2,
    "signed": true,
-   "group": "Raw (for decoding)"
-  },
-  {
-   "name": "Wheel motor speed R ?",
-   "id": "0x190",
-   "start": 6,
-   "length": 2,
-   "signed": true,
+   "order": "big",
+   "scale": 0.01,
+   "unit": "Hz",
+   "decimals": 1,
    "group": "Raw (for decoding)"
   },
   {
@@ -1212,28 +1238,25 @@
    "group": "Raw (for decoding)"
   },
   {
-   "name": "Pump motor speed (node 14) ?",
-   "id": "0x394",
-   "start": 2,
-   "length": 2,
-   "signed": true,
-   "order": "big",
-   "group": "Raw (for decoding)"
-  },
-  {
-   "name": "Pump speed actual (node 16) ?",
+   "name": "Pump frequency actual (0x396) ?",
    "id": "0x396",
    "start": 0,
    "length": 2,
    "signed": true,
+   "scale": -0.1,
+   "unit": "Hz",
+   "decimals": 1,
    "group": "Raw (for decoding)"
   },
   {
-   "name": "Pump speed target (node 16) ?",
+   "name": "Pump frequency target (0x396) ?",
    "id": "0x396",
    "start": 2,
    "length": 2,
    "signed": true,
+   "scale": -0.1,
+   "unit": "Hz",
+   "decimals": 1,
    "group": "Raw (for decoding)"
   },
   {
