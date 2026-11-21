@@ -1,7 +1,7 @@
 {
  "name": "Generic ZAPI/Chinese AC Truck",
  "protocol": "canopen",
- "description": "Unconfirmed. Chinese-built AC electric forklifts on ZAPI controllers: a drive master and slave (two traction motors), a pump controller, a display, a lithium BMS and a BMS translator box. Worked out from our own bus captures of one 48 V truck (16 LiFePO4 cells), mostly found by the Profile builder: seat, pedals, direction, park brake, lift / lower / tilt and a drive with the wheels turning, each timestamped. Checked against those actions: pack voltage (= the cells added up), cell voltages, battery % (= remaining / full Ah), seat, brake pedal, park brake, forward / reverse, accelerator, lift, and the active error code, which the display showed going 0 -> 221 -> 79 Incorrect start when the pedal was pressed with the handbrake on and no direction. Alarm and EMCY code text: ZAPI's ACE2 2uC user manual (AF2ZP0DA), section 10.1 (alarms from the master microcontroller), reworded; the alarm bytes carry the ZAPI code and the MDI / LED number. The message layout is the truck maker's setup, so another model may differ. Horn, lights and the mast height switch aren't on the bus. Pump speed: 0x394 is the motor's frequency and 0x233 its rpm (4-pole: rpm = 30 x Hz, which the capture shows to 1 %), both sent negative and shown positive. 0x388 and 0x38C carry the same traction frequency (about 10 Hz per km/h), not one per motor; 0x190 holds a speed per drive motor. Each controller has a controller and a motor temperature: which of each pair is which isn't known yet. Travel speed read 4.0 km/h at the operator's estimated 4 km/h. Hour meters count tenths of a second. Which box sends which message is inferred from the data (the BMS runs before key-on; 0x190 / 0x210 / 0x490 / 0x510 look like the drive master-slave link; 0x196 / 0x396 / 0x496 / 0x497 the pump's; node 40 is probably a dealer-fitted access module, Hyster/Yale's VAM, not on every truck). Anything not confirmed ends in '?'.",
+ "description": "Unconfirmed. Chinese-built AC electric forklifts on ZAPI controllers: a drive master and slave (two traction motors), a pump controller, a display, a lithium BMS and a BMS translator box. Worked out from our own bus captures of one 48 V truck (16 LiFePO4 cells), mostly found by the Profile builder: seat, pedals, direction, park brake, lift / lower / tilt and a drive with the wheels turning, each timestamped. Checked against those actions: pack voltage (= the cells added up), cell voltages, battery % (= remaining / full Ah), seat, brake pedal, park brake, forward / reverse, accelerator, lift, and the active error code, which the display showed going 0 -> 221 -> 79 Incorrect start when the pedal was pressed with the handbrake on and no direction. Alarm and EMCY code text: ZAPI's ACE2 2uC user manual (AF2ZP0DA), section 10.1 (alarms from the master microcontroller), reworded; the alarm bytes carry the ZAPI code and the MDI / LED number. The message layout is the truck maker's setup, so another model may differ. Horn, lights and the mast height switch aren't on the bus. Pump speed: 0x394 is the motor's frequency and 0x233 its rpm (4-pole: rpm = 30 x Hz, which the capture shows to 1 %), both sent negative and shown positive. Steer angle: 0x490 bytes 4 and 6 sit at 127 and move only while the pump runs (during and just after travel), in step with the left / right motor speed split; only -3 to +2 was seen, so its range and unit aren't known. 0x388 and 0x38C carry the same traction frequency (about 10 Hz per km/h), not one per motor; 0x190 holds a speed per drive motor. Each controller has a controller and a motor temperature: which of each pair is which isn't known yet. Travel speed read 4.0 km/h at the operator's estimated 4 km/h. Hour meters count tenths of a second. Which box sends which message is inferred from the data (the BMS runs before key-on; 0x190 / 0x210 / 0x490 / 0x510 look like the drive master-slave link; 0x196 / 0x396 / 0x496 / 0x497 the pump's; node 40 is probably a dealer-fitted access module, Hyster/Yale's VAM, not on every truck). Anything not confirmed ends in '?'.",
  "nodes": {
   "0x08": "Drive motor controller (master)",
   "0x0C": "Drive motor controller (slave)",
@@ -652,6 +652,14 @@
    "group": "Traction"
   },
   {
+   "name": "Steer angle ?",
+   "id": "0x490",
+   "start": 4,
+   "length": 1,
+   "offset": -127,
+   "group": "Steering"
+  },
+  {
    "name": "Lift / lower lever ?",
    "id": "0x497",
    "start": 4,
@@ -1235,6 +1243,14 @@
    "id": "0x490",
    "start": 0,
    "length": 2,
+   "group": "Raw (for decoding)"
+  },
+  {
+   "name": "Steer angle, second channel ?",
+   "id": "0x490",
+   "start": 6,
+   "length": 1,
+   "offset": -127,
    "group": "Raw (for decoding)"
   },
   {

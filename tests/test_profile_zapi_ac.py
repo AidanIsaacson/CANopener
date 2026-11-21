@@ -97,3 +97,11 @@ def test_zapi_alarm_and_emcy_codes():
     assert _sig(p, "Traction alarm (MDI / LED number)").decode(handbrake) == 46
     assert p.emcy[0xFF4F] == "Incorrect start" and p.emcy[0xFFDD] == "Drive requested with the handbrake on"
     assert 0x0000 not in p.emcy
+
+
+def test_steer_angle_candidate():
+    p = profiles.find("zapi-chinese-ac")
+    right_faster = bytes.fromhex("00000FBC7C007C00")       # 0x7C: three counts one way of centre (127)
+    assert _sig(p, "Steer angle ?").decode(right_faster) == -3
+    assert _sig(p, "Steer angle, second channel ?").decode(right_faster) == -3
+    assert _sig(p, "Steer angle ?").decode(bytes.fromhex("00000FBC7F007F00")) == 0
