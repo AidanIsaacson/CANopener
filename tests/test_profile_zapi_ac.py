@@ -11,11 +11,12 @@ def test_loads_with_its_devices_and_detect_list():
     p = profiles.find("zapi-chinese-ac")
     assert p is not None and p.builtin and p.protocol == profiles.CANOPEN
     assert "Unconfirmed" in p.description
-    assert p.nodes[0x08] == "Drive motor controller (master)"
-    assert p.nodes[0x0C] == "Drive motor controller (slave)"
+    # CANopen node = ZAPI module number x 4: 03 master, 04 slave, 05 pump, 16 smart display
+    assert p.nodes[0x0C] == "Drive motor controller (master)"
+    assert p.nodes[0x10] == "Drive motor controller (slave)"
     assert p.nodes[0x14] == "Pump motor controller"
-    assert "VAM" in p.nodes[0x40] and 0x40 not in p.detect_nodes      # dealer add-on, not on every truck
-    assert p.detect_nodes == {0x08, 0x0C, 0x14, 0x30, 0x31, 0x32, 0x33} and p.detect_min == 4
+    assert p.nodes[0x40].startswith("Smart display")
+    assert p.detect_nodes == {0x08, 0x0C, 0x10, 0x14, 0x30, 0x31, 0x32, 0x33} and p.detect_min == 4
 
 
 def test_battery_frames():
@@ -62,7 +63,7 @@ def test_error_code_and_hour_meters():
     code = _sig(p, "Active error code")
     assert code.decode(bytes.fromhex("1E6E0000004F0062")) == 79
     assert dict(code.enum)[79] == "79 Incorrect start"
-    assert _sig(p, "Traction alarm code").decode(bytes.fromhex("08004F4F000C0000")) == 79
+    assert _sig(p, "Master alarm code").decode(bytes.fromhex("08004F4F000C0000")) == 79
     hours = bytes.fromhex("A4C7020092030100")             # 0x02C7A4 and 0x010392 tenths of a second
     assert round(_sig(p, "Key-on hours ?").decode(hours), 2) == 5.06
     assert round(_sig(p, "Seat hours ?").decode(hours), 2) == 1.85
@@ -87,14 +88,15 @@ def test_hydraulics():
 def test_zapi_alarm_and_emcy_codes():
     """Code text is from ZAPI's ACE2 2uC manual (AF2ZP0DA, section 10.1), reworded."""
     p = profiles.find("zapi-chinese-ac")
-    alarms = dict(_sig(p, "Traction alarm code").enum)
+    alarms = dict(_sig(p, "Master alarm code").enum)
     assert alarms[221] == "221 Drive requested with the handbrake on"   # flashed before 79 on the truck
     assert alarms[224] == "224 Waiting for another node on the bus"     # the blip at key-on
     assert alarms[79] == "79 Incorrect start"
     assert dict(_sig(p, "Pump alarm code").enum) == alarms == dict(_sig(p, "Active error code").enum)
+    assert dict(_sig(p, "Slave alarm code ?").enum) == alarms
     handbrake = bytes.fromhex("0800DD2E000C0000")         # ZAPI code 221, MDI / LED number 46
-    assert _sig(p, "Traction alarm code").decode(handbrake) == 221
-    assert _sig(p, "Traction alarm (MDI / LED number)").decode(handbrake) == 46
+    assert _sig(p, "Master alarm code").decode(handbrake) == 221
+    assert _sig(p, "Master alarm (MDI / LED number)").decode(handbrake) == 46
     assert p.emcy[0xFF4F] == "Incorrect start" and p.emcy[0xFFDD] == "Drive requested with the handbrake on"
     assert 0x0000 not in p.emcy
 
