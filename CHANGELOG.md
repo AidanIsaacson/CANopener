@@ -3,6 +3,12 @@
 What changed in each version, newest first. Versions are git tags (`v0.3.3`): to put a unit back
 on an older one, `git checkout v0.3.2` in its checkout.
 
+## Unreleased
+
+- **The handheld's Live grouping is on the Live page now.** The list's first row, **Group**, picks
+  one list, by controller or by group, and folds or opens every heading at once. It's gone from
+  **System**.
+
 ## 0.5.0 (2026-11-21)
 
 - **Live Data groups by controller.** **By source** on the desktop's Live Data (and the OBD-II

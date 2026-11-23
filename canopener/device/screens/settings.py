@@ -10,7 +10,7 @@ import subprocess
 import time
 
 from ... import __version__
-from ...core import config, hardware, live, meters, sound, storage, system, themes, units, updates
+from ...core import config, hardware, meters, sound, storage, system, themes, units, updates
 from ...core.connection import SIM_CARS
 from ..input import ACTION_NAMES
 from . import calibrate
@@ -28,7 +28,6 @@ BUTTONS = [("4", 4), ("5", 5)]
 BUTTON5 = [("Back", "back"), ("Soft key 5 (use with a dedicated Back button)", "soft"), ("Start / stop log", "log"),
            ("Timestamp", "tag"), ("Hold", "hold")]
 UNITS = [("Metric (kPa, °C, km/h)", units.METRIC), ("Imperial (psi, °F, mph)", units.IMPERIAL)]
-LIVE_GROUPS = [("One list", live.GROUP_NONE), ("By controller", live.GROUP_SOURCE), ("By group", live.GROUP_KIND)]
 LONG_PRESS = [(f"{s:g} s", s) for s in (0.5, 0.7, 1.0, 1.5)]
 WINDOWS = [(s, s) for s in ("800x480", "1024x600", "1280x720", "1280x800")]
 VOLUMES = [("Off", 0)] + [(f"{v}%", v) for v in range(10, 101, 10)]
@@ -165,8 +164,6 @@ class SettingsScreen(Screen):
             group("Controls", lambda: f"{n_buttons} buttons, {s.get('device.softkeys_edge')}",
                   "where the buttons are, what button 5 does, key map"),
             self._row("Units", "units", UNITS),
-            self._row("Live data", "device.live_group", LIVE_GROUPS,
-                      hint="headings per controller or per group in CAN > Live; Select on one folds it"),
             group("Sound", lambda: "off" if not s.get("sound.speaker") else f"{s.get('sound.volume')}%",
                   "volume, chirps, tones for events, buzzer"),
             group("Meters", lambda: f"{meters_on} on" if meters_on else "none on",

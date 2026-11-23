@@ -9,9 +9,9 @@ What's picked, the grid and the enlarged value are kept (``device.live_view`` in
 ``SavedView``), so they're still there after another screen or a restart: a picked value comes
 back as soon as it's on the bus again.
 
-**System > Live data** groups the list under a heading per controller (who sends each value) or
-per group (``core.live.sections``). Select (or a tap) on a heading folds it away; which ones are
-folded is kept with the rest of the view.
+The list's first row, **Group**, puts the values under a heading per controller (who sends each
+value) or per group (``core.live.sections``), and folds or opens every heading. Select (or a tap)
+on a heading folds it away; the grouping and which headings are folded are kept.
 """
 
 import time
@@ -19,7 +19,7 @@ import time
 import pygame
 
 from ...core import profiles, units
-from ...core.live import GROUP_NONE, GROUP_SOURCE, Collapsed, sections
+from ...core.live import GROUP_KIND, GROUP_NONE, GROUP_SOURCE, Collapsed, sections
 from .. import input as inp
 from ..ui import GridView, ListView
 from .base import Screen, SoftKey
@@ -27,7 +27,13 @@ from .base import Screen, SoftKey
 TRACE_SECONDS = 60
 VIEW = "device.live_view"           # {"grid": bool, "picks": [[model, signal key, source], ...], "zoom": pick,
 #                                      "collapsed": {grouping: [section id, ...]}}
-GROUPING = "device.live_group"      # none / source / group (System > Live data)
+GROUPING = "device.live_group"      # none / source / group (the list's Group row)
+GROUPINGS = [("One list", GROUP_NONE), ("By controller", GROUP_SOURCE), ("By group", GROUP_KIND)]
+FOLD_ALL, OPEN_ALL = "fold-all", "open-all"
+
+
+class GroupRow:
+    """The list's first row: how it's grouped (Select picks)."""
 
 
 class Head:
@@ -186,8 +192,8 @@ class LivePage(Screen):
         return self.ctx.settings.get(GROUPING) or GROUP_NONE
 
     def _entries(self):
-        """(model, key) per value, with a ``Head`` before each section when the list is grouped
-        (a folded section's values are left out)."""
+        """The ``GroupRow``, then (model, key) per value, with a ``Head`` before each section when
+        the list is grouped (a folded section's values are left out). Empty when there's nothing."""
         by = self.grouping
         out = []
         for mid, m in self._by_id().items():
@@ -200,7 +206,33 @@ class LivePage(Screen):
                 out.append(head)
                 if not self.saved.collapsed.is_folded(by, head.id):
                     out += [(m, k) for k in sec.keys]
-        return out
+        return [GroupRow()] + out if out else out
+
+    def _heads(self) -> list:
+        """Every heading under the current grouping, folded ones included."""
+        by = self.grouping
+        if by == GROUP_NONE:
+            return []
+        return [Head(mid, m, sec) for mid, m in self._by_id().items()
+                for sec in sections(m, by, [k for k in m.order if not self.only_picked or k in m.selected])
+                if sec.keys]
+
+    def choose_grouping(self):
+        """The Group row: one list, by controller or by group; fold or open every heading."""
+        from .base import choose
+        options = list(GROUPINGS)
+        heads = self._heads()
+        if heads:
+            folded = all(self.saved.collapsed.is_folded(self.grouping, h.id) for h in heads)
+            options.append(("Open every heading", OPEN_ALL) if folded else ("Fold every heading", FOLD_ALL))
+        choose(self.app, "Group the values", options, self.grouping, self._grouping_picked)
+
+    def _grouping_picked(self, value):
+        if value in (FOLD_ALL, OPEN_ALL):
+            self.saved.collapsed.fold_all(self.grouping, [h.id for h in self._heads()], value == FOLD_ALL)
+        else:
+            self.ctx.settings.set(GROUPING, value)
+        self.entries = self._entries()
 
     def picked(self):
         return [(m, k) for m in self.models() for k in m.selected if k in m.rows]
@@ -268,6 +300,9 @@ class LivePage(Screen):
     def toggle(self, i):
         if 0 <= i < len(self.entries):
             e = self.entries[i]
+            if isinstance(e, GroupRow):
+                self.choose_grouping()
+                return
             if isinstance(e, Head):         # a heading: fold or unfold its section
                 self.saved.collapsed.toggle(self.grouping, e.id)
                 self.entries = self._entries()
@@ -331,6 +366,16 @@ class LivePage(Screen):
         def draw_row(ui, i, r, focused):
             e = self.entries[i]
             inner = r.inflate(-t.pad // 2, -t.pad // 3)
+            if isinstance(e, GroupRow):
+                ui.panel(inner, "panel2", t.radius)
+                if focused:
+                    ui.fill(inner, "focus", t.radius, max(2, t.pad // 3))
+                label = dict((v, lb) for lb, v in GROUPINGS).get(self.grouping, "One list")
+                hint = ui.text("Select to change" if self.grouping == GROUP_NONE else "Select: change, fold all",
+                               (inner.right - t.pad, inner.centery), "small", "faint", align="right")
+                ui.text(f"Group: {label}", (inner.x + t.pad, inner.centery), "body", "text",
+                        max_w=hint.left - inner.x - 3 * t.pad)
+                return
             if isinstance(e, Head):
                 folded = self.saved.collapsed.is_folded(self.grouping, e.id)
                 ui.panel(inner, "panel2", t.radius)
