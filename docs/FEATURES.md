@@ -92,6 +92,18 @@ AI assistant with a read-only key can find it by machine or serial and start fro
 
 How to use it: [Machine details and uploading captures](USAGE.md#machine-details-and-uploading-captures).
 
+## Which module went quiet
+
+A lot of controllers only say **"communication error"**. When a CAN control handle goes dark, two
+or three other modules complain, and none of them says it was the handle. CANopener knows which
+modules the machine should have (from its profile, or a list you save on a truck that works) and
+***names the one that isn't talking***: never heard since you connected, or heard and then gone
+quiet. Messages the master keeps sending *to* a dead module don't fool it; only what the module
+sends itself counts. If one drops out while you're wiggling a connector, it says so at once, and
+says so again when it's back.
+
+How: [Which module is missing](USAGE.md#which-module-is-missing).
+
 ## Naming what CANopener doesn't know
 
 Most forklift and equipment traffic is the maker's own, and nobody publishes what it means. So
@@ -125,11 +137,13 @@ quicker to check something than to talk yourself out of checking it.
 **Equipment and trucks (J1939):** active, stored and pending / emissions codes with descriptions,
 occurrence counts and warning lamps; ~35 live engine and chassis values with min / max and charts;
 every module on the bus and what it sends; component and software IDs, VIN, engine hours, fuel
-used; a text report of the scan. Clears active or stored codes (after asking).
+used; a text report of the scan; which modules the machine should have that aren't talking. Clears
+active or stored codes (after asking).
 
 **Battery trucks and controllers (CANopen):** every node and its state (operational,
 pre-operational, stopped), heartbeats and restarts; errors as they happen and each controller's
-stored error history; the controller's name, versions, product and serial number. Clears the error
+stored error history; the controller's name, versions, product and serial number; which controllers aren't
+talking (a dead tiller head, say). Clears the error
 history and starts / stops / resets nodes (after asking).
 
 **Cars and light trucks (OBD-II):** codes from every module (stored, pending, permanent) and the

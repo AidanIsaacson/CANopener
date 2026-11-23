@@ -3,6 +3,20 @@
 What changed in each version, newest first. Versions are git tags (`v0.3.3`): to put a unit back
 on an older one, `git checkout v0.3.2` in its checkout.
 
+## Unreleased
+
+- **Which module is missing.** When a machine only says "communication error", the **Network** tab
+  names the module that isn't talking: one the profile lists that was never heard, or one that was
+  talking and went quiet (a CAN control handle going dark, say). **Remember these modules…** (or
+  **Recognise this machine**) saves the modules of a machine that works; next time, any that's
+  missing is named. The **Fault Codes** tab shows the same line when something's wrong, and a module
+  dropping out or coming back shows in the status bar. On the handheld: **CAN → Bus → Modules**
+  (with **Remember**), a line on the Codes page, and a message with a new sound. Only what a module
+  sends itself counts, so a master still sending to a dead one doesn't hide it. Listens only.
+  `canopener-cli modules` does the same (`--watch`, `--remember`, `--log`). Profiles can list the
+  modules to check in `"expect"` when it should differ from `"detect"`
+  ([USAGE.md](docs/USAGE.md#which-module-is-missing)).
+
 ## 0.5.0 (2026-11-21)
 
 - **Live Data groups by controller.** **By source** on the desktop's Live Data (and the OBD-II

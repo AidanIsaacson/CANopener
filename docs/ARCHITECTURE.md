@@ -187,6 +187,16 @@ exercise the real backend.
   (`in_use_target`: a user profile directly; a built-in or plugin one through
   `observed-<id>-additions.json`, which `extends` it) or saves a new profile that `extends` the
   profile in use. Profiles keep the streams heard (`"observed": {"bus": [...]}`), for matching.
+* **Which module is missing** (`core/roster.py`): `check(session, profile)` puts the modules a
+  profile expects (`expect`, else `detect`) beside every module heard: on the bus, went quiet
+  (silent for `quiet_after` its usual gap, at least 2 s), not heard (after `SETTLE` s of traffic;
+  *waiting* before), or the whole bus quiet. A CANopen node counts only from frames it sends
+  (heartbeat, TPDO, EMCY, SDO answer), never RPDOs / SDO requests to it, and an unlisted node only
+  once the sniffer has confirmed it. `Alerts` turns successive checks into one-off messages (the
+  handheld's toast and `module` sound, the desktop's status bar); `remember` saves the modules
+  heard as the profile's `detect` list. Screens: the desktop's Network tab (banner, rows) and Codes
+  tab (banner when something's wrong, `gui/module_check.py`), the handheld's Bus and Codes pages
+  (`DeviceContext.roster`, checked once a second); CLI `modules`.
 * **Which profile fits** (`core/profile_match.py`): `similar` ranks profiles by how many of their
   own proprietary messages (J1939 0xFF00-0xFFFF and Proprietary A, 11-bit IDs) and recorded
   streams are on the bus; the handheld checks once a few seconds into a connection
@@ -264,7 +274,7 @@ lists) are only screens over it.
 |---|---|
 | MCP2518FD on SPI → `can0` | `can.backends.SocketCanBackend` (no code changes needed) |
 | `can_logger.py` foundation | `Session.start_recording()` → `can.logfile.LogWriter` (candump format) |
-| Source-address filtering, dropout detection | `Session.stats` / `ecus` (first/last seen, rate per PGN). Dropout alerts are a small addition on top |
+| Source-address filtering, dropout detection | `Session.stats` / `ecus` (first/last seen, rate per PGN); `core/roster.py` names modules that are missing or went quiet |
 | CAN Node & PID Label Profiles | `core/profiles.py` + `canopener/profiles/*.json` |
 | Paged screens: Live Data, Fault Codes, Capture Log ... | Desktop GUI tabs, and the handheld UI's pages in `device/screens/` over the same core calls. Live Data's model (values, min/max, history, picked signals) is `core/live.py` |
 | DMM probes, Pico analog channels, wireless satellites on the capture timeline | `core/measure.py` (hub, channels, clock mapping) + `core/meters.py` (sources); recorded to `measurements.csv` by `core/capture.py` |
@@ -379,9 +389,6 @@ these by name.
     transmitting there). Swapping ports does it today.
 * **CAN FD.** The backend reads classic 16-byte frames only. Add `CAN_RAW_FD_FRAMES` and 72-byte
   frames (J1939-22 uses FD); the MCP2518FD and CANable 2.0 both support it.
-* **Missing-module alerts.** Profiles know which modules a machine has (`detect.addresses`) and the
-  capture summary reports ECUs going silent; a live "expected module missing" alert in `core/`
-  would serve both front-ends.
 * **Handheld screens still to come:** CANopen (nodes, EMCY, error history), clear codes and
   transmit (confirm-first, default No, never in listen-only), the logic analyzer (`core/logic.py`
   has the command and channel names, no UI yet) and Component Test (ELECTRONICS.md 6.7).

@@ -84,3 +84,20 @@ def test_clear_j1939_codes_on_the_simulator(capsys, monkeypatch):
     assert cli.main(["clear", "--sim"]) == 1                                                   # not confirmed
     assert "not confirmed" in capsys.readouterr().err
     assert cli.main(["clear", "--sim", "--module", "zz", "--yes"]) == 2
+
+
+def test_modules_command_remembers_then_names_whats_missing(tmp_path, capsys):
+    """Save the CANopen simulator's nodes as the machine's, then check a log where one stops."""
+    from canopener.core import labeling
+    assert cli.main(["--profile", "generic-canopen", "modules", "--canopen-sim", "--listen", "0",
+                     "--remember", "Sim truck"]) == 0
+    assert "Saved 3 module(s) as this machine's in profile 'sim-truck'" in capsys.readouterr().out
+    assert labeling.read_doc("sim-truck")["detect"]["nodes"] == ["0x01", "0x02", "0x20"]
+    frames = [CanFrame(0x181, bytes(8), False, 1 + i / 10) for i in range(100)]          # node 01: all along
+    frames += [CanFrame(0x182, bytes(8), False, 1 + i / 10) for i in range(20)]          # node 02: stops at 3 s
+    path = tmp_path / "x.log"
+    write_log(str(path), sorted(frames, key=lambda f: f.timestamp))
+    assert cli.main(["--profile", "sim-truck", "modules", "--log", str(path)]) == 1
+    out = capsys.readouterr().out
+    assert out.startswith("1 of 3 expected modules on the bus. Went quiet: Node 02.") and "Not heard: Node 20" in out
+    assert " !! Node 02" in out and "address claims" in out

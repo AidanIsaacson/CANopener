@@ -149,7 +149,7 @@ the generic one.
 | **Fault Codes** | **Read Active** / **Read Stored** / **Pending / Emissions** / **Full Scan**. Each code with its description, occurrence count and the warning lamps. Tick *Include every code seen this session* to catch intermittent ones. **Show this parameter in Live Data** jumps to the sensor behind a code. **Clear Codes…** clears active (DM11) or stored (DM3) codes on every module, or the one picked under ECU, after asking. |
 | **Live Data** | Engine speed, temperatures, pressures, voltages, DPF / DEF and more, with min / max. Tick values to chart them. **Hide unticked** and **Hide plots** tidy a small screen. **By source** puts the values under a heading for each controller that sends them (**By group** for the profile's groups); click a heading to fold it away, or **Collapse all**. CANopen and OBD-II live data group the same way. |
 | **Bus Monitor** | Every raw frame, or one row per ID with changing bytes highlighted. **Find changes…** and **Label…** ([below](#naming-things-canopener-doesnt-know)). |
-| **Network** | Every module on the bus and what it sends. **Name this module…** gives one your own name. |
+| **Network** | Every module on the bus and what it sends, and any the machine should have that aren't talking ([below](#which-module-is-missing)). **Name this module…** gives one your own name. |
 | **Machine Info** | Component and software IDs, VIN, engine hours, fuel used. |
 | **Report** | A text report of the last scan, to save or copy. |
 
@@ -215,6 +215,37 @@ against the machine before trusting an import.
 
 Writing one by hand: [DEVELOPING.md](DEVELOPING.md#machine-profiles).
 
+## Which module is missing
+
+When a machine only says "communication error", CANopener can tell you which module stopped
+talking. It compares the modules on the bus with the ones the profile says the machine has.
+
+**First, save the machine's modules** (once per model, on a machine that works, key on): on the
+**Network** tab press **Remember these modules…**, or on the handheld **CAN → Bus → Modules →
+Remember**. They go in a profile of your own built on the one you had picked (**Recognise this
+machine** under **Profiles → My labels…** saves the same list). Some profiles already list their
+modules.
+
+**Then, on the broken machine**, pick that profile and connect. The **Network** tab (and the
+handheld's **Bus** page) lists every module:
+
+* **On the bus**: it's talking.
+* **Went quiet**: it was talking and stopped. The row says how long ago, and whether other
+  modules are still sending to it.
+* **Not heard since connecting**: the profile lists it, but nothing has come from it. For the
+  first few seconds it says *listening* instead.
+
+The ones with a problem come first, in red. When something is wrong the **Fault Codes** tab shows
+the same line above the codes (the handheld's **Codes** page too). While you're connected, a module
+dropping out or coming back shows in the status bar, or as a message on the handheld with the
+*A module went quiet or is missing* sound (**System → Sound**). If nothing at all is heard, it says
+the whole bus is quiet (key off? the right connector?) rather than blaming every module.
+
+Only what a module sends itself counts. A master keeps sending to a module that's gone, so those
+messages don't make it look present. A module that only answers when asked can look missing: press
+**Request address claims** (J1939) or **Find CANopen nodes** on the **Network** tab first. It only
+listens; nothing is sent to the machine.
+
 ## Naming things CANopener doesn't know
 
 Most forklift and equipment traffic is the maker's own. Label it yourself and keep it:
@@ -234,7 +265,8 @@ Most forklift and equipment traffic is the maker's own. Label it yourself and ke
 Your labels go in a profile of your own (the first label asks you to name it, e.g. "Unit 14 reach
 truck"), built on the profile you had picked, so nothing built in is changed.
 **Profiles → My labels…** lists them to edit or remove, and has **Recognise this machine** (next
-time it offers this profile when it sees these modules), **Export…** (to a USB stick, say) and
+time it offers this profile when it sees these modules, and [names any that's missing](#which-module-is-missing)),
+**Export…** (to a USB stick, say) and
 **Delete profile…**.
 
 ## Working out a machine from what its bus does
@@ -500,6 +532,8 @@ canopener-cli uds --iface can0 --find               # which modules answer (also
 canopener-cli uds --iface can0 --info --supported   # a module's VIN, part / serial numbers, every code it can set
 canopener-cli canopen --iface can0 --info --errors  # CANopen: nodes, state, errors, identity
 canopener-cli canopen --iface can0 --pdo-map        # CANopen: what each node packs into its messages
+canopener-cli --profile ID modules --iface can0 --watch   # which modules are missing or drop out (listens only)
+canopener-cli --profile ID modules --iface can0 --remember "Truck 14"   # on a good machine: save its modules
 canopener-cli import machine.dbc                    # a profile from a DBC, EDS or DCF file
 canopener-cli interfaces                            # what adapters it sees, and why one isn't working
 canopener-cli decode capture.log --csv frames.csv   # decode a saved log (candump, Vector .asc, PEAK .trc)

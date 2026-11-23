@@ -14,6 +14,7 @@ from ..core import (
     link,
     profiles,
     report,
+    roster,
     scan,
     storage,
     transmit,
@@ -191,6 +192,7 @@ class MainWindow(QtWidgets.QMainWindow):
         c.scan_failed.connect(lambda msg: QtWidgets.QMessageBox.critical(self, "Read failed", msg))
         c.status_message.connect(lambda m: self.statusBar().showMessage(m, 6000))
         c.show_signal.connect(lambda spn: self.tabs.setCurrentWidget(self.live))
+        self.codes.check.linkActivated.connect(lambda _: self.tabs.setCurrentWidget(self.network))
 
         self._restore_settings()
         self._fit_to_screen()
@@ -506,6 +508,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._detected = None
         self._detect_dismissed: set[str] = set()
         self._last_detect = 0.0
+        self._module_alerts, self._module_t = roster.Alerts(), 0.0
         return bar
 
     def _check_detection(self, session):
@@ -515,7 +518,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self._last_detect = now
         current = self.profile.currentData() or ""
-        nodes = [n.node for n in session.canopen_nodes()]
+        nodes = roster.heard_modules(session, profiles.J1939_CANOPEN)[1]
         matches = [m for m in profiles.detect(session.known_ecus(), self._profiles, profiles.present_pgns(session),
                                               nodes)
                    if m.profile.id != current and m.profile.id not in self._detect_dismissed]
@@ -534,6 +537,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.detect_label.setText(f"<b>Looks like:</b> {text}")
         self.detect_bar.show()
         QtCore.QTimer.singleShot(0, self._fit_to_screen)
+
+    def _check_modules(self, session):
+        """About once a second: say in the status bar when a module drops out, is missing or comes back
+        (the missing-module check, ``core.roster``; the Network tab has the whole list)."""
+        now = time.time()
+        if self._protocol == profiles.OBD2 or now - self._module_t < 1.0:
+            return
+        self._module_t = now
+        said, _bad = self._module_alerts.update(roster.check(session, now=now))
+        if said:
+            self.statusBar().showMessage("Modules: " + "; ".join(said) + " (Network tab)", 15000)
 
     def _protocol_hint(self, session, current: str):
         """When no machine profile matches: is the bus speaking another protocol than the profile's
@@ -1270,6 +1284,7 @@ class MainWindow(QtWidgets.QMainWindow):
         offline = session is not None and session.offline
         self.connect_btn.setText("Disconnect" if (live or offline) else "Connect")
         self._bus_session, self._bus_level, self._bus_was_ok = session, link.OFF, False
+        self._module_alerts, self._module_t = roster.Alerts(), 0.0
         for w in (self.source, self.iface, self.rescan_btn, self.bitrate, self.conn_panel.bt_adapter,
                   self.conn_panel.bt_vehicle):
             w.setEnabled(not live)
@@ -1323,6 +1338,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.lamps.set_lamps(s.current_lamps())
         if not s.offline:
             self._check_detection(s)
+            self._check_modules(s)
             now = time.time()
             t0, n0, b0 = self._last_counts
             if now - t0 >= 1.0:

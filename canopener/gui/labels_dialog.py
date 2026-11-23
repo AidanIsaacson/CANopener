@@ -4,7 +4,7 @@ Edit or remove them, rename the profile, teach it to recognise this machine from
 it (to a USB stick, say) or delete it. Saving goes through ``core.labeling``.
 """
 
-from ..core import canopen, labeling, profiles
+from ..core import canopen, labeling, profiles, roster
 from ..j1939.addresses import sa_name
 from .qt import Qt, QtWidgets
 from .widgets import item, setup_table
@@ -56,7 +56,7 @@ class LabelsDialog(QtWidgets.QDialog):
         self.rename_btn.clicked.connect(self._rename_profile)
         self.detect_btn = QtWidgets.QPushButton("Recognise this machine")
         self.detect_btn.setToolTip("Remember the modules on the bus now, so next time CANopener offers this "
-                                   "profile when it sees them")
+                                   "profile when it sees them and says if one of them is missing")
         self.detect_btn.clicked.connect(self._detect)
         self.export_btn = QtWidgets.QPushButton("Export…")
         self.export_btn.clicked.connect(self._export)
@@ -172,11 +172,12 @@ class LabelsDialog(QtWidgets.QDialog):
 
     def _detect(self):
         s = self.ctx.session
-        found = labeling.set_detect(self.pid, s.known_ecus(), [n.node for n in s.canopen_nodes()])
+        found = labeling.set_detect(self.pid, *roster.heard_modules(s))
         QtWidgets.QMessageBox.information(
             self, "Recognise this machine",
             f"Saved {len(found)} module(s): " + ", ".join(canopen.source_name(a) for a in found)
-            + ". Next time CANopener sees them it offers this profile.")
+            + ". Next time CANopener sees them it offers this profile, and the Network tab says if any "
+            "of them is missing.")
         self._saved()
 
     def _export(self):

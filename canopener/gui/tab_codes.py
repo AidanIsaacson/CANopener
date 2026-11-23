@@ -6,7 +6,7 @@ import datetime
 import html
 import time
 
-from ..core import canopen, j1939_clear, profiles, scan, units
+from ..core import canopen, j1939_clear, profiles, roster, scan, units
 from ..core.canopen import CanopenCode
 from ..core.scan import DtcRow, ScanResult
 from ..j1939.addresses import sa_name
@@ -15,6 +15,7 @@ from ..j1939.signals import all_signals
 from ..j1939.spn import PROPRIETARY_SPN_RANGE
 from . import themes
 from .flow import FlowLayout
+from .module_check import ModuleCheck
 from .qt import Qt, QtGui, QtWidgets
 from .widgets import item, setup_table
 
@@ -83,6 +84,9 @@ class CodesTab(QtWidgets.QWidget):
         self.summary = QtWidgets.QLabel("")
         bar.addWidget(self.summary)
         lay.addLayout(bar)
+        # A bare 'communication error' code rarely says which module is gone: name it here.
+        self.check = ModuleCheck(only_problems=True, link="Network tab")
+        lay.addWidget(self.check)
 
         split = QtWidgets.QSplitter(Qt.Orientation.Vertical)
         self.table = QtWidgets.QTableWidget()
@@ -138,6 +142,7 @@ class CodesTab(QtWidgets.QWidget):
         self.rebuild()
 
     def _session_changed(self, session):
+        self.check.show_roster(None)
         enabled = self.ctx.live and not self.ctx.busy
         for b in self.buttons:
             b.setEnabled(enabled)
@@ -248,6 +253,7 @@ class CodesTab(QtWidgets.QWidget):
 
     def refresh_theme(self):
         """Settings > Colour theme changed: recolour the rows."""
+        self.check.refresh_theme()
         self.rebuild()
 
     def rebuild(self):
@@ -433,6 +439,8 @@ class CodesTab(QtWidgets.QWidget):
             self.ctx.show_signal.emit(r.spn)
 
     def refresh(self):
+        s = self.ctx.session
+        self.check.show_roster(roster.check(s) if s is not None and profiles.protocol() != profiles.OBD2 else None)
         if self.history.isChecked() and self.ctx.live:
             with self.ctx.session.lock:
                 n_co = len(self.ctx.session.canopen.emcy_log)

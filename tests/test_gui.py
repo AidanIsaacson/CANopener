@@ -1597,3 +1597,57 @@ def test_adapter_test_shows_the_probe_report(app, fake_bt, monkeypatch):
         d.close()
     finally:
         car.stop()
+
+
+def test_missing_module_check(app, tmp_path, monkeypatch):
+    """Remember the simulator's modules into a profile of our own, then open a log in which the
+    'handle' drops out and another module never shows: both tabs name them."""
+    from canopener.can.frame import CanFrame
+    from canopener.can.logfile import write_log
+    from canopener.core import connection, labeling, profiles
+    from canopener.gui.main_window import MainWindow
+    from canopener.j1939.ids import build_id
+
+    monkeypatch.setattr(qt.QtWidgets.QInputDialog, "getText", lambda *a, **k: ("Sim truck", True))
+    monkeypatch.setattr(qt.QtWidgets.QMessageBox, "question",
+                        lambda *a, **k: qt.QtWidgets.QMessageBox.StandardButton.Yes)
+    w = MainWindow()
+    w.show()
+    w.profile.setCurrentIndex(w.profile.findData("generic"))
+    w.source.setCurrentIndex(w.source.findData(connection.SIMULATOR))
+    w.connect()
+    pump(app, 1.5)
+    w.tabs.setCurrentWidget(w.network)
+    pump(app, 0.3)
+    heard = set(w.ctx.session.known_ecus())
+    assert w.network.check.isVisible() and "Remember these modules" in w.network.check.label.text()
+    w.network.remember_modules()
+    pump(app, 0.3)
+    p = profiles.active()
+    assert p.extends == "generic" and p.expect_addresses == heard and 0x27 in heard
+    w.network.refresh(force=True)
+    assert f"of {len(heard)} expected modules on the bus" in w.network.check.label.text()
+    w.disconnect()
+
+    doc = labeling.read_doc(p.id)
+    doc["sources"] = {"0x27": "Control handle"}
+    doc["detect"] = {"addresses": ["0x00", "0x27", "0x03"]}
+    labeling.write_doc(p.id, doc)
+    w._load_profiles(preferred=p.id, quiet=True)
+    frames = [CanFrame(build_id(0xF004, 0x00), bytes(8), True, 10 + i / 10) for i in range(100)]
+    frames += [CanFrame(build_id(0xFF10, 0x27), bytes(8), True, 10 + i / 10) for i in range(30)]
+    path = tmp_path / "handle.log"
+    write_log(str(path), sorted(frames, key=lambda f: f.timestamp))
+    w.open_log(str(path))
+    pump(app, 0.3)
+    w.tabs.setCurrentWidget(w.codes)
+    pump(app, 0.3)
+    text = w.codes.check.label.text()
+    assert w.codes.check.isVisible() and "Went quiet: 27 Control handle." in text and "Not heard: 03" in text
+    w.codes.check.linkActivated.emit("modules")
+    assert w.tabs.currentWidget() is w.network
+    pump(app, 0.3)
+    missing = w.network.items[("check", 0x03)]
+    assert missing.text(5) == "Not heard since connecting"
+    assert w.network.items[0x27].text(5).startswith("Went quiet")
+    w.close()

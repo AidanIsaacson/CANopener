@@ -145,7 +145,9 @@ def module_names(pid: str) -> dict[int, str]:
 
 def set_detect(pid: str, addresses, nodes=()) -> list[int]:
     """'This bus is this machine': recognise it from these J1939 source addresses and CANopen
-    nodes next time. Returns what was saved (addresses, then nodes as ``node_src``)."""
+    nodes next time, and check for them (``core.roster``: the missing-module check). A profile's own
+    ``expect`` list, if it has one, is set to the same. Returns what was saved (addresses, then
+    nodes as ``node_src``)."""
     found, found_nodes = sorted(set(addresses)), sorted(set(nodes))
     doc = read_doc(pid)
     det: dict = {"min_match": min(2, len(found) + len(found_nodes))}
@@ -154,6 +156,8 @@ def set_detect(pid: str, addresses, nodes=()) -> list[int]:
     if found_nodes:
         det["nodes"] = [f"0x{n:02X}" for n in found_nodes]
     doc["detect"] = det
+    if "expect" in doc:
+        doc["expect"] = {k: v for k, v in det.items() if k != "min_match"}
     write_doc(pid, doc)
     return found + [canopen.node_src(n) for n in found_nodes]
 

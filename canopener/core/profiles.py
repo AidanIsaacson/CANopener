@@ -52,7 +52,10 @@ Front-ends show only the screens for the active profile's protocol (``speaks_j19
 ``speaks_canopen``).
 
 ``detect`` lets the app recognise a machine from the source addresses it sees on the bus and
-offer to switch to the profile.
+offer to switch to the profile. The same list is the machine's modules for the missing-module
+check (``core.roster``): one the profile lists that isn't heard is flagged. When those should
+differ (say ``detect`` names only a few telling modules), ``"expect": {"addresses": [...],
+"nodes": [...]}`` lists the modules to check instead.
 
 ``extends`` (a profile id) builds on another profile: its sources, SPN / PGN names, signals,
 detect section and protocol carry over, and this file only adds or replaces things. A signal here
@@ -102,6 +105,9 @@ class Profile:
     nodes: dict[int, str] = field(default_factory=dict)        # CANopen node ID -> name
     emcy: dict[int, str] = field(default_factory=dict)         # CANopen EMCY code -> text
     detect_nodes: frozenset[int] = frozenset()
+    # The machine's modules for the missing-module check (core.roster): "expect", else "detect".
+    expect_addresses: frozenset[int] = frozenset()
+    expect_nodes: frozenset[int] = frozenset()
 
 
 class ProfileError(ValueError):
@@ -196,6 +202,12 @@ def parse_profile(doc: dict, pid: str = "custom", path: str = "") -> Profile:
         det_min = int(det.get("min_match", min(2, len(det_addr) or len(det_nodes))))
     except (ValueError, TypeError) as e:
         raise ProfileError(f"bad detect section: {e}") from None
+    exp = doc.get("expect")
+    try:
+        exp_addr = frozenset(_int(a) for a in exp.get("addresses", [])) if exp else det_addr
+        exp_nodes = frozenset(_int(a) for a in exp.get("nodes", [])) if exp else det_nodes
+    except (ValueError, TypeError, AttributeError) as e:
+        raise ProfileError(f"bad expect section: {e}") from None
     extends = str(doc.get("extends") or "").strip()
     # A profile that extends another inherits its protocol unless it names one ("" until resolved).
     protocol = str(doc.get("protocol", "" if extends else J1939)).lower()
@@ -207,7 +219,7 @@ def parse_profile(doc: dict, pid: str = "custom", path: str = "") -> Profile:
         pgns=_num_map(doc.get("pgns"), "pgns"), signals=sigs,
         detect_addresses=det_addr, detect_min=det_min, path=path, extends=extends,
         nodes=_num_map(doc.get("nodes"), "nodes"), emcy=_num_map(doc.get("emcy"), "emcy"),
-        detect_nodes=det_nodes,
+        detect_nodes=det_nodes, expect_addresses=exp_addr, expect_nodes=exp_nodes,
     )
 
 
@@ -224,6 +236,9 @@ def merged(base: "Profile", own: "Profile") -> "Profile":
         path=own.path, builtin=own.builtin, protocol=own.protocol or base.protocol, extends=own.extends,
         nodes={**base.nodes, **own.nodes}, emcy={**base.emcy, **own.emcy},
         detect_nodes=own.detect_nodes or base.detect_nodes,
+        **({"expect_addresses": own.expect_addresses, "expect_nodes": own.expect_nodes}
+           if own.expect_addresses or own.expect_nodes else
+           {"expect_addresses": base.expect_addresses, "expect_nodes": base.expect_nodes}),
     )
 
 

@@ -11,7 +11,7 @@ import time
 import pygame
 
 from ...can import pythoncan
-from ...core import adapter_buses, interfaces, j1939_clear, profiles
+from ...core import adapter_buses, interfaces, j1939_clear, profiles, roster
 from ...core.connection import ELM, ELM_SIM, SOCKETCAN
 from ...j1939.addresses import sa_name
 from ...obd import describe_dtc, pids_for_dtc
@@ -421,6 +421,11 @@ class CodesPage(Screen):
                 text = "Lamps on: " + "; ".join(f"{sa_name(sa, with_hex=False)}: {lp}" for sa, lp in lamps)
                 ui.text(text, (rect.x + t.pad, rect.y + t.touch * .3), "body", "warn", max_w=rect.w - 2 * t.pad)
                 top += round(t.touch * .6)
+            r = ctx.roster
+            if r is not None and r.problems:        # a bare 'communication error' rarely names the module
+                ui.text(r.summary() + " (Bus page)", (rect.x + t.pad, top + t.touch * .3), "body", "bad",
+                        max_w=rect.w - 2 * t.pad)
+                top += round(t.touch * .6)
         area = pygame.Rect(rect.x, top, rect.w, rect.bottom - top)
         if not self.items:
             if not ctx.live:
@@ -459,7 +464,8 @@ class CodesPage(Screen):
 
 # ----------------------------------------------------------------------------
 class BusPage(Screen):
-    """Who's on the bus (modules, frames, rate), or every CAN ID with its latest bytes."""
+    """Who's on the bus (modules, frames, rate) against the modules the profile expects
+    (``core.roster``: missing and gone-quiet ones first), or every CAN ID with its latest bytes."""
 
     title = "Bus"
 
@@ -473,9 +479,28 @@ class BusPage(Screen):
         self.lines: list = []
 
     def softkeys(self):
+        if self.monitor:
+            third = SoftKey("Clear", self.ids.clear)
+        else:
+            third = SoftKey("Remember", self.remember, enabled=self.ctx.live and self.ctx.protocol != profiles.OBD2)
         return [SoftKey("Modules", lambda: setattr(self, "monitor", False), active=not self.monitor),
-                SoftKey("CAN IDs", lambda: setattr(self, "monitor", True), active=self.monitor),
-                SoftKey("Clear", self.ids.clear, enabled=self.monitor)]
+                SoftKey("CAN IDs", lambda: setattr(self, "monitor", True), active=self.monitor), third]
+
+    def remember(self):
+        """Save the modules heard as this machine's, so next time a missing one is named."""
+        ctx = self.ctx
+        addrs, nodes = roster.heard_modules(ctx.session)
+        n = len(addrs) + len(nodes)
+        if not n:
+            ctx.toast("Nothing heard on the bus yet")
+            return
+        active = profiles.active()
+        where = "your profile" if active is not None and active.path and profiles.origin(active) == "user" else \
+            "a new profile of your own built on " + (active.name if active else "no profile")
+        confirm(self.app, "Remember these modules?",
+                f"Save the {n} module(s) on the bus now as this machine's, in {where}. Do it on a machine that "
+                "works, key on. Next time any of them is missing, the Bus page names it. Nothing is sent to "
+                "the machine.", "Save", lambda: ctx.toast(ctx.remember_modules()), danger=False)
 
     def key5(self):
         return _log_key(self.ctx)
@@ -523,34 +548,47 @@ class BusPage(Screen):
         if ctx.protocol == profiles.OBD2:
             sn = ctx.obd_live.sniffer
             return [(sn.label(ecu), f"answers on {ecu:X}") for ecu in sorted(sn.modules())]
-        rates: dict[int, float] = {}
-        for (sa, _pgn), st in s.stats_copy().items():
-            rates[sa] = rates.get(sa, 0.0) + st.rate
+        r = ctx.roster if ctx.roster is not None and not s.offline else roster.check(s)
+        claims = {e.sa: e.name for e in s.ecu_list() if e.name}
         out = []
-        for e in s.ecu_list():
-            ago = now - e.last_seen if not s.offline else 0
-            name = f"   NAME: {e.name.summary()}" if e.name else ""
-            out.append((sa_name(e.sa), f"{e.frames:,} frames, {rates.get(e.sa, 0):.0f}/s, "
-                                       f"last {ago:.1f} s ago{name}"))
+        for m in r.modules:
+            sub = m.text
+            if m.frames and m.problem:          # its text already says when it was last heard
+                sub += f" - {m.frames:,} frames"
+            elif m.frames:
+                rate = f", {1 / m.period:.0f}/s" if m.period else ""
+                sub += f" - {m.frames:,} frames{rate}, last {m.age:.1f} s ago"
+            if m.src in claims:
+                sub += f"   NAME: {claims[m.src].summary()}"
+            out.append((m.name, sub, "bad" if m.problem else None))
         return out
 
     def draw(self, ui, rect):
         t = ui.theme
-        self._feed(self.ctx.session)
+        ctx = self.ctx
+        self._feed(ctx.session)
         self.lines = self._lines()
+        r = ctx.roster if not self.monitor and ctx.protocol != profiles.OBD2 and ctx.live else None
+        if r is not None and (r.modules or r.bus_quiet):
+            color = "bad" if r.problems else "warn" if r.bus_quiet else "dim"
+            ui.text(r.summary(), (rect.x + t.pad, rect.y + t.touch * .3), "body", color, max_w=rect.w - 2 * t.pad)
+            rect = pygame.Rect(rect.x, rect.y + round(t.touch * .6), rect.w, rect.h - round(t.touch * .6))
         if not self.lines:
-            ui.paragraph("Nothing heard yet." if self.ctx.live else "Connect first (Connect page).",
+            ui.paragraph("Nothing heard yet." if ctx.live else "Connect first (Connect page).",
                          rect.inflate(-t.pad * 4, -t.pad * 4), "body", "dim")
             return
 
         def draw_row(ui, i, r, focused):
-            head, sub = self.lines[i]
+            head, sub, *mark = self.lines[i]
             inner = r.inflate(-t.pad // 2, -t.pad // 3)
             ui.panel(inner, "panel", t.radius)
             if focused:
                 ui.fill(inner, "focus", t.radius, max(2, t.pad // 3))
+            if mark and mark[0]:
+                pygame.draw.rect(ui.surface, ui.color(mark[0]), (inner.x, inner.y, t.pad // 2, inner.h))
             ui.text(head, (inner.x + t.pad, inner.y + inner.h * .34), "body", "text", max_w=inner.w - 2 * t.pad)
-            ui.text(sub, (inner.x + t.pad, inner.y + inner.h * .74), "small", "dim", max_w=inner.w - 2 * t.pad)
+            ui.text(sub, (inner.x + t.pad, inner.y + inner.h * .74), "small", "bad" if mark and mark[0] else "dim",
+                    max_w=inner.w - 2 * t.pad)
 
         self.view.draw(ui, rect, len(self.lines), round(t.row * 1.15), draw_row)
 

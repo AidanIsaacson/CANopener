@@ -17,6 +17,7 @@
     canopener-cli obd --elm sim --bench 10            # how fast an adapter answers (here: the simulated one)
     canopener-cli serial sniff --line console=/dev/ttyUSB0 --line controller=/dev/ttyUSB1 --framing "9600 8N1"
     canopener-cli serial analyze CAPTURE_FOLDER       # what the serial bytes look like (kinds, checksums, text)
+    canopener-cli --profile zapi-combiacx modules --iface can0 --watch   # which modules are missing (listens only)
 """
 
 import argparse
@@ -425,6 +426,58 @@ def cmd_import(a) -> int:
             print(f"  note: {n}", file=sys.stderr)
         return 0
     return _save_imported(importers, doc, notes, a.name, a.force)
+
+
+def _print_roster(r) -> None:
+    from .core import roster
+    print(r.summary())
+    for m in r.modules:
+        mark = {roster.ON: "  ", roster.WAITING: "..", roster.QUIET: "!!", roster.MISSING: "!!"}[m.status]
+        heard = f"  ({m.frames} frames, last {m.age:.1f} s ago)" if m.frames else ""
+        print(f" {mark} {m.name:<36} {m.text}{heard}")
+    if r.hint("--remember"):
+        print(r.hint("--remember"))
+
+
+def cmd_modules(a) -> int:
+    """Which modules are on the bus, and which ones the profile says the machine has but aren't.
+    Only listens: nothing is sent."""
+    from .core import canopen as co
+    from .core import roster
+    if a.log:
+        session = connection.load_log_session(a.log)[0]
+        r = roster.check(session)
+        _print_roster(r)
+        return 1 if r.problems else 0
+    kind = connection.SIMULATOR if a.sim else connection.CANOPEN_SIM if a.canopen_sim else connection.SOCKETCAN
+    try:
+        conn = connection.open_connection(kind, a.iface, listen_only=True, bitrate=a.bitrate)
+    except OSError as e:
+        print(f"Could not open {a.iface}: {e}", file=sys.stderr)
+        return 2
+    s = conn.session
+    try:
+        time.sleep(max(a.listen, roster.SETTLE + 0.5))
+        r = roster.check(s)
+        if a.remember:
+            pid, found = roster.remember(s, profiles.active(), a.remember if a.remember != "-" else "")
+            print(f"Saved {len(found)} module(s) as this machine's in profile {pid!r}: "
+                  + ", ".join(co.source_name(x) for x in found))
+            return 0
+        _print_roster(r)
+        if not a.watch:
+            return 1 if r.problems else 0
+        alerts = roster.Alerts()
+        alerts.update(r)
+        print("Watching (Ctrl+C to stop)...")
+        while True:
+            time.sleep(1.0)
+            for line in alerts.update(roster.check(s))[0]:
+                print(f"{time.strftime('%H:%M:%S')}  {line}", flush=True)
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        conn.close()
 
 
 def cmd_canopen(a) -> int:
@@ -1485,6 +1538,22 @@ def main(argv=None) -> int:
                     help="with the PDO mapping: save a profile that decodes those PDOs (name them later)")
     co.add_argument("--force", action="store_true", help="replace a profile of the same name")
     co.set_defaults(fn=cmd_canopen)
+
+    mo = sub.add_parser("modules", help="which modules are on the bus, and which the profile (--profile) says the "
+                                        "machine has but aren't heard or went quiet; only listens")
+    mo.add_argument("--iface", default="can0", help=IFACE_HELP)
+    mo.add_argument("--bitrate", type=int, default=250000, help=BITRATE_HELP)
+    msrc = mo.add_mutually_exclusive_group()
+    msrc.add_argument("--sim", action="store_true", help="listen to the built-in J1939 simulator instead")
+    msrc.add_argument("--canopen-sim", action="store_true", help="listen to the built-in CANopen simulator instead")
+    msrc.add_argument("--log", metavar="FILE", help="check a recorded candump log instead (as it ends)")
+    mo.add_argument("--listen", type=float, default=5.0, metavar="SECONDS", help="listen this long first")
+    mo.add_argument("--watch", action="store_true", help="then keep listening and print each module that drops "
+                    "out, is missing or comes back")
+    mo.add_argument("--remember", nargs="?", const="-", metavar="NAME",
+                    help="on a machine that works: save the modules heard as this machine's, in the --profile if "
+                    "it's your own, else in a new profile built on it (NAME, or 'My <profile>')")
+    mo.set_defaults(fn=cmd_modules)
 
     im = sub.add_parser("import", help="make a profile from a DBC file, or a CANopen device's EDS / DCF file")
     im.add_argument("file", help="the .dbc, .eds or .dcf file")
