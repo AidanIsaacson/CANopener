@@ -2076,3 +2076,51 @@ def test_soft_key_5_has_a_job_on_each_screen(app_for):
     app.open_mode("can")
     app.top.show_page(CodesPage)
     assert labels() == ["Active", "Stored", "More...", "Live data", "Back"]
+
+
+def test_bus_page_remembers_modules_and_names_one_that_drops_out(app_for):
+    """Remember the CANopen simulator's nodes, then 'unplug' the battery module: a toast and the
+    module sound, the Bus page lists it first and the Codes page says so."""
+    from canopener.core import profiles
+    from canopener.core.connection import CANOPEN_SIM
+    from canopener.device.screens.base import ConfirmDialog
+    from canopener.device.screens.can import BusPage, CodesPage
+    from canopener.sim.canopen import BATTERY, PUMP, TRACTION
+    app = app_for()
+    ctx = app.ctx
+    cues = []
+    ctx.cue = lambda event, link_status=False: cues.append(event)
+    ctx.apply_profile("generic-canopen")
+    ctx.connect(CANOPEN_SIM)
+    assert ctx.wait_idle() and ctx.live
+
+    def run(seconds, until=lambda: False):
+        end = time.time() + seconds
+        while time.time() < end and not until():
+            app.step([])
+            time.sleep(0.05)
+
+    run(6, lambda: ctx.roster is not None and not ctx.roster.listening and len(ctx.roster.modules) >= 3)
+    app.open_mode("can")
+    app.top.show_page(BusPage)
+    bus = app.top.page
+    app.step([])
+    assert {m.node for m in ctx.roster.modules} >= {TRACTION, PUMP, BATTERY} and not ctx.roster.has_list
+    press(app, pygame.K_F3)                               # Remember
+    assert isinstance(app.top, ConfirmDialog) and "a new profile of your own" in app.top.text
+    app.action(inp.ROTATE, 1)
+    app.action(inp.SELECT)                                # Save
+    p = profiles.active()
+    assert p.extends == "generic-canopen" and p.expect_nodes == {TRACTION, PUMP, BATTERY}
+    assert "Saved 3 module(s)" in ctx.current_toast()
+
+    sim = ctx.connection.simulator
+    sim.nodes = {n: v for n, v in sim.nodes.items() if n != BATTERY}       # the battery module goes dark
+    run(10, lambda: "went quiet" in (ctx.current_toast() or ""))
+    assert ctx.current_toast() == f"Node {BATTERY:02X} went quiet" and "module" in cues
+    app.step([])
+    head, sub, mark = bus.lines[0]
+    assert head.startswith(f"Node {BATTERY:02X}") and sub.startswith("Went quiet") and mark == "bad"
+    app.top.show_page(CodesPage)
+    app.step([])
+    assert ctx.roster.problems and "Went quiet" in ctx.roster.summary()

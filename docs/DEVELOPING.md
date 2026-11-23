@@ -114,7 +114,13 @@ hold only your labels and the built-in base keeps getting updates. Unknown keys 
 saves, so hand edits are safe.
 
 **Recognising a machine:** a `"detect": {"addresses": [...], "min_match": 2}` section lists the
-module addresses that machine has. When the bus matches, a banner offers to switch profiles.
+module addresses that machine has. When the bus matches, a banner offers to switch profiles. The
+same list is what the missing-module check expects (`core/roster.py`: a listed module not heard,
+or one that went quiet, is named). When the two should differ (say `detect` names only a few
+telling modules, or the machine has optional ones), `"expect": {"addresses": [...], "nodes": [...]}`
+lists the modules to check instead. A CANopen node counts as heard only from what it sends itself
+(heartbeat, TPDO, EMCY, SDO answers), so list a node only if it sends something: one that is only
+ever sent to (RPDOs) would always show as missing.
 
 **Simulating a profile:** pick the profile, tick **Connection → Show simulators**, choose **Simulate
 the selected profile** as the source, and Connect. Every signal is broadcast from its address with moving values, so you can

@@ -20,7 +20,20 @@ from ..can import pythoncan
 from ..core import battery as batt
 from ..core import bluetooth as bt
 from ..core import capture as cap
-from ..core import config, identity, interfaces, link, meters, profile_match, profiles, scan, sound, units, upload
+from ..core import (
+    config,
+    identity,
+    interfaces,
+    link,
+    meters,
+    profile_match,
+    profiles,
+    roster,
+    scan,
+    sound,
+    units,
+    upload,
+)
 from ..core.calibration import Calibration
 from ..core.capture import Capture
 from ..core.connection import (
@@ -106,6 +119,9 @@ class DeviceContext:
         self.share_failed: set = set()      # profiles (ids) whose last share failed: offered again
         self.profile_matches: list = []     # known profiles this bus looks like (core.profile_match)
         self._matches_checked = False
+        self.roster: roster.Roster | None = None    # the missing-module check, about once a second
+        self.module_alerts = roster.Alerts()
+        self._roster_t = 0.0
         self.obd_live = ObdLiveData()
         self.meter_live = MeasurementLiveData()
         self.calibration = Calibration(self.settings)  # per-channel zero + gain (System > Meters > Calibration)
@@ -560,6 +576,7 @@ class DeviceContext:
         self.fieldwatch.clear()
         conn.session.add_listener(self.fieldwatch.feed)
         self.profile_matches, self._matches_checked = [], False
+        self.roster, self.module_alerts = None, roster.Alerts()
         got = getattr(conn, "second", None)
         if got is not None:
             self.second, self.second_port, self.second_bitrate = got
@@ -1289,6 +1306,7 @@ class DeviceContext:
             return
         self._traffic_check(now)
         self._match_check(now)
+        self._module_check(now)
         # for the chimes, a bus with little traffic is still a bus that's there
         level = link.OK if self.bus.level == link.LOW else self.bus.level
         if level != link.OK and now - s.started_at < link.QUIET_SECS:
@@ -1327,6 +1345,29 @@ class DeviceContext:
         else:
             self.traffic_hint = f"Key on? Or try the other port: CAN > Connect > Make {other.label} the main bus"
         self.toast(f"{here}: {what}. {self.traffic_hint}")
+
+    def _module_check(self, now: float):
+        """About once a second: the missing-module check (``core.roster``) for the Bus and Codes pages,
+        and a toast (with the 'module' sound) when a module drops out, is missing or comes back."""
+        if now - self._roster_t < 1.0:
+            return
+        self._roster_t = now
+        if self.protocol == profiles.OBD2:
+            self.roster = None
+            return
+        self.roster = roster.check(self.session, now=now)
+        said, bad = self.module_alerts.update(self.roster)
+        if said:
+            self.toast("; ".join(said))
+            if bad:
+                self.cue("module")
+
+    def remember_modules(self) -> str:
+        """Save the modules heard as this machine's (``roster.remember``) and use that profile.
+        Returns what to tell the technician."""
+        pid, found = roster.remember(self.session, profiles.active())
+        self.apply_profile(pid)
+        return f"Saved {len(found)} module(s) as this machine's ({self.profile_name()})"
 
     def _match_check(self, now: float):
         """Once, a few seconds into a connection: which known profiles this bus looks like. Said out

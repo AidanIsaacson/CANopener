@@ -66,6 +66,7 @@ EVENTS = [
     ("found", "Signal found (bitrate locked on)", "found"),
     ("lost", "CAN traffic stopped", "lost"),
     ("back", "CAN traffic came back", "back"),
+    ("module", "A module went quiet or is missing", "alert"),
     ("rec_start", "Log started", "rising"),
     ("rec_stop", "Log stopped", "falling"),
     ("tag", "Timestamp added", "blip"),

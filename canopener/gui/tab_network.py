@@ -1,16 +1,19 @@
 """Network tab: every module on the bus, as the profile's protocol has it. J1939: ECUs with their
 address-claim NAME and the PGNs they send. CANopen: nodes with their state, heartbeat and messages
 (reading a node's identity, finding silent nodes, the confirm-first NMT commands) and any other
-11-bit IDs. A "j1939+canopen" profile lists both."""
+11-bit IDs. A "j1939+canopen" profile lists both. Above them, the missing-module check
+(``core.roster``): modules the profile expects that aren't heard, and ones that went quiet."""
 
 import time
 
 from ..canopen import cob, nmt
-from ..core import canopen, profiles
+from ..core import canopen, labeling, profiles, roster
 from ..j1939.addresses import sa_name
 from ..j1939.constants import PGN_ADDRESS_CLAIM, pgn_label
 from ..j1939.fields import hexs
+from . import themes
 from .flow import FlowLayout
+from .module_check import ModuleCheck
 from .qt import Qt, QtGui, QtWidgets
 
 COLS = ["Address / message", "Name / label", "Frames", "Rate", "DLC", "Latest data / details", "Last seen"]
@@ -62,9 +65,16 @@ class NetworkTab(QtWidgets.QWidget):
                        lambda: self.send_nmt(nmt.RESET_COMM, True))
         self.nmt_btn.setMenu(menu)
         bar.addWidget(self.nmt_btn)
+        self.remember_btn = QtWidgets.QPushButton("Remember these modules…")
+        self.remember_btn.setToolTip("On a machine that works: save the modules on the bus now as this machine's "
+                                     "(in your profile), so next time any that's missing is named here")
+        self.remember_btn.clicked.connect(self.remember_modules)
+        bar.addWidget(self.remember_btn)
         self.summary = QtWidgets.QLabel("")
         bar.addWidget(self.summary)
         lay.addLayout(bar)
+        self.check = ModuleCheck()
+        lay.addWidget(self.check)
 
         self.tree = QtWidgets.QTreeWidget()
         self.tree.setHeaderLabels(COLS)
@@ -110,6 +120,8 @@ class NetworkTab(QtWidgets.QWidget):
 
     def _selection(self):
         self.name_btn.setEnabled(self.selected_sa() is not None)
+        self.remember_btn.setEnabled(self.ctx.session is not None and bool(self.check.roster
+                                                                           and self.check.roster.modules))
         node = self.selected_node() is not None
         self.info_btn.setEnabled(node and self._can_send())
         self.nmt_btn.setEnabled(self._can_send() and self.ctx.session.has_canopen)
@@ -120,6 +132,38 @@ class NetworkTab(QtWidgets.QWidget):
         if sa is not None:
             from .label_dialog import name_module
             name_module(self.ctx, sa, self)
+
+    def remember_modules(self):
+        """Save the modules heard as the machine's (the profile's detect list, what **Recognise this
+        machine** saves), so the check can name a missing one next time. Writes only your profile."""
+        s = self.ctx.session
+        if s is None:
+            return
+        addrs, nodes = roster.heard_modules(s)
+        found = list(addrs) + [canopen.node_src(n) for n in nodes]
+        if not found:
+            QtWidgets.QMessageBox.information(self, "Remember these modules", "Nothing heard on the bus yet.")
+            return
+        names = "\n".join("  " + canopen.source_name(a) for a in found)
+        r = QtWidgets.QMessageBox.question(
+            self, "Remember these modules",
+            f"Save these {len(found)} module(s) as this machine's?\n\n{names}\n\nDo this on a machine that "
+            "works, with the key on. Next time, any of them that isn't heard is named here. (This saves to "
+            "your profile; nothing is sent to the machine.)",
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            QtWidgets.QMessageBox.StandardButton.Yes)
+        if r != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+        pid = self.ctx.label_target()
+        if not pid:
+            return
+        labeling.set_detect(pid, addrs, nodes)
+        self.ctx.labels_saved.emit(pid)
+        self.ctx.status_message.emit(f"Saved {len(found)} module(s) as this machine's")
+
+    def refresh_theme(self):
+        self.check.refresh_theme()
+        self.refresh(force=True)
 
     # --- CANopen actions -----------------------------------------------------------------------------
     def find_nodes(self):
@@ -191,6 +235,7 @@ class NetworkTab(QtWidgets.QWidget):
     # --- the tree --------------------------------------------------------------------------------------
     def _session_changed(self, session):
         self._apply_protocol()
+        self.check.show_roster(None)
         self.tree.clear()
         self.items.clear()
         self.claim_btn.setEnabled(bool(self.ctx.live and not session.listen_only))
@@ -279,6 +324,7 @@ class NetworkTab(QtWidgets.QWidget):
                 d = latest_std.get(cid)
                 child.setText(5, hexs(d[1]) if d else "")
                 child.setText(6, f"{ref - st.last:.1f}s ago")
+        self._show_check(s)
         self.tree.sortItems(0, Qt.SortOrder.AscendingOrder)
         parts = []
         if j1939:
@@ -287,3 +333,45 @@ class NetworkTab(QtWidgets.QWidget):
             parts.append(f"{len(nodes)} CANopen node(s)")
         self.summary.setText(", ".join(parts))
         self._selection()
+
+    def _show_check(self, s):
+        """The missing-module check: the banner, a row for each module that has none (never heard,
+        or heard only on IDs not listed under a node), and problem rows tinted."""
+        r = roster.check(s) if profiles.protocol() != profiles.OBD2 else None
+        self.check.show_roster(r)
+        mods = {m.src: m for m in r.modules} if r is not None else {}
+        bad = set() if r is None else {m.src for m in r.problems}
+        for key in [k for k in self.items if isinstance(k, tuple) and k[0] == "check"]:
+            if key[1] not in bad or self._row_for(key[1], own=False) is not None:
+                item = self.items.pop(key)
+                self.tree.takeTopLevelItem(self.tree.indexOfTopLevelItem(item))
+        for src in bad:
+            if self._row_for(src, own=False) is None:
+                m = mods[src]
+                top = self._top(("check", src), src)
+                node = m.node
+                top.setText(0, f"Node {node:02X}  ({node})" if node is not None else f"{src:02X}  ({src})")
+                top.setText(1, canopen.source_name(src, with_hex=False))
+                top.setText(2, str(m.frames) if m.frames else "")
+                top.setText(6, f"{m.age:.1f}s ago" if m.age is not None else "never")
+        bg, fg = themes.tint("bad")
+        for top in self.items.values():
+            if top.parent() is not None:
+                continue
+            src = top.data(0, Qt.ItemDataRole.UserRole)
+            m = mods.get(src) if isinstance(src, int) else None
+            problem = m is not None and src in bad
+            if problem:
+                top.setText(5, m.text)
+            for c in range(len(COLS)):
+                top.setData(c, Qt.ItemDataRole.BackgroundRole, bg if problem else None)
+                top.setData(c, Qt.ItemDataRole.ForegroundRole, fg if problem else None)
+            top.setToolTip(1, m.text if m is not None else "")
+
+    def _row_for(self, src: int, own: bool = True):
+        """The tree's row for a module: its J1939 / node row (``own=False``: not a check row)."""
+        node = src - canopen.NODE_SRC if canopen.is_node(src) else None
+        row = self.items.get(("node", node) if node is not None else src)
+        if row is None and own:
+            row = self.items.get(("check", src))
+        return row
