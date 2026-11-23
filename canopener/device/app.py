@@ -253,6 +253,26 @@ class DeviceApp:
     # ------------------------------------------------------------------
     # input
     # ------------------------------------------------------------------
+    def back_on_button5(self) -> bool:
+        """Is button 5 a Back key right now (five buttons, set to Back)? A page's ``back_key()`` can
+        take its place."""
+        return int(self.ctx.settings.get("device.buttons") or 5) >= 5 and self.keymap.button5 == inp.BACK
+
+    def _back_key(self):
+        """The top page's key in place of Back on button 5, or None."""
+        if not self.back_on_button5() or self.top.modal:
+            return None
+        return self.top.back_key()
+
+    def _button5_down(self) -> bool:
+        """Button 5 went down: True when a page's own key (``back_key``) took it instead of Back."""
+        key = self._back_key()
+        if key is None:
+            return False
+        if key.enabled and key.fn is not None:
+            key.fn()
+        return True
+
     def softkey_slots(self) -> list:
         """What each hardware button does right now: SoftKey or None, one per button."""
         n = 5 if int(self.ctx.settings.get("device.buttons") or 5) >= 5 else 4
@@ -264,7 +284,8 @@ class DeviceApp:
         if n == 5 and not five_soft:
             b5 = self.keymap.button5
             if b5 == inp.BACK:
-                slots.append(SoftKey("Back", lambda: self.action(inp.BACK), enabled=len(self.stack) > 1))
+                slots.append(self._back_key()
+                             or SoftKey("Back", lambda: self.action(inp.BACK), enabled=len(self.stack) > 1))
             elif b5 == inp.LOG:
                 slots.append(SoftKey("Stop log" if self.ctx.recording else "Log", self.ctx.toggle_log,
                                      active=self.ctx.recording))
@@ -326,6 +347,9 @@ class DeviceApp:
                 self.running = False
                 return
             if self._testing("key", pygame.key.name(ev.key), True):
+                return
+            if self.keymap.keys.get(pygame.key.name(ev.key).lower()) == inp.BUTTON5 and self._button5_down():
+                self.chirp()
                 return
             a = self.keymap.action(pygame.key.name(ev.key))
             if a in (inp.ROTATE_CW, inp.ROTATE_CCW):
@@ -412,6 +436,9 @@ class DeviceApp:
         """A button press or release that didn't come as a key (the button ADC's stacks): the same
         path as a key, so holding the encoder's push is still Back."""
         if a == inp.BUTTON5:
+            if kind == "down" and self._button5_down():
+                self.chirp()
+                return
             a = self.keymap.button5
         if kind == "down":
             self.chirp()

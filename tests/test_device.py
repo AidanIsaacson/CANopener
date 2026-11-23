@@ -320,50 +320,69 @@ def test_live_list_groups_by_controller_and_folds(app_for):
         app.step([])
         time.sleep(0.03)
     live = can.page
-    assert isinstance(live.entries[0], GroupRow) and not any(isinstance(e, Head) for e in live.entries)
-    live.view.focus = 0
-    press(app, pygame.K_RETURN)                           # the Group row, on the Live page itself
+    labels = lambda: [k.label if k else None for k in app.softkey_slots()]  # noqa: E731
+    assert labels()[4] == "Group"                         # button 5: Group in place of Back
+    assert not any(isinstance(e, (GroupRow, Head)) for e in live.entries)    # no row spent on it
+    press(app, pygame.K_F5)
     dlg = app.top
     assert isinstance(dlg, ChoiceDialog) and [v for _, v in dlg.options] == [GROUP_NONE, GROUP_SOURCE, GROUP_KIND]
+    assert labels()[4] == "Back"                          # a dialog keeps Back
     dlg._pick(1)                                          # By controller
-    assert ctx.settings.get("device.live_group") == GROUP_SOURCE
+    assert ctx.settings.get("device.live_group") == GROUP_SOURCE and app.top is can
     app.step([])
     heads = [e for e in live.entries if isinstance(e, Head)]
     assert len(heads) >= 3                                # several controllers, and the meters
-    assert isinstance(live.entries[1], Head)
+    assert isinstance(live.entries[0], Head)
     can_heads = [h for h in heads if h.model is ctx.can_model]
     assert len({h.section.id for h in can_heads}) == len(can_heads) >= 2
-    first = live.entries[1]
+    first = live.entries[0]
 
     def values_under_first():
         return [k for e in live.entries if isinstance(e, tuple) and e[0] is first.model
                 for k in [e[1]] if k in first.section.keys]
     assert values_under_first()
-    live.view.focus = 1
+    live.view.focus = 0
     press(app, pygame.K_RETURN)                           # Select on a heading folds it, picks nothing
-    assert not live.picked() and values_under_first() == [] and live.entries[1].id == first.id
+    assert not live.picked() and values_under_first() == [] and live.entries[0].id == first.id
     app.step([])
     assert ctx.settings.get(VIEW)["collapsed"][GROUP_SOURCE] == [first.id]    # kept for next time
     press(app, pygame.K_RETURN)                           # and unfolds it again
     assert values_under_first()
-    live.view.focus = 2
+    live.view.focus = 1
     press(app, pygame.K_RETURN)                           # a value under it is picked as usual
     assert len(live.picked()) == 1
     live.choose_grouping()                                # fold every heading, then open them again
-    labels = [label for label, _ in app.top.options]
-    assert labels[-1] == "Fold every heading"
-    app.top._pick(len(labels) - 1)
+    opts = [label for label, _ in app.top.options]
+    assert opts[-1] == "Fold every heading"
+    app.top._pick(len(opts) - 1)
     app.step([])
-    assert all(isinstance(e, (GroupRow, Head)) for e in live.entries)
+    assert all(isinstance(e, Head) for e in live.entries)
     live.choose_grouping()
     assert app.top.options[-1][0] == "Open every heading"
     app.top._pick(len(app.top.options) - 1)
     app.step([])
     assert any(isinstance(e, tuple) for e in live.entries)
+    live.big = True                                       # the grid: Back is back
+    assert labels()[4] == "Back"
+    live.big = False
     live.choose_grouping()
     app.top._pick(0)                                      # One list
     app.step([])
     assert not any(isinstance(e, Head) for e in live.entries)
+
+    app.button("down", inp.BUTTON5)                       # the button ADC's button 5 does the same
+    app.button("up", inp.BUTTON5)
+    assert isinstance(app.top, ChoiceDialog)
+    app.pop()
+
+    # Button 5 set to something else: the choice is the list's first row instead
+    ctx.settings.set("device.button5", "log")
+    app.step([])
+    assert labels()[4] == "Log" and isinstance(live.entries[0], GroupRow)
+    live.view.focus = 0
+    press(app, pygame.K_RETURN)
+    assert isinstance(app.top, ChoiceDialog)
+    app.pop()
 
 
 def test_can_mode_against_the_simulator(app_for):

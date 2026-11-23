@@ -596,6 +596,9 @@ class CanScreen(Screen):
     def softkeys5(self):
         return self.page.softkeys5()
 
+    def back_key(self):
+        return self.page.back_key()
+
     def on_action(self, action, n=1):
         if action in (inp.LEFT, inp.RIGHT):
             self._go((self.index + (-1 if action == inp.LEFT else 1)) % len(self.pages))

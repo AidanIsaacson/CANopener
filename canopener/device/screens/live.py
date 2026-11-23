@@ -9,9 +9,10 @@ What's picked, the grid and the enlarged value are kept (``device.live_view`` in
 ``SavedView``), so they're still there after another screen or a restart: a picked value comes
 back as soon as it's on the bus again.
 
-The list's first row, **Group**, puts the values under a heading per controller (who sends each
-value) or per group (``core.live.sections``), and folds or opens every heading. Select (or a tap)
-on a heading folds it away; the grouping and which headings are folded are kept.
+**Group** (button 5, in place of Back, while the list shows) puts the values under a heading per
+controller (who sends each value) or per group (``core.live.sections``), and folds or opens every
+heading. When button 5 does something else, a **Group** row at the top of the list does the same.
+Select (or a tap) on a heading folds it away; the grouping and which headings are folded are kept.
 """
 
 import time
@@ -27,13 +28,13 @@ from .base import Screen, SoftKey
 TRACE_SECONDS = 60
 VIEW = "device.live_view"           # {"grid": bool, "picks": [[model, signal key, source], ...], "zoom": pick,
 #                                      "collapsed": {grouping: [section id, ...]}}
-GROUPING = "device.live_group"      # none / source / group (the list's Group row)
+GROUPING = "device.live_group"      # none / source / group (the Group key, or the list's Group row)
 GROUPINGS = [("One list", GROUP_NONE), ("By controller", GROUP_SOURCE), ("By group", GROUP_KIND)]
 FOLD_ALL, OPEN_ALL = "fold-all", "open-all"
 
 
 class GroupRow:
-    """The list's first row: how it's grouped (Select picks)."""
+    """The list's first row when button 5 isn't free for the Group key: how it's grouped."""
 
 
 class Head:
@@ -206,7 +207,9 @@ class LivePage(Screen):
                 out.append(head)
                 if not self.saved.collapsed.is_folded(by, head.id):
                     out += [(m, k) for k in sec.keys]
-        return [GroupRow()] + out if out else out
+        if out and not self.app.back_on_button5():      # no Group key: the choice is the first row
+            out.insert(0, GroupRow())
+        return out
 
     def _heads(self) -> list:
         """Every heading under the current grouping, folded ones included."""
@@ -274,6 +277,13 @@ class LivePage(Screen):
         else:
             keys.append(SoftKey("Clear picks", self.clear_picks, enabled=bool(self.picked())))
         return keys
+
+    def back_key(self):
+        """Group in place of Back while the list shows (Back: long-press Select, or the arrow)."""
+        if self.big:
+            return None
+        return SoftKey("Group", self.choose_grouping, enabled=bool(self.entries),
+                       active=self.grouping != GROUP_NONE)
 
     def key5(self):
         """Watching values is when a log is wanted."""

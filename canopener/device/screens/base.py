@@ -45,6 +45,12 @@ class Screen:
         """The fifth button's job on this screen (None: the app puts Home there)."""
         return None
 
+    def back_key(self):
+        """A key of this page's own in place of **Back** when button 5 is Back (the usual setup),
+        or None to keep Back there. Back is still a long press of Select and the status strip's
+        arrow. Only for a page whose screen space is better spent on one more key."""
+        return None
+
     def on_action(self, action: str, n: int = 1) -> bool:
         return False
 

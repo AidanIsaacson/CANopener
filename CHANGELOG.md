@@ -3,19 +3,14 @@
 What changed in each version, newest first. Versions are git tags (`v0.3.3`): to put a unit back
 on an older one, `git checkout v0.3.2` in its checkout.
 
-## Unreleased
-
-- **The handheld's Live grouping is on the Live page now.** The list's first row, **Group**, picks
-  one list, by controller or by group, and folds or opens every heading at once. It's gone from
-  **System**.
-
 ## 0.5.0 (2026-11-21)
 
 - **Live Data groups by controller.** **By source** on the desktop's Live Data (and the OBD-II
   tab's) puts each value under a heading for the controller that sends it; **By group** uses the
   profile's groups. Click a heading to fold it away, or **Collapse all**. On the handheld,
-  **System > Live data** picks the same, and Select or a tap on a heading folds it. The grouping and
-  which headings are folded are remembered.
+  **Group** (button 5 on the Live list, in place of Back) picks the same and folds or opens every
+  heading, and Select or a tap on a heading folds it. The grouping and which headings are folded
+  are remembered.
 - **Serial console ports.** Controllers that talk to their service console over a serial line
   (RS-232, logic level, or a current loop through an optocoupler tap) can be recorded:
   `canopener-cli serial sniff` records one adapter per direction into an ordinary capture, with
