@@ -11,7 +11,7 @@ import time
 import pygame
 
 from ...can import pythoncan
-from ...core import adapter_buses, interfaces, j1939_clear, profiles, roster
+from ...core import adapter_buses, canopen, interfaces, j1939_clear, profiles, roster
 from ...core.connection import ELM, ELM_SIM, SOCKETCAN
 from ...j1939.addresses import sa_name
 from ...obd import describe_dtc, pids_for_dtc
@@ -251,7 +251,9 @@ class CodesPage(Screen):
                     out += [("obd", ecu, kind, code) for code in codes]
             return out
         r = ctx.result
-        return [("j1939", row) for row in r.rows] if r else []
+        if r is None:
+            return []
+        return [("j1939", row) for row in r.rows] + [("canopen", c) for c in r.canopen]
 
     def focused(self):
         return self.items[self.view.focus] if 0 <= self.view.focus < len(self.items) else None
@@ -261,6 +263,8 @@ class CodesPage(Screen):
             return False
         if item[0] == "obd":
             return bool(pids_for_dtc(item[3]))
+        if item[0] == "canopen":
+            return False
         from ...j1939.signals import all_signals
         return any(s.spn == item[1].spn for s in all_signals())
 
@@ -350,6 +354,9 @@ class CodesPage(Screen):
         if not ctx.can_transmit:
             ctx.toast("Clearing codes has to transmit: connect without listen-only")
             return
+        if profiles.speaks_canopen() and not profiles.speaks_j1939():
+            self.clear_canopen()
+            return
         opts = [(f"{label}, every module", (which, j1939_clear.GLOBAL_SA)) for which, label in CLEAR_KINDS]
         item = self.focused()
         if item is not None and item[0] == "j1939":
@@ -360,6 +367,27 @@ class CodesPage(Screen):
             which, da = choice
             confirm(self.app, "Clear codes?", j1939_clear.warning(which, da), "Clear",
                     lambda: ctx.clear_j1939(which, da, then=self._show_cleared))
+        choose(self.app, "Clear which codes?", opts, None, go)
+
+    def clear_canopen(self):
+        """CANopen: clear a node's stored error history (0x1003 sub 0 = 0), confirmed first."""
+        ctx = self.ctx
+        r = ctx.result
+        stored = sorted({c.node for c in (r.canopen if r else []) if c.status == "Stored"})
+        if not stored:
+            ctx.toast("No error history read yet: press Stored first")
+            return
+        item = self.focused()
+        opts = [(f"Error history, every node with codes ({len(stored)})", stored)]
+        if item is not None and item[0] == "canopen" and item[1].node in stored:
+            opts.append((f"Error history, {canopen.source_name(item[1].src)} only", [item[1].node]))
+
+        def go(nodes):
+            text = canopen.warning_clear(nodes[0])
+            if len(nodes) > 1:
+                text += "\n\n(The same for nodes " + ", ".join(f"{n:02X}" for n in nodes) + ".)"
+            confirm(self.app, "Clear the error history?", text, "Clear",
+                    lambda: ctx.clear_canopen(nodes, then=self._show_cleared))
         choose(self.app, "Clear which codes?", opts, None, go)
 
     def clear_obd(self):
@@ -391,6 +419,16 @@ class CodesPage(Screen):
             _, ecu, kind, code = item
             lines = [f"{code}: {describe_dtc(code)}", "", f"Module: {self.ctx.obd_label(ecu)}", f"Kind: {kind}"]
             title = code
+        elif item[0] == "canopen":
+            c = item[1]
+            lines = [f"{c.code:04X}: {c.text}", "", f"Status: {c.status}", f"Node: {canopen.source_name(c.src)}"]
+            if c.register_text:
+                lines.append(f"Error register: {c.register_text}")
+            if c.extra:
+                lines.append(f"Maker's extra bytes: {c.extra_text}")
+            if c.status != "Stored":
+                lines.append(f"Seen {c.seen}x, last {time.strftime('%H:%M:%S', time.localtime(c.last))}")
+            title = f"EMCY {c.code:04X}"
         else:
             r = item[1]
             lines = [f"SPN {r.spn_label}: {r.spn_text}", f"FMI {r.fmi}: {r.fmi_text}", "",
@@ -450,6 +488,12 @@ class CodesPage(Screen):
                 _, ecu, kind, code = item
                 head, sub = f"{code}  {describe_dtc(code)}", f"{kind.capitalize()} - {ctx.obd_label(ecu)}"
                 color = "bad" if kind != "pending" else "warn"
+            elif item[0] == "canopen":
+                c = item[1]
+                head = f"{c.code:04X}  {c.text}"
+                extra = f" - extra {c.extra_text}" if c.extra else ""
+                sub = f"{c.status} - {canopen.source_name(c.src)}{extra}"
+                color = "bad" if c.status == "Active" else "warn"
             else:
                 row = item[1]
                 head = f"SPN {row.spn} FMI {row.fmi}  {row.spn_text}"

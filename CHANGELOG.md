@@ -7,8 +7,9 @@ on an older one, `git checkout v0.3.2` in its checkout.
 
 - **Profile builder: electric stand-ups.** A new kind of machine, **Electric stand-up**, asks
   **Reach truck** or **Counterbalance**. Its controls are mapped with your feet off the operator
-  pedal (the truck can't drive or lift): the pedal, travel both ways, lift and lower, reach out and
-  in (reach trucks), tilt, side shift, the function button and the horn. Then on the pedal: lift,
+  pedal (the truck can't drive or lift): the operator presence pedal and the brake pedal (or the
+  one pedal, when that's all it has), the gate bar if fitted, travel both ways, lift and lower,
+  reach out and in (reach trucks), tilt, side shift, the function button and the horn. Then on the pedal: lift,
   lower, reach, tilt, side shift, mast height, the steering angle, drive motor speed (a
   counterbalance asks for the left and right motors separately) and battery current.
 - **Profile builder: a control's two directions make one signal.** Lift and lower, tilt back and
@@ -27,6 +28,12 @@ on an older one, `git checkout v0.3.2` in its checkout.
   windows, and the log's README gets a **Profile builder** table: what each step offered, what
   was kept and the warnings it raised (also in `capture.json`). A port set to Auto now records the
   bitrate it found instead of 0.
+- **Handheld: CANopen codes show on the Codes page.** It listed J1939 codes only, so a CANopen
+  machine's stored and active errors were read (and counted) but never shown. They're listed now,
+  with the node and the maker's extra bytes; history slots that read 0 are left out (desktop too);
+  and **Clear...** on a CANopen machine offers the standard error-history clear, after asking.
+- **Connecting: CAN-H and CAN-L first.** Some machines throw bus errors when the adapter's CAN
+  GND is connected too; the docs now say to start without it.
 - **Values other profiles know.** The **Profile builder** page checks every profile on the unit
   (built-in, plugins, your own) against the messages nothing decodes here, and lists the values
   that fit what the bus is sending (the same message on a sister machine); **Add all** adds them

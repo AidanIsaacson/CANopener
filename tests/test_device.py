@@ -707,6 +707,39 @@ def test_clearing_j1939_codes_asks_first_then_reads_back(app_for):
     assert not any(r.spn == 3719 for r in ctx.result.rows) and codes.title == "Codes"
 
 
+def test_canopen_codes_show_on_the_codes_page_and_clearing_asks_first(app_for):
+    """A CANopen machine: Stored reads each node's error history and the page lists it (it used to
+    show J1939 codes only); Clear... offers the standard error-history clear, default No."""
+    from canopener.device.screens.base import ChoiceDialog, ConfirmDialog, InfoDialog
+    app = app_for()
+    ctx = app.ctx
+    ctx.connect("canopen-sim")
+    assert ctx.wait_idle()
+    time.sleep(1.5)                                       # heartbeats: the nodes are heard
+    app.open_mode("can")
+    codes = app.top.page
+    press(app, pygame.K_F2)                               # Stored
+    assert ctx.wait_idle(15)
+    app.step([])
+    items = codes._items()
+    stored = [c for kind, c in items if kind == "canopen" and c.status == "Stored"]
+    assert {c.code for c in stored} >= {0x3220, 0x8130} and all(c.code for c in stored)
+    codes.details(next(i for i, it in enumerate(items) if it[0] == "canopen"))
+    assert isinstance(app.top, InfoDialog) and app.top.title.startswith("EMCY ")
+    app.pop()
+    codes.clear_j1939()                                   # (the page's Clear...: CANopen here)
+    assert isinstance(app.top, ChoiceDialog) and app.top.options[0][0].startswith("Error history, every node")
+    app.action(inp.SELECT)
+    assert isinstance(app.top, ConfirmDialog) and "object 1003 sub 0" in app.top.text
+    app.action(inp.ROTATE, 1)
+    app.action(inp.SELECT)                                # Clear
+    assert ctx.wait_idle(15)
+    app.step([])
+    assert isinstance(app.top, InfoDialog) and "cleared" in app.top.lines[0]
+    assert not [c for c in ctx.result.canopen if c.status == "Stored"]
+    ctx.disconnect()
+
+
 def test_clearing_obd_codes_asks_first(app_for):
     from canopener.device.screens.base import ConfirmDialog, InfoDialog
     app = app_for()

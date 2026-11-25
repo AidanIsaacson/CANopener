@@ -140,6 +140,14 @@ QUESTIONS = [
              [("Reach truck: the forks reach out from the mast", REACH),
               ("Counterbalance: no reach; usually two drive motors, one each side", COUNTERBALANCE)],
              when=lambda a: a.get("machine") == STANDUP),
+    Question("pedals", "Which pedals does the operator stand on?",
+             [("An operator presence pedal and a separate brake pedal", "both"),
+              ("One pedal: standing on it releases the brake", "one"),
+              ("Not sure (ask for both)", "both")],
+             when=lambda a: a.get("machine") == STANDUP),
+    Question("gate", "Is there an operator gate or gate bar (closes the operator compartment)?",
+             [("Yes", True), ("No", False), ("Not sure (ask for it)", True)],
+             when=lambda a: a.get("machine") == STANDUP),
     Question("hydraulics", "How are the hydraulics controlled?",
              [("Electronic: levers or a joystick with sensors (the valve is driven electrically)", ELECTRONIC),
               ("Manual: the levers move the valve themselves", MANUAL),
@@ -172,15 +180,24 @@ def _axis(axis: str, unit: str = "%", group: str = "Hydraulics", *dirs) -> list:
     return [(name, prompt, group, unit, False, "", axis, direction) for name, direction, prompt in dirs]
 
 
-def _standup(kind: str, height: str, side_shift: bool) -> tuple[list, list]:
+def _standup(kind: str, height: str, side_shift: bool, pedals: str = "both", gate: bool = False
+             ) -> tuple[list, list]:
     """(the controls, the working steps) of an electric stand-up: a reach truck or a counterbalance.
 
     The controls are read with the key on and the operator off the pedal (it can't drive or lift
     then); most stand-ups put travel, lift / lower, tilt, reach and side shift on one control handle,
     each a signed value either side of rest, so each is asked for both ways."""
-    pedal = ("Operator pedal", "Stand on the operator (brake) pedal and hold, then step off at 'let go'", "Operator",
-             "", True, "")
-    controls = [pedal]
+    if pedals == "one":
+        controls = [("Operator pedal", "Stand on the operator (brake) pedal and hold, then step off at 'let go'",
+                     "Operator", "", True, "")]
+    else:
+        controls = [("Operator presence pedal", "Stand on the operator presence pedal and hold, then step off at "
+                     "'let go'", "Operator", "", True, ""),
+                    ("Brake pedal", "Press the brake pedal and hold, then let it up at 'let go'", "Operator", "",
+                     True, "")]
+    if gate:
+        controls.append(("Gate bar", "Close the operator gate or gate bar (open it if it's closed) and hold it there",
+                         "Operator", "", True, ""))
     controls += _axis("Travel input", "%", "Drive",
                       ("Travel forks first", "forks first",
                        "Off the pedal: move the control handle fully for travel FORKS FIRST and hold"),
@@ -315,7 +332,8 @@ def build_script(answers: dict) -> tuple[str, list[Step]]:
     if machine == STANDUP:
         kind = answers.get("standup", REACH)
         title += {REACH: ", reach truck", COUNTERBALANCE: ", counterbalance"}.get(kind, "")
-        controls, work = _standup(kind, answers.get("height", "none"), side_shift)
+        controls, work = _standup(kind, answers.get("height", "none"), side_shift, answers.get("pedals", "both"),
+                                  bool(answers.get("gate")))
         return title, (_steps(OFF_PEDAL, *controls) + _steps(ON_PEDAL, *work)
                        + _steps("Charging", ("Charging", "Plug the charger in (skip if it can't be done here)",
                                              "Electrical", "", True, "")))

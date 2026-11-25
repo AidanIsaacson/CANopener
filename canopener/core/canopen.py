@@ -312,6 +312,8 @@ def codes(session, since: float = 0.0, history: bool = False) -> list[CanopenCod
         limit = count[0] if count else len(entries)
         for _sub, v in sorted(entries)[:limit]:
             val = objects.as_uint(v)
+            if not val:
+                continue                    # an empty slot: some nodes keep one, reading 0
             out.append(CanopenCode("Stored", n, val & 0xFFFF, None, (val >> 16).to_bytes(2, "little")))
     if history:
         for (n, code), evs in seen.items():

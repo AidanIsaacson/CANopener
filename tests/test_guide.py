@@ -311,12 +311,16 @@ def test_stand_up_scripts_reach_and_counterbalance():
     asked = []
     while (q := guide.next_question(a)) is not None:        # no hydraulics question: a stand-up's are electronic
         asked.append(q.id)
-        a[q.id] = {"height": "encoder", "side_shift": True}[q.id]
-    assert asked == ["height", "side_shift"]
+        a[q.id] = {"pedals": "both", "gate": True, "height": "encoder", "side_shift": True}[q.id]
+    assert asked == ["pedals", "gate", "height", "side_shift"]
     title, steps = guide.build_script(a)
     names = [s.name for s in steps]
     assert title == "Electric stand-up, reach truck" and len(set(names)) == len(names)
-    assert names[0] == "Operator pedal" and steps[0].stage == guide.OFF_PEDAL
+    assert names[:3] == ["Operator presence pedal", "Brake pedal", "Gate bar"]
+    assert all(s.stage == guide.OFF_PEDAL and s.switch and s.group == "Operator" for s in steps[:3])
+    one = [s.name for s in guide.build_script({"machine": "standup", "standup": "reach", "pedals": "one",
+                                               "gate": False})[1]]
+    assert one[0] == "Operator pedal" and "Brake pedal" not in one and "Gate bar" not in one
     for pair in (("Travel forks first", "Travel power unit first"), ("Lift input", "Lower input"),
                  ("Reach out input", "Reach in input"), ("Tilt back input", "Tilt forward input"),
                  ("Side shift left input", "Side shift right input")):

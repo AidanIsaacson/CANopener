@@ -862,6 +862,36 @@ class DeviceContext:
                 then(result.lines(), result.ok)
         return self.run_job("Clearing codes", work, done)
 
+    def clear_canopen(self, nodes: list, then=None) -> bool:
+        """Clear each node's CANopen error history (``CanopenClient.clear_error_history``: 0x1003
+        sub 0 = 0), then read the stored codes back. The screen confirms first."""
+        from ..core.canopen import CanopenClient, SdoError
+        if not self.can_transmit:
+            self.toast("Clearing codes has to transmit: connect without listen-only")
+            return False
+        session = self.session
+
+        def work():
+            client, lines, ok = CanopenClient(session), [], True
+            try:
+                for n in nodes:
+                    try:
+                        client.clear_error_history(n)
+                        lines.append(f"Node {n:02X}: cleared")
+                    except SdoError as e:
+                        ok = False
+                        lines.append(f"Node {n:02X}: {e}")
+            finally:
+                client.close()
+            return lines, ok, scan.run_preset(session, "stored")
+
+        def done(value):
+            lines, ok, after = value
+            self.result = after
+            if then:
+                then(lines, ok)
+        return self.run_job("Clearing the error history", work, done)
+
     def clear_obd(self, then=None) -> bool:
         """OBD-II Mode 04 on every module, then read the codes back."""
         client = self.obd_client

@@ -20,7 +20,10 @@ Installing: [INSTALL.md](INSTALL.md).
 ## Connecting
 
 1. Plug the adapter into the laptop and connect it to CAN-H and CAN-L (the machine's diagnostic
-   port, or back-probe any CAN pair). Key on.
+   port, or back-probe any CAN pair). Key on. Start with CAN-H and CAN-L alone: on some machines
+   (a Yale reach truck, for one) also connecting the adapter's CAN GND makes the bus throw errors,
+   and the machine may log them as communication faults. Add CAN GND only if the bus is
+   unreliable without it.
 2. Open **🔌 Connection** (top left, or **F3**). Pick **SocketCAN adapter**; the interface
    (`can0`) appears below it. The list looks again each time you open it (or press **⟳**), so
    plugging in after the app opened is fine.
@@ -170,6 +173,7 @@ say so.
 |---|---|
 | **Fault Codes** | Errors a controller reports (CANopen "EMCY") are **Active**; **Read Stored** also reads each controller's error history. The meaning shown is the standard class (e.g. *Device temperature*); a maker's own codes can be named in a profile. **Clear Codes → Clear CANopen error history…** empties a controller's history, after asking. |
 | **Network** | Every node with its state (*Operational*, *Pre-operational*, *Stopped*), heartbeat, restarts and each message it sends. **Read node info** reads its name, versions, product and serial number (also in **Machine Info** and a **Full Scan**). **Find CANopen nodes** asks every node number, for controllers that don't send a heartbeat. **NMT…** starts, stops or resets a node: that changes the machine, so it asks first. Only do it parked and safe. |
+| **Handheld: Codes** | **Active** lists the EMCY errors on now; **Stored** also reads each node's error history (empty slots that read 0 are left out). Select a code for its node, class and the maker's extra bytes. **Clear...** empties the error history of every node with codes, or of the selected one, after asking. |
 | **Live Data, Bus Monitor** | Work on CANopen messages (11-bit IDs) just like J1939, with what each message is (e.g. *TPDO1 node 01*). A maker's message layout isn't published, so [labeling](#naming-things-canopener-doesnt-know) is how you name the values. |
 
 ## Cars and light trucks (OBD-II)
@@ -296,7 +300,9 @@ cart, pallet jack), what an engine runs on (LP, petrol, diesel) and whether a di
 aftertreatment, whether its hydraulic levers are electronic or move the valve themselves, and
 whether the mast has a height switch or sensor, so it only asks for what that machine has. A
 stand-up is a **reach truck** (reach out and in) or a **counterbalance** (no reach; usually two
-drive motors, so it asks for each one: drive turning one way, then the other). Then it maps the
+drive motors, so it asks for each one: drive turning one way, then the other). It also asks
+whether the operator stands on one pedal or on an operator presence pedal with a separate brake
+pedal, and whether there's an operator gate or gate bar, and asks for each of those. Then it maps the
 controls with the key on and nothing running, before the engine or pump is started; on a stand-up
 with your feet off the operator pedal, so it can't drive or lift. It asks for one thing at a time
 ("Raise the forks and hold"), counts you in and out and tags the log itself. Steps that move the
