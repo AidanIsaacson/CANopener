@@ -189,11 +189,13 @@ def protocol_of(report: changes.Report) -> str:
 
 def build_profile(name: str, entries: list[dict], protocol: str = profiles.J1939, source: str = "",
                   machine: dict | None = None, base: dict | None = None, extends: str = "",
-                  bus: list | None = None) -> dict:
+                  bus: list | None = None, emcy: dict | None = None) -> dict:
     """A profile document. ``base`` is a profile document to add to (same place replaces);
     otherwise a new one that ``extends`` the profile in use (the generic one for the protocol when
     none is given), so nothing that profile already decodes is lost. ``bus``: the streams heard
-    (``bus_fingerprint``), kept so the profile can be recognised on another machine later."""
+    (``bus_fingerprint``), kept so the profile can be recognised on another machine later.
+    ``emcy``: names for EMCY codes seen (the guided builder's interlocks); codes the document
+    already names keep their names."""
     doc = dict(base) if base else {"name": name, "extends": extends or profiles.GENERIC[protocol],
                                    "protocol": protocol,
                                    "description": "Built on the machine from what its bus was seen to do.",
@@ -201,6 +203,8 @@ def build_profile(name: str, entries: list[dict], protocol: str = profiles.J1939
     place = lambda e: (e.get("pgn"), e.get("sa"), e.get("id"), e.get("start"), e.get("bit"), e.get("length"))  # noqa: E731
     taken = {place(e) for e in entries}
     doc["signals"] = [e for e in doc.get("signals", []) if place(e) not in taken] + list(entries)
+    if emcy:
+        doc["emcy"] = {**emcy, **(doc.get("emcy") or {})}
     old = doc.get("observed") or {}
     history = list(old.get("sessions", []))
     history.append({"when": time.strftime("%Y-%m-%d %H:%M"), "source": source, "signals": [e["name"] for e in entries]})
@@ -258,21 +262,21 @@ def in_use_target(active: "profiles.Profile | None") -> Target | None:
 
 def save_entries(entries: list[dict], active: "profiles.Profile | None", *, new_name: str = "",
                  protocol: str = profiles.J1939, source: str = "", machine: dict | None = None,
-                 bus: list | None = None) -> str:
+                 bus: list | None = None, emcy: dict | None = None) -> str:
     """Save named values: into the profile in use (``in_use_target``) when ``new_name`` is empty,
     else as a new profile of that name built on the profile in use. Returns the path written."""
     if not new_name:
         target = in_use_target(active)
         if target is not None:
-            return save_profile(build_profile("", entries, protocol, source, machine, base=target.base, bus=bus),
-                                target.path)
+            return save_profile(build_profile("", entries, protocol, source, machine, base=target.base, bus=bus,
+                                              emcy=emcy), target.path)
         new_name = f"Observed {time.strftime('%Y-%m-%d %H%M')}"
     name, n = new_name, 2
     while os.path.exists(profile_path(name)):
         name, n = f"{new_name} {n}", n + 1
     extends = active.id if active is not None else ""
-    return save_profile(build_profile(name, entries, protocol, source, machine, extends=extends, bus=bus),
-                        profile_path(name))
+    return save_profile(build_profile(name, entries, protocol, source, machine, extends=extends, bus=bus,
+                                      emcy=emcy), profile_path(name))
 
 
 def slug(name: str) -> str:

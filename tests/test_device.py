@@ -1436,7 +1436,12 @@ def test_guided_profile_builder_on_the_handheld(app_for, monkeypatch):
     assert isinstance(app.top, ChoiceDialog)
     app.action(inp.SELECT)
     assert ctx.wait_idle(20) and ctx.capture.state == cap.SAVED
-    assert [m.label for m in ctx.capture.markers] == ["Lift"]
+    assert [m.label for m in ctx.capture.markers] == ["Hands off (learning)", "Lift: get ready", "Lift", "Lift: let go"]
+    rec = ctx.capture.meta["guide"]
+    assert rec["script"] == "Something else" and rec["steps"][0]["result"] == "kept"
+    assert rec["steps"][0]["kept"] == [{"key": "ID 288 b1.2", "name": "Lift"}]
+    readme = open(os.path.join(ctx.capture.folder, "README.md"), encoding="utf-8").read()
+    assert "## Profile builder" in readme and "Lift (ID 288 b1.2)" in readme
     p = profiles.active()
     assert p.id.startswith("observed-something-else") and [s.name for s in p.signals if s.can_id == 0x288] == ["Lift"]
     assert observed.load_doc(p.path)["observed"]["sessions"][0]["source"].startswith("guided profile builder")

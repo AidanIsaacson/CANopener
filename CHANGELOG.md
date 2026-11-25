@@ -3,6 +3,37 @@
 What changed in each version, newest first. Versions are git tags (`v0.3.3`): to put a unit back
 on an older one, `git checkout v0.3.2` in its checkout.
 
+## Unreleased
+
+- **Profile builder: electric stand-ups.** A new kind of machine, **Electric stand-up**, asks
+  **Reach truck** or **Counterbalance**. Its controls are mapped with your feet off the operator
+  pedal (the truck can't drive or lift): the pedal, travel both ways, lift and lower, reach out and
+  in (reach trucks), tilt, side shift, the function button and the horn. Then on the pedal: lift,
+  lower, reach, tilt, side shift, mast height, the steering angle, drive motor speed (a
+  counterbalance asks for the left and right motors separately) and battery current.
+- **Profile builder: a control's two directions make one signal.** Lift and lower, tilt back and
+  forward, travel both ways and the like are still asked for one at a time, but when the second
+  moves the value kept for the first, it's offered ticked and the two become one signal, signed
+  when it swings either side of rest (*Lift/lower input (+ lower / - lift)*). Before, the second
+  direction found nothing, because that value was already taken.
+- **Profile builder: interlock warnings are expected.** Each part of the walk-through says what
+  to expect before it starts, including the "release the control" warnings most machines raise
+  when a control is worked with nobody aboard. A warning (CANopen EMCY, J1939 DM1) raised while a
+  step is held is reported with that step and named after it in the saved profile, and the next
+  step waits ("Let go of everything") until it clears. Protocol housekeeping (EMCY, SDO,
+  heartbeats, requests) is never offered as a step's value.
+- **Profile builder: a better record.** Each step leaves three timestamps in the log (*get
+  ready*, the step, *let go*), so **What changed between the timestamps?** compares the exact
+  windows, and the log's README gets a **Profile builder** table: what each step offered, what
+  was kept and the warnings it raised (also in `capture.json`). A port set to Auto now records the
+  bitrate it found instead of 0.
+- **Values other profiles know.** The **Profile builder** page checks every profile on the unit
+  (built-in, plugins, your own) against the messages nothing decodes here, and lists the values
+  that fit what the bus is sending (the same message on a sister machine); **Add all** adds them
+  to the profile in use, each marked where it came from. The guided builder offers those values
+  first, ticked, with the profile's name. From a computer: `canopener-cli suggest CAPTURE`
+  ([USAGE.md](docs/USAGE.md#working-out-a-machine-from-what-its-bus-does)).
+
 ## 0.5.2 (2026-11-25)
 
 - **Team access on the handheld:** **System > Software > Team access** shows the unit's serial,

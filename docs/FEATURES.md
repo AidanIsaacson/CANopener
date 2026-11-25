@@ -126,7 +126,11 @@ the machine one control at a time, then shows what moved, live, so you pick the 
 the lever by watching it rather than trusting a guess. **Explore the bus** shows every value at
 once, moving ones on top: work a control, see what lights up, name it from a list. Both leave out
 what changes by itself, say what's already named, and save on top of the profile you were using,
-so nothing it knew is lost. How: [Working out a machine from what its bus does](USAGE.md#working-out-a-machine-from-what-its-bus-does).
+so nothing it knew is lost. The builder knows stand-up reach and counterbalance trucks, makes one
+signal of a control's two directions, and expects the "release the control" interlock warnings a
+machine raises when its controls are worked with nobody aboard: it names them and waits them out.
+And it checks what every other profile on the unit knows against the bus, so a sister machine's
+profile fills in what it can before you start. How: [Working out a machine from what its bus does](USAGE.md#working-out-a-machine-from-what-its-bus-does).
 
 ## It opens in about a second
 

@@ -5,7 +5,7 @@ has the logic, core.fieldwatch the live values, core.observed saves the profile)
 import os
 import time
 
-from ...core import guide, observed, profiles
+from ...core import guide, observed, profiles, suggest
 from .base import ConfirmDialog, InfoDialog, Row, RowList, Screen, SoftKey, choose, confirm
 from .explore import ExploreScreen, fmt_field, moving_level
 
@@ -20,9 +20,18 @@ HELP = ["It first asks what the machine is, so it only asks for things that mach
             "the machine are left out (the screen says how many).",
         "", "Values the profile in use already names are shown too, so you can see they moved; they aren't "
             "offered again.",
+        "", "A control with two directions (lift and lower, travel both ways) is asked for both ways. When the "
+            "second way moves the value kept for the first, it's ticked for you and the two make one signal "
+            "(signed when it swings either side of rest).",
+        "", "Interlocks: a control worked with nobody on the seat or the pedal often makes the machine show a "
+            "'release the control' warning. That's expected. The builder says which warning came with which "
+            "step, names it in the profile, and waits for it to clear before the next step.",
+        "", "Values another profile on this unit already knows (the same message on a sister machine) are offered "
+            "first and ticked, with that profile's name.",
         "", "Doing a step twice and getting the same answer marks it 'seen again'; working the control while "
             "picking marks it 'checked'. It only listens: nothing is sent to the machine.",
-        "", "Everything is also recorded as a normal log, with a timestamp at each step."]
+        "", "Everything is also recorded as a normal log, with timestamps at each step ('get ready', the step, "
+            "'let go') and a record of what was offered and kept in the log's README."]
 
 
 def start(app):
@@ -38,7 +47,7 @@ def start(app):
         if q is None:
             title, steps = guide.build_script(answers)
             if ctx.recording or ctx.start_log(stream=False):
-                app.push(GuideScreen(app, title, steps))
+                app.push(GuideScreen(app, title, steps, borrowed_hints(ctx)))
             return
 
         def answered(value):
@@ -58,6 +67,21 @@ def start(app):
                                danger=False, on_no=ask))
         return
     ask()
+
+
+def borrowed(ctx) -> list:
+    """What other profiles on the unit know about the undecoded traffic heard now (core.suggest)."""
+    if not ctx.live:
+        return []
+    found, _errors = profiles.available_profiles()
+    return suggest.from_watch(ctx.fieldwatch, found, profiles.active())
+
+
+def borrowed_hints(ctx) -> dict:
+    try:
+        return suggest.hints(borrowed(ctx))
+    except Exception:                                       # a hint is a nicety: never stop the builder
+        return {}
 
 
 def status(ctx) -> str:
@@ -86,6 +110,7 @@ class BuilderHome(Screen):
         super().__init__(app)
         self.rows = RowList(self._rows)
         self._checked = 0.0
+        self._borrowed: list = []
 
     def on_enter(self):
         self._checked = 0.0
@@ -95,6 +120,10 @@ class BuilderHome(Screen):
         if ctx.live and time.time() - self._checked > 5.0:
             self._checked = time.time()
             ctx.check_profiles()
+            try:
+                self._borrowed = borrowed(ctx)
+            except Exception:
+                self._borrowed = []
         return ctx.profile_matches if ctx.live else []
 
     def _rows(self):
@@ -116,6 +145,15 @@ class BuilderHome(Screen):
                 rows.append(Row(m.profile.name, "in use" if using else "Load",
                                 select=lambda m=m: self._use(m.profile.id),
                                 hint=f"{m.matched} of its {m.total} messages are on this bus"))
+        if self._borrowed and ctx.live:
+            n = sum(len(b.good) for b in self._borrowed)
+            rows.append(Row("Values other profiles know", kind="header"))
+            rows.append(Row(f"Add all {n} to the profile in use", kind="action", select=self._borrow_all,
+                            hint="Undecoded messages here that a profile for a similar machine decodes, checked "
+                                 "against what's on the bus. Each keeps where it came from."))
+            for b in self._borrowed[:6]:
+                rows.append(Row(b.label, f"{len(b.good)} from {b.profile_name}", kind="info",
+                                hint=", ".join(c.signal.name for c in b.good[:4])))
         built = []
         folder = profiles.user_dir()
         for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
@@ -133,6 +171,29 @@ class BuilderHome(Screen):
                     bits.append("not shared yet")
                 rows.append(Row(doc["name"], ", ".join(bits), select=lambda pid=pid, path=path: self._built(pid, path)))
         return rows
+
+    def _borrow_all(self):
+        ctx = self.ctx
+        entries = [e for b in self._borrowed for e in b.entries()]
+        if not entries:
+            return
+        proto = ctx.protocol if ctx.protocol in profiles.GENERIC else profiles.J1939
+        froms = sorted({b.profile_name for b in self._borrowed})
+
+        def go():
+            try:
+                path = observed.save_entries(entries, profiles.active(), protocol=proto,
+                                             source="borrowed from " + ", ".join(froms))
+            except (OSError, profiles.ProfileError) as e:
+                ctx.toast(f"Couldn't save the profile: {e}")
+                return
+            ctx.apply_profile(os.path.splitext(os.path.basename(path))[0])
+            self._borrowed, self._checked = [], 0.0
+            ctx.toast(f"Added {len(entries)} value(s) to '{ctx.profile_name()}': Live shows them now")
+        self.app.push(ConfirmDialog(self.app, "Add values from other profiles",
+                                    f"{len(entries)} value(s) from {', '.join(froms)} fit what this bus sends. Add "
+                                    f"them to the profile in use ({ctx.profile_name()})? They're marked 'borrowed' "
+                                    "until the builder checks them here.", "Add them", go, danger=False))
 
     def explore(self):
         if not self.ctx.live:
@@ -168,16 +229,17 @@ class BuilderHome(Screen):
 class GuideScreen(Screen):
     title = "Guided"
 
-    def __init__(self, app, script: str, steps: list):
+    def __init__(self, app, script: str, steps: list, hints: dict | None = None):
         super().__init__(app)
         self.script = script
-        self.g = guide.Guide(list(steps), watch=self.ctx.fieldwatch)
+        self.g = guide.Guide(list(steps), watch=self.ctx.fieldwatch, title=script, hints=dict(hints or {}))
         self.rows = RowList(self._rows)
         self.session = self.ctx.session
         self.session.add_listener(self.g.feed)
         self.saved = False
         self._cued = ""
         self._marked = 0                            # g.marks already written to the log
+        self._journaled = None                      # what of g.summary() is in the capture already
 
     def on_leave(self):
         if self.session is not None:
@@ -195,11 +257,18 @@ class GuideScreen(Screen):
         rows = [Row(s.stage, kind="info", level=lambda: "sim")] if s is not None and s.stage \
             and g.state != guide.DONE else []
         rows += [Row(head, kind="header"), Row(big, kind="info", hint=small,
-                                              level=lambda: {guide.DO: "ok", guide.REST: "wait", guide.QUIET: "wait"}
-                                              .get(g.state, "idle"))]
+                                              level=lambda: {guide.DO: "ok", guide.REST: "wait", guide.QUIET: "wait",
+                                                             guide.SETTLE: "wait"}.get(g.state, "idle"))]
+        note = g.stage_note()
+        if note:
+            rows.append(Row("Before you start this part", kind="info", hint=note, level=lambda: "sim"))
+        if g.settle_note:
+            rows.append(Row("A warning stayed on", kind="info", hint=g.settle_note, level=lambda: "bad"))
         left = g.remaining()
         if left:
             rows.append(Row("Hold it" if g.state == guide.DO else "Wait", f"{left:.0f} s", kind="info"))
+        if g.state == guide.SETTLE:
+            rows.append(Row("Skip waits no longer", kind="info", hint="Skip moves on to the next step"))
         if g.state == guide.RESULT:
             rows += self._pick_rows()
         if g.kept:
@@ -226,6 +295,10 @@ class GuideScreen(Screen):
                 badges.append(f"changed {o.moved}x since 'let go'")
             if o.chatters:
                 badges.append("bounces on and off")
+            if o.mirror:
+                badges.append(f"kept for {o.mirror}: moved the other way (one signal for both)")
+            if o.hint:
+                badges.append(f"{o.hint[1]} calls it '{o.hint[0]}'")
             if o.auto:
                 badges.append("ticked for you: it followed")
             if o.again:
@@ -248,13 +321,18 @@ class GuideScreen(Screen):
         return rows
 
     def _mark(self):
-        """Each step becomes a timestamp in the log as it starts, so leaving without Save keeps them."""
-        c = self.ctx.capture
+        """Each step's timestamps go into the log as they happen, and the record of what was offered
+        and kept into the capture, so leaving without Save keeps them."""
+        c, g = self.ctx.capture, self.g
         while self._marked < len(self.g.marks):
             t, label = self.g.marks[self._marked]
             self._marked += 1
-            if label != "(rest)" and self.ctx.recording:
+            if self.ctx.recording:
                 c.add_marker(label, t)
+        state = (len(g.journal), len(g.kept), g.journal[-1].get("result") if g.journal else "")
+        if state != self._journaled and self.ctx.recording and g.journal:
+            self._journaled = state
+            c.set_meta("guide", g.summary())
 
     def _cue(self):
         """A chirp when it's time to act and when to let go."""
@@ -289,6 +367,8 @@ class GuideScreen(Screen):
         c = ctx.capture
         if not self.saved:
             self._mark()
+            if ctx.recording and g.journal:
+                c.set_meta("guide", g.summary())
             self.saved = True
             if ctx.recording:
                 ctx.stop_log()
@@ -321,16 +401,18 @@ class GuideScreen(Screen):
             proto = ctx.protocol if ctx.protocol in profiles.GENERIC else profiles.J1939
             source = f"guided profile builder ({self.script}), log {os.path.basename(c.folder or '')}"
             bus = observed.bus_fingerprint([k for k, _n, _r in ctx.fieldwatch.streams()])
+            emcy = g.emcy_names(known=set(active.emcy) if active is not None else set())
             try:
                 if how == "add":
                     path = observed.save_profile(observed.build_profile("", g.entries(), proto, source, machine,
-                                                                        base=observed.load_doc(value), bus=bus), value)
+                                                                        base=observed.load_doc(value), bus=bus,
+                                                                        emcy=emcy), value)
                 elif how == "in_use":
                     path = observed.save_entries(g.entries(), active, protocol=proto, source=source, machine=machine,
-                                                 bus=bus)
+                                                 bus=bus, emcy=emcy)
                 else:
                     path = observed.save_entries(g.entries(), active, new_name=value, protocol=proto, source=source,
-                                                 machine=machine, bus=bus)
+                                                 machine=machine, bus=bus, emcy=emcy)
             except (OSError, profiles.ProfileError) as e:
                 ctx.toast(f"Couldn't save the profile: {e}")
                 return
@@ -350,7 +432,8 @@ class GuideScreen(Screen):
             return [SoftKey("Keep, next" if ticked else "Next", self.keep), SoftKey("Again", g.again),
                     SoftKey("Skip", g.skip), SoftKey("Finish", self.finish)]
         busy = g.state != guide.WAITING
-        return [SoftKey("Start", self.begin, enabled=not busy), SoftKey("Skip", g.skip, enabled=not busy),
+        return [SoftKey("Start", self.begin, enabled=not busy),
+                SoftKey("Skip", g.skip, enabled=g.state in (guide.WAITING, guide.SETTLE)),
                 SoftKey("Finish", self.finish, enabled=not busy),
                 SoftKey("Help", lambda: self.app.push(InfoDialog(self.app, self.title, HELP)))]
 

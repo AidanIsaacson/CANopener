@@ -207,7 +207,23 @@ exercise the real backend.
   a clear winner is ticked (`auto`) unless the technician ticked something. Nothing is ticked on
   one sighting: only "seen again" or a value that follows a known one. Kept values are "checked"
   when they moved with the control while picking. The screen records an ordinary log and turns
-  the steps into its timestamps.
+  the steps into its timestamps ("get ready", the step, "let go"), and writes `Guide.summary()`
+  (each attempt: offered, kept, warnings) into `capture.json` as `meta["guide"]`, which the
+  capture README renders. Steps with the same `axis` are one control's two directions: a value
+  kept for one is offered again (`Offer.mirror`) for the other, and keeping it merges them
+  (`_merge_axis`: signed when the held raw values sit either side of half way from a rest at 0).
+  `feed` also tracks the machine's warnings (CANopen EMCY per node, single-frame J1939 DM1 per
+  address): those raised while a step is held are reported with it, CANopen ones become
+  `emcy_names()` for the profile, and `begin` waits in `SETTLE` until they clear (at most
+  `SETTLE_MAX`). Housekeeping streams (NMT, SYNC / EMCY, SDO, heartbeat; J1939 requests, TP, DM1)
+  are never offered. `STAGE_NOTES` say what each stage expects (interlocks included).
+* **Values other profiles know** (`core/suggest.py`): for each stream nothing decodes (not the
+  profile in use or what it extends, not the SAE tables), every other profile's signals on that
+  ID / PGN are judged against up to 400 payloads (`judge`: fits the frame, enum covers the raw
+  values, mostly within `low` / `high`; moving and sane counts more than constant; a bad value
+  costs twice a good one). A stream is offered from the profile that fits the most of this bus
+  (then nodes matched, then score). `from_watch` (handheld: the Profile builder page's **Add
+  all**, and `Guide.hints` for the offers) and `from_frames` (`canopener-cli suggest`).
 * **Saving observed values** (`core/observed.py`): `save_entries` adds to the profile in use
   (`in_use_target`: a user profile directly; a built-in or plugin one through
   `observed-<id>-additions.json`, which `extends` it) or saves a new profile that `extends` the
@@ -448,9 +464,15 @@ these by name.
   * *Done:* the guided Profile Builder (handheld), with questions that build the script
     (`guide.QUESTIONS`, `build_script`); after its first real run (an H80UT, 2026-11-17: five of
     seven kept values were noise) the live pick, the hands-off filtering, saving on top of the
-    profile in use, profile matching and the bus explorer. Next: more kinds of machine
-    (generator, reach truck, scissor lift), the explorer and the live pick on the desktop app,
-    steps that expect two states (forward / neutral / reverse as one value), merging bits that
+    profile in use, profile matching and the bus explorer. After the second (a Yale NR045 reach
+    truck, 2026-11-25): electric stand-ups (reach and counterbalance), a control's two directions
+    as one signal, interlock warnings expected, named and waited out, three timestamps per step
+    and the record in the capture, and values borrowed from other profiles (`core/suggest.py`).
+    Next: more kinds of machine (generator, scissor lift, order picker), the explorer, the live
+    pick and borrowing on the desktop app, borrowing across node IDs (the same device at another
+    CANopen node, matched by its identity strings), the team's shared profiles from the upload
+    server as a source, reading a node's PDO map over SDO (asked first) to get field positions
+    without guessing, steps that expect three states (forward / neutral / reverse), merging bits that
     always change together into one multi-bit value, a "press when you move it" key matched
     against the changes, and the standard ETC5 switches (transmission forward / neutral /
     reverse, PGN 65219) in `j1939/signals.py` once their bit positions are checked against a

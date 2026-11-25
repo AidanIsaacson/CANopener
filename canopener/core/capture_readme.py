@@ -73,6 +73,28 @@ def _md(text) -> str:
     return str(text).replace("|", "/").replace("\r", " ").replace("\n", " ").strip()
 
 
+def _guide_section(g: dict | None, started: float | None) -> list[str]:
+    """The guided Profile Builder's record (``meta["guide"]``): each step, what it offered and kept."""
+    if not g or not g.get("steps"):
+        return []
+    L = ["## Profile builder", "", f"Script: {_md(g.get('script') or 'guided')}. "
+         f"{g.get('named', 0)} value(s) named. Each step's timestamps are 'get ready', the step, and 'let go'.", "",
+         "| Step | Time | Result | Kept | Offered | Warnings while held |", "|---|---|---|---|---|---|"]
+    for s in g["steps"]:
+        when = fmt_elapsed(s["at"] - started) if s.get("at") and started else ""
+        kept = ", ".join(f"{k['name']} ({k['key']})" for k in s.get("kept", []))
+        offered = ", ".join(o["key"] + (f" = {o['also_known_as'][0]}?" if o.get("also_known_as") else "")
+                            for o in s.get("offered", [])[:4])
+        L.append(f"| {_md(s['step'])} | {when} | {s.get('result', '')} | {_md(kept)} | {_md(offered)} "
+                 f"| {_md(', '.join(s.get('warnings', [])))} |")
+    locks = g.get("interlocks") or {}
+    if locks:
+        L += ["", "Interlock warnings (raised while a control was held, cleared on release): "
+              + "; ".join(f"EMCY {code[2:]} from node {i['node'][2:]} with {', '.join(i['steps'])}"
+                          for code, i in locks.items())]
+    return L + [""]
+
+
 def render(c: Capture) -> str:
     title = c.name.strip() or c.machine_summary() or "Capture"
     L = [f"# {_md(title)}", ""]
@@ -117,6 +139,8 @@ def render(c: Capture) -> str:
     else:
         L.append("None.")
     L.append("")
+
+    L += _guide_section(meta.get("guide"), c.started)
 
     bus = meta.get("bus") or {}
     if bus:

@@ -11,6 +11,7 @@
     canopener-cli find --iface can0 --sound           # keep listening while probing; chime on lock
     canopener-cli hardware --stage 2b --set can_b=auto  # installed options: what's fitted, what's found
     canopener-cli changes CAPTURE_FOLDER              # what changed between a capture's timestamps (no decoder)
+    canopener-cli suggest CAPTURE                     # undecoded traffic that other profiles on this unit decode
     canopener-cli bluetooth scan                      # Bluetooth OBD adapters nearby (then: pair, rename, test)
     canopener-cli obd --elm                           # OBD-II through the picked Bluetooth OBD adapter
     canopener-cli bluetooth kline --out probe.txt     # older K-line vehicle: what answers besides generic OBD-II
@@ -1373,6 +1374,33 @@ def cmd_changes(a) -> int:
     return 0
 
 
+def cmd_suggest(a) -> int:
+    """Undecoded traffic in a log that other profiles on this unit decode (core.suggest)."""
+    from .can.logfile import read_log
+    from .core import suggest
+    path = os.path.join(a.capture, "capture.log") if os.path.isdir(a.capture) else a.capture
+    try:
+        frames = read_log(path)
+    except OSError as e:
+        print(f"Can't read {path}: {e}", file=sys.stderr)
+        return 1
+    found, _errors = profiles.available_profiles()
+    active = profiles.active()
+    borrowed = suggest.from_frames(frames, found, active)
+    using = f" (profile in use: {active.name})" if active is not None else ""
+    if not borrowed:
+        print(f"Nothing: no other profile here decodes this log's undecoded traffic{using}.")
+        return 0
+    print(f"{len(frames):,} frames. Values other profiles know, checked against this log{using}:")
+    for b in borrowed:
+        print(f"\n{b.describe()}")
+        for c in b.checks:
+            mark = "  ok " if c.ok else "  no "
+            how = c.note or ("moved, in range" if c.moved else "fits, didn't move")
+            print(f"{mark} {c.signal.name}  ({how})")
+    return 0
+
+
 def cmd_remote(a) -> int:
     """The helper's end of remote help (core.remote.Operator): list the units that are calling in,
     send one a command, save its screen."""
@@ -1546,6 +1574,10 @@ def main(argv=None) -> int:
     ch.add_argument("--top", type=int, default=15, help="changes listed per step (default 15)")
     ch.add_argument("--json", metavar="FILE", help="also write everything (every field, per phase) as JSON")
     ch.set_defaults(fn=cmd_changes)
+    sg = sub.add_parser("suggest", help="undecoded traffic in a log that other profiles on this unit decode, each "
+                        "value checked against the log (the profile in use: --profile)")
+    sg.add_argument("capture", help="a capture folder or a log file")
+    sg.set_defaults(fn=cmd_suggest)
     sr = sub.add_parser("serial", help="serial lines (a controller's console port): ports (list them), sniff "
                         "(record one or more lines into a capture, Enter tags a timestamp), analyze (what the bytes "
                         "look like: message kinds, checksums, exchanges, text), baud (the rate from a logic capture)")

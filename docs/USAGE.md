@@ -291,13 +291,32 @@ the machine tell you. It works on any J1939 or CANopen bus and needs no document
    another day and add to the same profile.
 
 **Or let it lead:** the **Profile builder** tile on the handheld's home screen first asks what
-the machine is (IC or electric forklift, telehandler, golf cart, pallet jack), what an engine
-runs on (LP, petrol, diesel) and whether a diesel has aftertreatment, whether its
-hydraulic levers are electronic or move the valve themselves, and whether the mast has a height
-switch or sensor, so it only asks for what that machine has. Then it maps the controls with the
-key on and nothing running, before the engine or pump is started. It asks for one
-thing at a time ("Raise the forks and hold"), counts you in and out and tags the log itself.
-Steps that move the machine say so first; it only listens to the bus.
+the machine is (IC forklift, sit-down electric forklift, electric stand-up, telehandler, golf
+cart, pallet jack), what an engine runs on (LP, petrol, diesel) and whether a diesel has
+aftertreatment, whether its hydraulic levers are electronic or move the valve themselves, and
+whether the mast has a height switch or sensor, so it only asks for what that machine has. A
+stand-up is a **reach truck** (reach out and in) or a **counterbalance** (no reach; usually two
+drive motors, so it asks for each one: drive turning one way, then the other). Then it maps the
+controls with the key on and nothing running, before the engine or pump is started; on a stand-up
+with your feet off the operator pedal, so it can't drive or lift. It asks for one thing at a time
+("Raise the forks and hold"), counts you in and out and tags the log itself. Steps that move the
+machine say so first; it only listens to the bus.
+
+* **Both directions of one control** (lift and lower, tilt back and forward, travel both ways,
+  reach out and in) are asked for separately. On most handles and joysticks they're one value
+  that swings either side of rest. When the second direction moves the value you kept for the
+  first, it's offered ticked, and keeping it makes one signal of the two, signed when it swings
+  either side of zero: *Lift/lower input (+ lower / - lift)*.
+* **Interlock warnings are expected.** Working a control with nobody on the seat or the operator
+  pedal (or holding one while getting on) makes most machines show a "release the control"
+  warning. Each part of the walk-through says so before it starts. When a step raises one (a
+  CANopen EMCY or a J1939 fault code), the step's result says which, the saved profile names it
+  after the step (*Interlock: raised by Lift input with nobody on the machine...?*), and the next
+  step waits ("Let go of everything") until the machine clears it, so it can't spoil the next
+  hands-off moment. One that doesn't clear in 12 seconds is called out as maybe a real fault, and
+  the builder goes on; **Skip** goes on straight away.
+* **Values other profiles know** are offered first and ticked, with the profile's name ("Truck A
+  calls it 'Lift input'"): the same message on a sister machine. See below.
 
 After each step it shows **what moved, live**: up to eight values, each with its value now and a
 dot that lights when it changes. **Work the control a few more times and watch**: the value that
@@ -314,6 +333,21 @@ key, so nothing moves under your finger. **Again** repeats the step; **Skip** mo
   so you can see the pedal or the engine speed did move. They aren't offered again.
 * A value offered for one step that then follows another says so ("also moved for Brake pedal"):
   something that follows everything is rarely the answer.
+
+**In the log:** each step leaves three timestamps, *Lift: get ready*, *Lift* and *Lift: let go*,
+so **What changed between the timestamps?** later compares exactly the hands-off moment, the
+hold and what came after. The log's `README.md` gets a **Profile builder** table: every attempt
+at a step, what was offered, what was kept, and the warnings it raised.
+
+**Values other profiles know.** Machines of one family send the same messages, so traffic nothing
+decodes here is often decoded by a profile made for a sister machine: a built-in one, a plugin's,
+or one built on this or another unit. The **Profile builder** page checks every profile on the
+unit against what the bus is sending: a value has to fit the frames, an enum has to name the raw
+values seen, and a value with a normal range has to stay in or near it. A profile that fits more
+of the bus wins over one that fits a single message. **Values other profiles know** lists what
+fits, by message, and **Add all to the profile in use** adds them, each marked *borrowed* with
+where it came from, until the builder checks it here. From a computer, `canopener-cli suggest
+CAPTURE` lists the same for a log, with why each value was taken or left out.
 
 **Before it starts**, if a known profile fits the bus (most of that profile's own messages are on
 it), it offers to load that profile first, so it only looks for what isn't named yet. The

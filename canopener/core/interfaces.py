@@ -235,6 +235,16 @@ def _fill_details(iface: CanInterface):
     iface.listen_only = "LISTEN-ONLY" in info.get("ctrlmode", [])
 
 
+def current_bitrate(name: str) -> int | None:
+    """The bitrate an interface is up at now (None when it can't be told: virtual, no ``ip``, or
+    not a CAN interface). Only looks: nothing is opened or changed."""
+    if not name:
+        return None
+    iface = CanInterface(name, "unknown")
+    _fill_details(iface)
+    return int(iface.bitrate) if iface.bitrate else None
+
+
 def valid_name(name: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9_.-]{1,15}", name))
 

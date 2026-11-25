@@ -141,6 +141,12 @@ class Capture:
     # ------------------------------------------------------------------
     # machine details
     # ------------------------------------------------------------------
+    def set_meta(self, key: str, value):
+        """Keep something about the recording in its ``capture.json`` (written straight away while
+        recording, like the timestamps): the guided builder's record, for one."""
+        self.meta[key] = value
+        self._changed()
+
     def set_machine(self, machine: dict | None = None, *, name: str | None = None, notes: str | None = None,
                     question: str | None = None):
         """Replace the machine details (and optionally the name, concern and question) and write

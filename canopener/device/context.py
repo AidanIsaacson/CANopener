@@ -1023,7 +1023,12 @@ class DeviceContext:
                 "profile": self.settings.get("profile") or "none", "units": self.units,
                 "front_end": f"device {__version__}"}
         if self.connection is not None and self.connection.kind == SOCKETCAN:
-            meta.update(interface=self.settings.get("can.iface"), bitrate=self.settings.get("can.bitrate"))
+            iface, bitrate = self.settings.get("can.iface"), int(self.settings.get("can.bitrate") or 0)
+            if not bitrate:                             # Auto: say what it found, not 0
+                found = interfaces.current_bitrate(iface)
+                meta["bitrate_auto"] = True
+                bitrate = found or 0
+            meta.update(interface=iface, bitrate=bitrate)
             if self.can_ports():
                 meta["port"] = self.port_label()
         if self.second is not None:

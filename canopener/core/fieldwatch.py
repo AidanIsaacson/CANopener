@@ -236,6 +236,17 @@ class FieldWatch:
                 out.append((s.key, s.count, n / span if s.count > 1 else 0.0))
             return out
 
+    def payloads(self, limit: int = 400) -> dict:
+        """Stream key -> up to ``limit`` payloads from the window, spread over it (oldest first):
+        what ``core.suggest`` checks borrowed values against."""
+        with self._lock:
+            snap = {s.key: [d for _t, d in s.samples] for s in self._streams.values() if s.samples}
+        out = {}
+        for k, data in snap.items():
+            step = max(1, len(data) // limit)
+            out[k] = data[::step][:limit]
+        return out
+
     def _stream_of(self, key: str):
         label, where = split_key(key)
         sk = self._by_label.get(label)

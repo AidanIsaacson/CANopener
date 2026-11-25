@@ -331,3 +331,11 @@ def test_a_can_chip_on_the_board_that_cant_join_gets_wiring_advice(tmp_path):
     usb = interfaces.stuck_adapter_hint("can1", "RTNETLINK answers: Connection timed out", str(sys_net))
     assert "never heard the bus go quiet" in hat and "wiring" in hat and "USB" not in hat
     assert "Some USB adapters lock up" in usb
+
+
+def test_current_bitrate_only_looks(monkeypatch):
+    def fill(iface):
+        iface.bitrate = 250000 if iface.name == "can0" else None
+    monkeypatch.setattr(interfaces, "_fill_details", fill)
+    assert interfaces.current_bitrate("can0") == 250000
+    assert interfaces.current_bitrate("can9") is None and interfaces.current_bitrate("") is None
