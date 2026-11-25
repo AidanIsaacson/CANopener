@@ -78,7 +78,7 @@ the encoder does nothing.
 | **Data log** | Start / stop, timestamps (planned list or as-you-go), undo, save, trim to the stretch around the timestamps, copy to a USB stick, recover a log a power cut interrupted, **Open** a saved one again. Records the bus **and every meter channel**. **Machine** picks what's being logged from what the bus reports or a recent machine; **Upload** sends a saved log to your upload server or a private GitHub repository ([USAGE.md](USAGE.md#machine-details-and-uploading-captures)); **More** has Trim, Copy to USB and Upload to…. |
 | **Profile builder** | For a machine nothing describes yet: it asks what the machine is (kind, fuel, aftertreatment, hydraulic controls, mast height sensing), then walks you through its controls and functions one at a time, key on first and the engine after. After each step it shows what moved, live: work the control again and tick the value that follows it. Save adds the values to the profile in use (or a profile on top of it) or makes a new one built on it, and switches it on. The page also lists the known profiles that fit this bus (**Load**), and **Explore the bus** lists every value live, named or not, to pick one and name it yourself ([USAGE.md](USAGE.md#working-out-a-machine-from-what-its-bus-does)). It only listens. |
 | **Control mapping** | Every button and the encoder, live, and what each does ([below](#control-mapping)). |
-| **System** | A short menu; each group opens its own page. **Display** (theme and accent colour, [below](#themes); brightness, screen size, picture rotation). **Controls** (which edge the buttons are on, 4 or 5 buttons, what button 5 does, the key map, a way into Control mapping). **Units** (changed right on the menu). **Sound** ([below](#sound)). **Meters** (USB / serial meter, the Pi's ADC). **Simulators** (a pretend machine, car and meter, and which car the Bluetooth OBD simulator plays). **Installed options**. **Storage** (logs folder, copy to USB). **Software** (check for updates, plugins, desktop app instead). **About this device** (temperature, uptime, IP), and exit to desktop / restart / power off. |
+| **System** | A short menu; each group opens its own page. **Display** (theme and accent colour, [below](#themes); brightness, screen size, picture rotation). **Controls** (which edge the buttons are on, 4 or 5 buttons, what button 5 does, the key map, a way into Control mapping). **Units** (changed right on the menu). **Sound** ([below](#sound)). **Meters** (USB / serial meter, the Pi's ADC). **Simulators** (a pretend machine, car and meter, and which car the Bluetooth OBD simulator plays). **Installed options**. **Storage** (logs folder, copy to USB). **Software** (check for updates, plugins, [team access](#team-access), desktop app instead). **About this device** (temperature, uptime, IP), and exit to desktop / restart / power off. |
 
 ![System: Display, Controls, Units, Sound, Meters, ... each opening its own page](images/device-system.png)
 
@@ -160,6 +160,16 @@ within a few milliseconds of the tap. Without an audio device it falls back to `
 Then it asks to restart: under the Pi's service it exits with the code systemd restarts on,
 otherwise it starts the new version itself. If an update also changes the system setup
 (`deploy/`), it says to run the installer once in a terminal.
+
+## Team access
+
+**System > Software > Team access** shows the unit's serial and where it stands (the row's value:
+the serial until it joins, then *waiting*, *approved* and the version, or *withdrawn*). The
+handheld has no keyboard for an invite link, so **Ask** asks the unit's upload server for access
+(read the serial out to whoever looks after it); once approved, **Check** installs the team plugin,
+**Install** appears when there's a newer one, and **Leave** removes it. An invite link works with
+`canopener-cli team join LINK` over SSH. A unit whose access is withdrawn loses the plugin at its
+next start online, as on the desktop ([USAGE.md](USAGE.md#team-access)).
 
 ## Games (hidden)
 

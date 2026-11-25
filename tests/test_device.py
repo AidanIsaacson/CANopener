@@ -2124,3 +2124,43 @@ def test_bus_page_remembers_modules_and_names_one_that_drops_out(app_for):
     app.top.show_page(CodesPage)
     app.step([])
     assert ctx.roster.problems and "Went quiet" in ctx.roster.summary()
+
+
+def test_handheld_team_access_asks_checks_and_installs(app_for, monkeypatch):
+    """System > Software > Team access: the serial, Ask (to this unit's upload server), then Check /
+    Install / Leave once it's in. core.team is stood in for here; tests/test_team.py covers it."""
+    from canopener.core import install, team
+    from canopener.device.screens.base import ConfirmDialog, InfoDialog
+    app = app_for(ui="device")
+    app.ctx.settings.set("upload.url", "https://logs.example.com")
+    state = {"st": team.Status(team.NONE, "This computer hasn't joined team access.")}
+    asked = []
+    monkeypatch.setattr(team, "describe", lambda: state["st"])
+    monkeypatch.setattr(team, "load_state", lambda: {})
+
+    def request(server, name):
+        asked.append(server)
+        state["st"] = team.Status(team.PENDING, "Request sent.", server=server)
+        return state["st"]
+    monkeypatch.setattr(team, "request", request)
+    monkeypatch.setattr(team, "check", lambda install_updates=None: team.Status(
+        team.APPROVED, "Team plugin v2 is available.", update="v2", version="v1", server=asked[0]))
+    monkeypatch.setattr(team, "install_update", lambda: team.Status(
+        team.APPROVED, "Team plugin v2 installed. Restart CANopener to use it.", changed=True, version="v2"))
+
+    def run(key):
+        next(k for k in app.top.softkeys() if k.label == key).fn()
+        assert app.ctx.wait_idle(5)
+        app.step([])
+
+    row = system_row(app, "Team access")
+    assert row.value_text() == install.serial()                # not joined: the summary is the serial
+    row.select()
+    assert isinstance(app.top, InfoDialog) and app.top.lines[0] == f"This unit: {install.serial()}"
+    run("Ask")
+    assert asked == ["https://logs.example.com"] and "Request sent." in app.top.lines
+    assert [k.label for k in app.top.softkeys()] == ["Close", "Check", "Leave"]
+    run("Check")
+    assert [k.label for k in app.top.softkeys()] == ["Close", "Check", "Install", "Leave"]
+    run("Install")
+    assert isinstance(app.top, ConfirmDialog) and app.top.title == "Restart now?"

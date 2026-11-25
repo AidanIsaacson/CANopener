@@ -108,7 +108,8 @@ and `make_bundle` are the owner's side (`canopener-cli team-admin`).
 then (when the user's startup update check is on, the default) `updates.check()` and
 `plugin_repos.check()` per GitHub source. `Found` says what's newer; `apply()` installs it only
 after the user says yes (`gui/update_dialog.FoundDialog`). The desktop also re-runs the team part
-hourly when `team.due()`; the handheld runs only the team part at start (`device/app._team_check`).
+hourly when `team.due()`; the handheld runs only the team part at start (`device/app._team_check`),
+and **System > Software > Team access** (`device/screens/settings.py`) asks, checks, installs and leaves.
 
 ### Transmitting (confirm-first)
 
@@ -413,10 +414,10 @@ these by name.
     transmitting there). Swapping ports does it today.
 * **CAN FD.** The backend reads classic 16-byte frames only. Add `CAN_RAW_FD_FRAMES` and 72-byte
   frames (J1939-22 uses FD); the MCP2518FD and CANable 2.0 both support it.
-* **Team access, the rest.** The handheld checks in at start but has no screen for it yet (its
-  serial, joining, updates under **System > Software**); until then `canopener-cli team`. Possible
-  next steps: per-install upload credentials issued at join (replacing the shared `UPLOAD_TOKENS`),
-  and a small admin page on the server for approving from a phone.
+* **Team access, the rest.** The handheld joins by request only (no keyboard for an invite link:
+  a QR code or a short code typed with the encoder would do). Possible next steps: per-install
+  upload credentials issued at join (replacing the shared `UPLOAD_TOKENS`), and a small admin page
+  on the server for approving from a phone.
 * **Handheld screens still to come:** CANopen (nodes, EMCY, error history), clear codes and
   transmit (confirm-first, default No, never in listen-only), the logic analyzer (`core/logic.py`
   has the command and channel names, no UI yet) and Component Test (ELECTRONICS.md 6.7).

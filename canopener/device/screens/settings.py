@@ -316,6 +316,8 @@ class SettingsScreen(Screen):
                 hint="download the newest CANopener from GitHub (needs internet)"),
             Row("Plugins", self._plugins_summary, select=self._plugins,
                 hint="sign in to GitHub; install and update plugins (private ones too)"),
+            Row("Team access", self._team_summary, select=self._team,
+                hint="the team plugin from your upload server, once this unit is approved"),
             Row("Desktop app instead", select=self._to_desktop, hint="switch to the laptop window (Qt)"),
         ]
         if s.get("device.games"):
@@ -506,6 +508,75 @@ class SettingsScreen(Screen):
         from ... import plugins
         n = len(plugins.loaded())
         return f"{n} loaded" if n else "none"
+
+    # --- team access (core.team: the same as the desktop app's Help > Team access) ---
+    @staticmethod
+    def _team_summary():
+        from ...core import install, team
+        st = team.describe()
+        return {team.APPROVED: f"approved{' ' + st.version if st.version else ''}", team.PENDING: "waiting",
+                team.WITHDRAWN: "withdrawn"}.get(st.state, install.serial())
+
+    def _team_server(self) -> str:
+        from ...core import team, upload
+        return (team.load_state().get("server") or self.ctx.settings.get("upload.url")
+                or upload.default_server()[0] or "")
+
+    def _team(self, st=None):
+        """Show where this unit stands, with what can be done next. No keyboard here, so joining
+        is by request to this unit's upload server; an invite link needs canopener-cli team join."""
+        from ...core import install, team
+        st = st or team.describe()
+        lines = [f"This unit: {install.serial()}", "", st.message]
+        if st.server:
+            lines += ["", f"Server: {st.server}"] + ([f"Called: {st.name}"] if st.name else [])
+        keys = []
+        if st.state in (team.NONE, team.WITHDRAWN):
+            server = self._team_server()
+            if server:
+                lines += ["", f"Ask asks {server} for access; then read out the serial above to whoever "
+                              "looks after it."]
+                keys.append(SoftKey("Ask", lambda: self._team_run("Asking for access",
+                                                                  lambda: team.request(server, team.default_name()))))
+            else:
+                lines += ["", "No upload server is set on this unit to ask."]
+            lines += ["", "With an invite link: canopener-cli team join LINK (over SSH, or on a keyboard)."]
+        else:
+            keys.append(SoftKey("Check", lambda: self._team_run("Checking team access",
+                                                                lambda: team.check(install_updates=False))))
+            if st.update:
+                keys.append(SoftKey("Install", lambda: self._team_run("Installing the team plugin",
+                                                                      team.install_update)))
+            keys.append(SoftKey("Leave", self._team_leave))
+        if self.app.top.title == "Team access":
+            self.app.pop()
+        self.app.push(InfoDialog(self.app, "Team access", lines, keys=keys))
+
+    def _team_run(self, label, fn):
+        from ...core import team
+
+        def safe():
+            try:
+                return fn()
+            except team.TeamError as e:
+                st = team.describe()
+                st.message, st.ok = str(e), False
+                return st
+        self.ctx.run_job(label, safe, self._team_done)
+
+    def _team_done(self, st):
+        self._team(st)
+        if st.changed:
+            def restart():
+                self.app.restart = True
+                self.app.running = False
+            confirm(self.app, "Restart now?", st.message + "\n\nA recording in progress is stopped and saved first.",
+                    "Restart", restart, danger=False)
+
+    def _team_leave(self):
+        from ...core import team
+        confirm(self.app, "Leave team access?", "The team plugin is removed from this unit, and joining again "
+                "needs a new approval.", "Leave", lambda: self._team_run("Leaving team access", team.leave))
 
     # --- updates (core.updates: the same as the desktop app's Help > Check for updates) ---
     def _check_updates(self):
