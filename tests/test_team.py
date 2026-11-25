@@ -204,6 +204,66 @@ def test_admin_calls_need_the_admin_token(server):
         _admin(server)._do("PUT", "/api/team/pack", raw=buf.getvalue())
 
 
+# ------------------------------------------------------------------------------- the admin page
+
+ADMIN_PAGE_FILES = (("/admin", "text/html"), ("/admin/", "text/html"), ("/admin/app.js", "text/javascript"),
+                    ("/admin/app.css", "text/css"))
+# Every call the page makes (method, path): all of them must refuse anything but the admin token.
+ADMIN_PAGE_CALLS = (("GET", "/api/team/installs"), ("POST", "/api/team/installs/" + "a" * 32),
+                    ("DELETE", "/api/team/installs/" + "a" * 32), ("GET", "/api/team/invites"),
+                    ("POST", "/api/team/invites"), ("DELETE", "/api/team/invites/abcd1234"),
+                    ("GET", "/api/team/pack"), ("PUT", "/api/team/pack"))
+
+
+def _get(url, method="GET"):
+    with urllib.request.urlopen(urllib.request.Request(url, method=method), timeout=10) as r:
+        return r.status, r.headers, r.read().decode()
+
+
+def test_the_admin_page_is_served_with_strict_headers(server):
+    bodies = {}
+    for path, ctype in ADMIN_PAGE_FILES:
+        for method in ("GET", "HEAD"):
+            status, headers, body = _get(server[0] + path, method)
+            assert status == 200 and headers["Content-Type"].startswith(ctype)
+            csp = headers["Content-Security-Policy"]
+            assert "default-src 'self'" in csp and "frame-ancestors 'none'" in csp and "unsafe" not in csp
+            assert headers["X-Frame-Options"] == "DENY"
+            assert headers["Referrer-Policy"] == "no-referrer"
+            assert headers["Cache-Control"] == "no-store"
+            if method == "GET":
+                bodies[path] = body
+    for body in bodies.values():
+        assert "admin-token" not in body and "up-token" not in body      # no token is ever in the page
+        assert "://" not in body                                          # nothing loaded from elsewhere
+    html, js = bodies["/admin"], bodies["/admin/app.js"]
+    assert '<script src="/admin/app.js" defer></script>' in html
+    assert html.count("<script") == 1 and "<style" not in html and " style=" not in html and "onclick" not in html
+    # The token: pasted, kept in sessionStorage, sent as a header, never put in a URL or a cookie.
+    assert "sessionStorage" in js and "localStorage" not in js and "document.cookie" not in js
+    assert '"Authorization": "Bearer " + token' in js
+    assert "?token" not in js and "URLSearchParams" not in js and "location.hash" not in js
+    for _method, path in ADMIN_PAGE_CALLS:      # the page still makes the calls checked below
+        stem = path.rsplit("/", 1)[0] + "/" if path.count("/") > 3 else path
+        assert stem in js
+    with pytest.raises(urllib.error.HTTPError) as e:
+        _get(server[0] + "/admin/other.js")
+    assert e.value.code == 404
+
+
+def test_the_calls_the_admin_page_makes_need_the_admin_token(server):
+    for method, path in ADMIN_PAGE_CALLS:
+        body = b"{}" if method in ("POST", "PUT") else None
+        for token, code in ((None, 401), ("up-token", 403)):
+            headers = {"Content-Type": "application/json"}
+            if token:
+                headers["Authorization"] = "Bearer " + token
+            req = urllib.request.Request(server[0] + path, method=method, data=body, headers=headers)
+            with pytest.raises(urllib.error.HTTPError) as e:
+                urllib.request.urlopen(req, timeout=10)
+            assert e.value.code == code, (method, path, token)
+
+
 # --------------------------------------------------------------------------------------- updates
 
 def test_a_new_build_waits_for_a_yes(server, tmp_path, machine, pip):

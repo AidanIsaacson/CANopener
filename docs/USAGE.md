@@ -553,7 +553,8 @@ After that:
 The serial also shows in **Help → About**. Copying CANopener's settings folder to another computer
 doesn't copy its access: that computer gets a serial of its own and has to join itself.
 
-The server side (inviting, approving, publishing the plugin) is in the upload server's
+The server side (inviting, approving, publishing the plugin, from the server's `/admin` page in a
+browser or with `canopener-cli team-admin`) is in the upload server's
 [README](../deploy/upload-server/README.md#team-access).
 
 ## What it sends

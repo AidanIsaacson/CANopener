@@ -38,7 +38,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
-VERSION = "3"
+VERSION = "4"
 CLEANUP_EVERY = 3600             # seconds between cleanups (unfinished uploads, expired captures)
 KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$")
 FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,159}$")
@@ -619,6 +619,471 @@ padding:0 1em}code{background:#eee;padding:.1em .3em;border-radius:3px;word-brea
 """
 
 
+# --- the admin page (GET /admin): team access from a browser or a phone, with the admin token -----------
+# The token is pasted in, kept in the tab's sessionStorage only and sent as Authorization: Bearer to
+# the /api/team calls above; it's never in a URL, a cookie or this file. Everything the page needs is
+# served from here (no CDNs, fonts or inline script), under a strict Content-Security-Policy.
+
+ADMIN_HEADERS = {
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+                               "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+}
+
+ADMIN_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>Team access</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/admin/app.css">
+<script src="/admin/app.js" defer></script>
+</head><body>
+<header>
+  <h1>CANopener team access</h1>
+  <div id="bar" hidden><button type="button" id="refresh">Refresh</button>
+  <button type="button" id="signout">Sign out</button></div>
+</header>
+<p id="msg" role="status" aria-live="polite" hidden></p>
+
+<main id="login" hidden>
+  <form id="loginform" autocomplete="off">
+    <h2>Sign in</h2>
+    <p>Paste this server's admin token (one of <code>ADMIN_TOKENS</code> in its <code>.env</code>).
+    It stays in this browser tab only and is forgotten when you close the tab or sign out.</p>
+    <p id="nothttps" class="warn" hidden>This page isn't on https: don't paste the token here.</p>
+    <label>Admin token <input type="password" id="token" required spellcheck="false"></label>
+    <button type="submit" class="primary">Sign in</button>
+  </form>
+</main>
+
+<main id="app" hidden>
+  <section>
+    <h2>Waiting for approval</h2>
+    <p class="hint">Computers that asked for access from the app (<b>Ask for access</b>). Check the
+    serial with the person before approving.</p>
+    <div id="requests" class="cards"></div>
+  </section>
+
+  <section>
+    <h2>Computers</h2>
+    <div id="installs" class="cards"></div>
+  </section>
+
+  <section>
+    <h2>Invite someone</h2>
+    <form id="inviteform" class="row">
+      <label>Name <input id="invname" maxlength="80" placeholder="Dave, van 3"></label>
+      <label>Valid for (days) <input id="invdays" type="number" min="1" max="90" step="1" value="7"></label>
+      <button type="submit" class="primary">Make invite link</button>
+    </form>
+    <div id="newinvite" class="card" hidden>
+      <p>Send this link to <b id="newname"></b>. It works once, on one computer, until
+      <span id="newexpires"></span>. It's only shown now.</p>
+      <div class="row"><input id="newlink" readonly aria-label="Invite link">
+      <button type="button" id="copy">Copy</button></div>
+    </div>
+    <h3>Invites</h3>
+    <div id="invites" class="cards"></div>
+  </section>
+
+  <section>
+    <h2>Team plugin</h2>
+    <p id="pack"></p>
+    <form id="packform" class="row">
+      <label>Plugin zip <input id="packfile" type="file" accept=".zip,application/zip" required></label>
+      <label>Version <input id="packversion" maxlength="80" placeholder="blank: today's date"></label>
+      <button type="submit" class="primary">Publish</button>
+    </form>
+    <p class="hint">A zip of the plugin's repository, with <code>pyproject.toml</code> at the top or in
+    one top folder (<code>canopener-cli team-admin publish FOLDER</code> makes one from a git checkout).
+    Approved computers are offered it at their next start, and install it only after a yes.</p>
+  </section>
+</main>
+
+<dialog id="ask">
+  <p id="asktext"></p>
+  <input id="askinput" maxlength="80" hidden aria-label="Name">
+  <div class="row end"><button type="button" id="askno">No</button>
+  <button type="button" id="askyes">Yes</button></div>
+</dialog>
+</body></html>
+"""
+
+ADMIN_CSS = """:root {
+  --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --dim: #5b6470; --line: #d8dde3;
+  --accent: #1f6feb; --accent-text: #ffffff; --danger: #c0362c; --ok: #1a7f37; --warn: #9a6700;
+  --pending: #8250df;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1216; --card: #181c22; --text: #e6e9ed; --dim: #9aa4b1; --line: #2c333c;
+    --accent: #4c8dff; --accent-text: #0b0d10; --danger: #ff6b5e; --ok: #4ac26b; --warn: #d4a72c;
+    --pending: #b393ff;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0 auto; max-width: 60rem; padding: 0 16px 3rem; background: var(--bg); color: var(--text);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; justify-content: space-between;
+  padding: 1rem 0; border-bottom: 1px solid var(--line); }
+h1 { font-size: 1.3rem; margin: 0; }
+h2 { font-size: 1.1rem; margin: 2rem 0 .4rem; }
+h3 { font-size: 1rem; margin: 1.4rem 0 .4rem; }
+code { font-size: .9em; background: var(--line); padding: .05em .3em; border-radius: 3px; }
+.hint { color: var(--dim); font-size: .92rem; margin: .2rem 0 .8rem; }
+.warn { color: var(--danger); font-weight: 600; }
+#msg { padding: .6rem .8rem; border-radius: 6px; background: var(--card); border: 1px solid var(--line); }
+#msg.error { border-color: var(--danger); color: var(--danger); }
+label { display: flex; flex-direction: column; gap: .2rem; font-size: .9rem; color: var(--dim); }
+input { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line);
+  border-radius: 6px; padding: .45rem .6rem; min-width: 0; }
+input[type=file] { padding: .3rem; }
+button { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line);
+  border-radius: 6px; padding: .45rem .9rem; cursor: pointer; min-height: 2.5rem; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+button.danger { color: var(--danger); }
+button:disabled { opacity: .5; cursor: default; }
+.row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: flex-end; }
+.row > input { flex: 1 1 12rem; }
+.row label input { width: 100%; }
+.row label { flex: 1 1 12rem; }
+.row.end { justify-content: flex-end; }
+#loginform { max-width: 30rem; display: flex; flex-direction: column; gap: .8rem; }
+.cards { display: grid; gap: .6rem; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .8rem; }
+.card .top { display: flex; justify-content: space-between; gap: .5rem; align-items: baseline; }
+.serial { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-weight: 600; }
+.name { margin: .15rem 0 .5rem; overflow-wrap: anywhere; }
+.badge { font-size: .8rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+.approved { color: var(--ok); } .revoked { color: var(--danger); } .pending { color: var(--pending); }
+.open { color: var(--ok); } .used, .expired { color: var(--dim); }
+dl { display: grid; grid-template-columns: auto 1fr; gap: .1rem .8rem; margin: 0 0 .7rem; font-size: .9rem; }
+dt { color: var(--dim); } dd { margin: 0; overflow-wrap: anywhere; }
+.card .row { gap: .4rem; }
+.card button { padding: .35rem .7rem; }
+.empty { color: var(--dim); font-style: italic; margin: .2rem 0; }
+#newinvite { margin-top: .8rem; }
+#newlink { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .9rem; }
+dialog { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 10px;
+  max-width: min(28rem, calc(100vw - 32px)); padding: 1rem; }
+dialog::backdrop { background: rgba(0, 0, 0, .45); }
+dialog input { width: 100%; margin-bottom: .8rem; }
+"""
+
+ADMIN_JS = r""""use strict";
+// CANopener team access admin page. Talks to /api/team/* with the admin token as a Bearer header.
+(function () {
+  const KEY = "canopener-team-admin";
+  const $ = (id) => document.getElementById(id);
+  let token = "";
+  let installsById = {};
+
+  function store(t) {
+    token = t || "";
+    try {
+      if (token) sessionStorage.setItem(KEY, token); else sessionStorage.removeItem(KEY);
+    } catch (e) { /* private mode: keep it in memory for this page only */ }
+  }
+  try { token = sessionStorage.getItem(KEY) || ""; } catch (e) { token = ""; }
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = String(text);
+    return e;
+  }
+  function button(text, onClick, cls) {
+    const b = el("button", cls || "", text);
+    b.type = "button";
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  function say(text, isError) {
+    const m = $("msg");
+    m.textContent = text || "";
+    m.className = isError ? "error" : "";
+    m.hidden = !text;
+  }
+
+  function ago(t) {
+    if (!t) return "never";
+    const s = Math.max(0, Date.now() / 1000 - t);
+    if (s < 90) return "just now";
+    if (s < 5400) return Math.round(s / 60) + " min ago";
+    if (s < 129600) return Math.round(s / 3600) + " h ago";
+    return Math.round(s / 86400) + " days ago";
+  }
+  function when(t) { return t ? new Date(t * 1000).toLocaleString() : ""; }
+  function size(n) {
+    return n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " kB";
+  }
+
+  class Refused extends Error {
+    constructor(status, text) { super(text); this.status = status; }
+  }
+
+  async function api(method, path, body, headers) {
+    const h = Object.assign({ "Authorization": "Bearer " + token }, headers || {});
+    let data;
+    if (body instanceof Blob) data = body;
+    else if (body !== undefined) { h["Content-Type"] = "application/json"; data = JSON.stringify(body); }
+    let r;
+    try {
+      r = await fetch(path, { method: method, headers: h, body: data, cache: "no-store",
+                              credentials: "omit", referrerPolicy: "no-referrer" });
+    } catch (e) {
+      throw new Refused(0, "Couldn't reach the server. Check the connection and try again.");
+    }
+    let out = {};
+    try { out = await r.json(); } catch (e) { out = {}; }
+    if (r.status === 401 || r.status === 403) {
+      signOut("That token isn't an admin token for this server (or it was changed). Sign in again.");
+      throw new Refused(r.status, "");
+    }
+    if (!r.ok) throw new Refused(r.status, out.error || ("The server answered " + r.status + "."));
+    return out;
+  }
+
+  // A question with No as the default (Escape, or Enter straight away, answers No).
+  function ask(text, yes, opts) {
+    opts = opts || {};
+    const d = $("ask"), inp = $("askinput"), no = $("askno"), ok = $("askyes");
+    $("asktext").textContent = text;
+    ok.textContent = yes || "Yes";
+    ok.className = opts.danger ? "danger" : "primary";
+    no.textContent = opts.no || "No";
+    inp.hidden = opts.input === undefined;
+    inp.value = opts.input || "";
+    return new Promise((resolve) => {
+      function done(v) {
+        ok.removeEventListener("click", onYes);
+        no.removeEventListener("click", onNo);
+        d.removeEventListener("cancel", onCancel);
+        inp.removeEventListener("keydown", onKey);
+        if (d.open) d.close();
+        resolve(v);
+      }
+      function onYes() { done(opts.input === undefined ? true : inp.value); }
+      function onNo() { done(null); }
+      function onCancel(e) { e.preventDefault(); done(null); }
+      function onKey(e) { if (e.key === "Enter") { e.preventDefault(); onYes(); } }
+      ok.addEventListener("click", onYes);
+      no.addEventListener("click", onNo);
+      d.addEventListener("cancel", onCancel);
+      inp.addEventListener("keydown", onKey);
+      d.showModal();
+      (opts.input === undefined ? no : inp).focus();
+    });
+  }
+
+  async function act(fn, done) {
+    try {
+      await fn();
+      if (done) say(done);
+      await load();
+    } catch (e) {
+      if (e.message) say(e.message, true);
+    }
+  }
+
+  function installCard(i) {
+    const c = el("div", "card");
+    const top = el("div", "top");
+    top.append(el("span", "serial", i.serial || i.install.slice(0, 8)));
+    top.append(el("span", "badge " + i.status, i.status === "pending" ? "waiting" : i.status));
+    c.append(top);
+    c.append(el("div", "name", i.name || "(no name)"));
+    const dl = el("dl");
+    function row(k, v) { dl.append(el("dt", "", k)); const dd = el("dd", "", v); dl.append(dd); return dd; }
+    if (i.status === "pending") row("Asked", ago(i.requested)).title = when(i.requested);
+    row("Plugin", i.pack_version || "none yet");
+    row("Last check", ago(i.last_seen)).title = when(i.last_seen);
+    row("App", i.app_version || "unknown");
+    row("Joined by", i.via ? i.via.replace(/^invite .*/, "invite") : "unknown");
+    c.append(dl);
+    const who = (i.serial || "this computer") + (i.name ? " (" + i.name + ")" : "");
+    const path = "/api/team/installs/" + encodeURIComponent(i.install);
+    const btns = el("div", "row");
+    if (i.status !== "approved") {
+      btns.append(button("Approve", () => act(() => api("POST", path, { status: "approved" }),
+                                               who + " is approved. It gets the plugin at its next check."),
+                         "primary"));
+    } else {
+      btns.append(button("Revoke", async () => {
+        if (await ask("Revoke " + who + "? The team plugin is removed from it the next time it starts online, " +
+                      "without asking. Approve undoes this.", "Revoke", { danger: true })) {
+          act(() => api("POST", path, { status: "revoked" }), who + " is revoked.");
+        }
+      }, "danger"));
+    }
+    btns.append(button("Rename", async () => {
+      const name = await ask("New name for " + (i.serial || "this computer") + ":", "Save",
+                             { input: i.name || "", no: "Cancel" });
+      if (name !== null) act(() => api("POST", path, { name: name }), "Renamed.");
+    }));
+    btns.append(button("Forget", async () => {
+      if (await ask("Forget " + who + "? It's removed from this list and loses the team plugin at its next " +
+                    "check. To let it back in it needs a new invite or request.", "Forget", { danger: true })) {
+        act(() => api("DELETE", path), who + " is forgotten.");
+      }
+    }, "danger"));
+    c.append(btns);
+    return c;
+  }
+
+  function inviteCard(v) {
+    const now = Date.now() / 1000;
+    const state = v.used_by ? "used" : (v.expires < now ? "expired" : "open");
+    const c = el("div", "card");
+    const top = el("div", "top");
+    top.append(el("span", "", v.name || "(no name)"));
+    top.append(el("span", "badge " + state, state));
+    c.append(top);
+    const dl = el("dl");
+    function row(k, val) { dl.append(el("dt", "", k)); dl.append(el("dd", "", val)); }
+    row("Made", when(v.created));
+    if (state === "used") {
+      const by = installsById[v.used_by];
+      row("Used by", (by && by.serial ? by.serial : "a computer since forgotten") + ", " + ago(v.used));
+    } else {
+      row(state === "open" ? "Expires" : "Expired", when(v.expires));
+    }
+    c.append(dl);
+    if (state === "open") {
+      const btns = el("div", "row");
+      btns.append(button("Cancel invite", () => act(
+        () => api("DELETE", "/api/team/invites/" + encodeURIComponent(v.id)), "Invite cancelled."), "danger"));
+      c.append(btns);
+    }
+    return c;
+  }
+
+  function fill(box, items, make, emptyText) {
+    box.replaceChildren();
+    if (!items.length) box.append(el("p", "empty", emptyText));
+    for (const it of items) box.append(make(it));
+  }
+
+  async function load() {
+    const [ins, inv, pack] = await Promise.all([
+      api("GET", "/api/team/installs"), api("GET", "/api/team/invites"), api("GET", "/api/team/pack")]);
+    const all = ins.installs || [];
+    installsById = {};
+    for (const i of all) installsById[i.install] = i;
+    fill($("requests"), all.filter((i) => i.status === "pending"), installCard, "Nobody is waiting.");
+    fill($("installs"), all.filter((i) => i.status !== "pending"), installCard,
+         "No computers yet: invite someone below.");
+    fill($("invites"), inv.invites || [], inviteCard, "No invites.");
+    $("pack").textContent = pack && pack.version
+      ? "Published: " + pack.version + ", " + size(pack.size || 0) + ", " + when(pack.published) + "."
+      : "No team plugin has been published yet.";
+  }
+
+  function showLogin() {
+    $("app").hidden = true;
+    $("bar").hidden = true;
+    $("login").hidden = false;
+    $("nothttps").hidden = location.protocol === "https:" ||
+      ["localhost", "127.0.0.1", "[::1]"].indexOf(location.hostname) >= 0;
+    $("token").value = "";
+    $("token").focus();
+  }
+
+  async function showApp() {
+    $("login").hidden = true;
+    $("app").hidden = false;
+    $("bar").hidden = false;
+    try { await load(); } catch (e) { if (e.message) say(e.message, true); }
+  }
+
+  function signOut(why) {
+    store("");
+    $("newinvite").hidden = true;
+    $("newlink").value = "";
+    for (const id of ["requests", "installs", "invites"]) $(id).replaceChildren();
+    say(why || "Signed out.", !!why);
+    showLogin();
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    $("loginform").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const t = $("token").value.trim();
+      $("token").value = "";
+      if (!t) return;
+      store(t);
+      say("");
+      try {
+        const me = await api("GET", "/api/whoami");
+        if (!me.can_delete) { signOut("That token works here but isn't an admin token."); return; }
+      } catch (err) {
+        if (err.message) { store(""); say(err.message, true); }
+        return;
+      }
+      showApp();
+    });
+    $("signout").addEventListener("click", () => signOut(""));
+    $("refresh").addEventListener("click", () => { say(""); act(() => Promise.resolve()); });
+
+    $("inviteform").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const name = $("invname").value.trim();
+      const days = Math.min(90, Math.max(1, parseFloat($("invdays").value) || 7));
+      act(async () => {
+        const r = await api("POST", "/api/team/invites", { name: name, days: days });
+        $("newname").textContent = r.name || "them";
+        $("newexpires").textContent = when(r.expires);
+        $("newlink").value = r.link;
+        $("newinvite").hidden = false;
+        $("invname").value = "";
+      }, "Invite made.");
+    });
+    $("copy").addEventListener("click", async () => {
+      const box = $("newlink");
+      try { await navigator.clipboard.writeText(box.value); say("Link copied."); }
+      catch (e) { box.focus(); box.select(); say("Select the link and copy it (the browser didn't allow copying)."); }
+    });
+
+    $("packform").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const f = $("packfile").files[0];
+      if (!f) return;
+      // Header values must be plain text: keep printable ASCII only.
+      const version = $("packversion").value.replace(/[^\x20-\x7e]/g, "").trim().slice(0, 80);
+      const btn = e.submitter || null;
+      if (btn) btn.disabled = true;
+      say("Uploading " + f.name + " (" + size(f.size) + ")...");
+      act(async () => {
+        try {
+          const headers = { "Content-Type": "application/zip" };
+          if (version) headers["X-Pack-Version"] = version;
+          const r = await api("PUT", "/api/team/pack", f, headers);
+          $("packfile").value = "";
+          $("packversion").value = "";
+          say("Published " + r.version + ".");
+        } finally { if (btn) btn.disabled = false; }
+      });
+    });
+
+    if (token) showApp(); else showLogin();
+  });
+})();
+"""
+
+ADMIN_FILES = {
+    "": (ADMIN_PAGE, "text/html; charset=utf-8"),
+    "app.js": (ADMIN_JS, "text/javascript; charset=utf-8"),
+    "app.css": (ADMIN_CSS, "text/css; charset=utf-8"),
+}
+
+
 PUBKEY_RE = re.compile(r"^ssh-ed25519 [A-Za-z0-9+/]{60,100}={0,2}$")
 
 
@@ -804,13 +1269,16 @@ class Handler(BaseHTTPRequestHandler):
         who = (self.headers.get("X-Forwarded-For") or "").split(",")[0].strip() if self.headers else ""
         sys.stderr.write(f"{who or self.address_string()} {self.command} {urlsplit(self.path).path} {status}\n")
 
-    def _send(self, status: int, data=None, ctype: str = "application/json", body: bytes | None = None):
+    def _send(self, status: int, data=None, ctype: str = "application/json", body: bytes | None = None,
+              headers: dict | None = None):
         if body is None:
             body = (json.dumps(data, indent=1) + "\n").encode()
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
@@ -898,11 +1366,17 @@ class Handler(BaseHTTPRequestHandler):
         parts = [unquote(p) for p in url.path.split("/") if p]
         q = {k: v[-1] for k, v in parse_qs(url.query).items()}
         m, s = self.command, self.store
+        if parts[:1] == ["admin"] and len(parts) <= 2 and m in ("GET", "HEAD"):
+            page = ADMIN_FILES.get(parts[1] if len(parts) == 2 else "")
+            if page is None:
+                raise ApiError(404, "not found")
+            return self._send(200, body=page[0].encode(), ctype=page[1], headers=ADMIN_HEADERS)
         if len(parts) == 2 and parts[0] == "invite" and m in ("GET", "HEAD"):
             return self._send(200, body=INVITE_PAGE.encode(), ctype="text/html; charset=utf-8")
         if parts[:1] != ["api"]:
             if parts == [] and m in ("GET", "HEAD"):
-                return self._send(200, body=b"CANopener upload server. The API is under /api (see README).\n",
+                return self._send(200, body=b"CANopener upload server. The API is under /api (see README); "
+                                       b"team access is at /admin.\n",
                                   ctype="text/plain; charset=utf-8")
             raise ApiError(404, "not found")
         p = parts[1:]

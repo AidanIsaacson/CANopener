@@ -188,10 +188,25 @@ reach them at their next start (they're asked first). Revoking one removes the p
 next time it starts online, without asking. The app side is `canopener/core/team.py`; how it looks
 to them: [docs/USAGE.md](../../docs/USAGE.md#team-access).
 
-It runs on your computer with `canopener-cli team-admin` and the server's admin token: put an
-`ADMIN_TOKENS` token in `~/.config/canopener/admin-token` (mode 600) or `CANOPENER_ADMIN_TOKEN`.
-The server is this computer's upload server, or `--url`. Set `PUBLIC_URL`, since invite links are
-made from it.
+You run it with the server's admin token (put one in `ADMIN_TOKENS`), from a browser or from the
+command line. Set `PUBLIC_URL`, since invite links are made from it.
+
+**From a browser or a phone:** open `https://<this server>/admin` and paste the admin token. At the
+top are the computers waiting for approval; below them every computer (serial, name, status,
+plugin version, last check, app version) with **Approve**, **Revoke**, **Rename** and **Forget**
+(Revoke and Forget ask first, and No is the default); then **Invite someone** (a name and how many
+days; the link is shown once, with **Copy**), the open and used invites with **Cancel invite**, and
+the published plugin with a zip upload to replace it. The token stays in that browser tab only
+(`sessionStorage`), goes to the server as an `Authorization` header and never in an address;
+**Sign out** or closing the tab forgets it. The page is part of `server.py` (no outside scripts or
+fonts) and is served with a strict `Content-Security-Policy`, `X-Frame-Options: DENY`,
+`Referrer-Policy: no-referrer` and `Cache-Control: no-store`. The admin token is what protects it,
+like the API: keep it long (the `openssl` / `secrets` commands here make 43 characters) and only
+open the page over https.
+
+**From the command line,** on your computer: `canopener-cli team-admin`, with the admin token in
+`~/.config/canopener/admin-token` (mode 600) or `CANOPENER_ADMIN_TOKEN`. The server is this
+computer's upload server, or `--url`.
 
 ```bash
 canopener-cli team-admin publish ~/my-team-plugin   # send the plugin (a git checkout: what's committed at HEAD)
@@ -254,6 +269,7 @@ headers `X-Install` (its ID) and `X-Machine` (its machine fingerprint).
 | `GET /api/remote/sessions/<id>/results/<cmd>` | remote | `wait` | `{result}`: the unit's answer, or null |
 | `DELETE /api/remote/sessions/<id>` | upload or remote | | `{closed}` |
 | `GET /invite/<code>` | none | | a page telling the reader to paste the link into the app |
+| `GET /admin` (and `/admin/app.js`, `/admin/app.css`) | none (the page asks for the admin token) | | the team access admin page |
 | `POST /api/team/redeem` | none (the code) | `{code, install, key, machine, name}` | the install, approved; 404 when the code is used, expired or wrong |
 | `POST /api/team/requests` | none | `{install, key, machine, name}` | `201` the install, pending; 429 when `TEAM_MAX_PENDING` wait already |
 | `GET /api/team/me` | install key | headers `X-App-Version`, `X-Pack-Version` | the install, plus `pack: {version, sha256, size}` when approved; 401 / 403 with `status: unknown / other_computer` |

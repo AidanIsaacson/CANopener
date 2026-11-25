@@ -102,7 +102,9 @@ carry `X-Install` / `X-Machine` beside it. State is `team.json` (mode 600), vali
 install ID it names, so a copied folder carries nothing. A check that finds the install revoked,
 unknown or on another computer removes the plugin without asking (and retries a failed `pip
 uninstall` at the next one); a newer build is only reported, except the first install. `Admin`
-and `make_bundle` are the owner's side (`canopener-cli team-admin`).
+and `make_bundle` are the owner's side (`canopener-cli team-admin`). The server also serves the owner's
+side as a web page, `GET /admin` (`ADMIN_PAGE` / `ADMIN_JS` / `ADMIN_CSS` in `server.py`, strict CSP,
+the admin token in `sessionStorage` sent as a Bearer header to the same `/api/team` calls).
 
 `core/startup_check.py` is what a front-end runs in the background at start: team access always,
 then (when the user's startup update check is on, the default) `updates.check()` and
@@ -432,8 +434,8 @@ these by name.
   frames (J1939-22 uses FD); the MCP2518FD and CANable 2.0 both support it.
 * **Team access, the rest.** The handheld joins by request only (no keyboard for an invite link:
   a QR code or a short code typed with the encoder would do). Possible next steps: per-install
-  upload credentials issued at join (replacing the shared `UPLOAD_TOKENS`), and a small admin page
-  on the server for approving from a phone.
+  upload credentials issued at join (replacing the shared `UPLOAD_TOKENS`). *Done:* the admin
+  page on the server (`/admin`) for approving from a phone.
 * **Handheld screens still to come:** CANopen (nodes, EMCY, error history), clear codes and
   transmit (confirm-first, default No, never in listen-only), the logic analyzer (`core/logic.py`
   has the command and channel names, no UI yet) and Component Test (ELECTRONICS.md 6.7).

@@ -5,6 +5,12 @@ on an older one, `git checkout v0.3.2` in its checkout.
 
 ## Unreleased
 
+- **Team access from a browser.** The upload server has an admin page at `/admin`: paste the
+  admin token, then approve the computers that asked, revoke, rename or forget any of them, make
+  invite links (with a **Copy** button) and cancel them, and publish a new build of the team
+  plugin from a zip. It works on a phone and follows light/dark mode. The token stays in that
+  browser tab only, and the page loads nothing from anywhere else ([upload server
+  README](deploy/upload-server/README.md#team-access)). The server's version is now 4.
 - **Profile builder: electric stand-ups.** A new kind of machine, **Electric stand-up**, asks
   **Reach truck** or **Counterbalance**. Its controls are mapped with your feet off the operator
   pedal (the truck can't drive or lift): the operator presence pedal and the brake pedal (or the
