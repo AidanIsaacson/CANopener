@@ -9,6 +9,7 @@ from ..core import canopen, profiles
 from ..j1939.addresses import sa_name
 from ..j1939.constants import pgn_label
 from ..j1939.ids import parse_id
+from .flow import FlowLayout
 from .qt import Qt, QtCore, QtGui, QtWidgets
 from .widgets import mono_font
 
@@ -221,14 +222,15 @@ class MonitorTab(QtWidgets.QWidget):
         self.seq = 0
         lay = QtWidgets.QVBoxLayout(self)
 
-        bar = QtWidgets.QHBoxLayout()
+        bar = FlowLayout(spacing=8)     # wraps on a narrow window instead of setting its minimum width
         self.mode = QtWidgets.QComboBox()
         self.mode.addItems(["By ID (changes highlighted)", "Scrolling"])
         self.mode.currentIndexChanged.connect(self._mode_changed)
         bar.addWidget(self.mode)
         self.filter = QtWidgets.QLineEdit()
         self.filter.setPlaceholderText("Filter: words must all match, e.g. 'FECA'  '27 Proprietary'  'TX'")
-        bar.addWidget(self.filter, 2)
+        self.filter.setMinimumWidth(260)
+        bar.addWidget(self.filter)
         self.pause = QtWidgets.QPushButton("Pause")
         self.pause.setCheckable(True)
         bar.addWidget(self.pause)

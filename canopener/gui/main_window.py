@@ -42,6 +42,8 @@ from .tab_report import ReportTab
 from .transmit_dialog import TransmitDialog
 from .widgets import LampPanel, StatusLamp, app_icon
 
+CONN_PANEL_WIDTH = 270          # the Connection panel's width the first time (then: as the user leaves it)
+
 REFRESH_MS = 200
 LINK_CHECK_SECS = 1.0       # how often the adapter lamp re-checks for the interface
 
@@ -618,6 +620,7 @@ class MainWindow(QtWidgets.QMainWindow):
         state = s.value("window_state")
         if state is not None:
             self.restoreState(state)
+        self._first_layout = state is None      # first run: showEvent gives the panel a comfortable width
         self.autoconnect_action.setChecked(s.value("connect_on_startup", "false") in (True, "true"))
         self._source_changed()
 
@@ -1456,6 +1459,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def showEvent(self, ev):
         super().showEvent(ev)
+        if getattr(self, "_first_layout", False):
+            self._first_layout = False      # (the panel itself never goes below what its content needs)
+            QtCore.QTimer.singleShot(0, lambda: self.resizeDocks([self.conn_panel], [CONN_PANEL_WIDTH],
+                                                                 Qt.Orientation.Horizontal))
         if not getattr(self, "_checked_pending", False):
             self._checked_pending = True
             QtCore.QTimer.singleShot(300, self.log_panel.check_pending)

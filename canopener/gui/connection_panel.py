@@ -15,7 +15,7 @@ from ..can import pythoncan
 from ..core import connection, interfaces, link, sound
 from . import themes
 from .qt import Qt, QtCore, QtWidgets, Signal
-from .widgets import STATUS_COLORS, RefreshComboBox, StatusLamp
+from .widgets import STATUS_COLORS, RefreshComboBox, StatusLamp, WrapCheck, narrow_combo
 
 SOURCES = [("SocketCAN adapter", connection.SOCKETCAN), ("Bluetooth OBD", connection.ELM),
            ("Simulator", connection.SIMULATOR),
@@ -67,16 +67,20 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         self.status_detail.setWordWrap(True)
         self.status_detail.setStyleSheet("color: gray")
         lay.addWidget(self.status_detail)
-        self.link_sound = QtWidgets.QCheckBox("Chime when the bus traffic drops out or comes back")
-        self.link_sound.setToolTip("While connected: a falling tone when traffic stops (a probe slipped, key "
-                                   "off), a rising one when it's back")
+        link_sound = WrapCheck("Chime when the bus traffic drops out or comes back")
+        link_sound.setToolTip("While connected: a falling tone when traffic stops (a probe slipped, key "
+                              "off), a rising one when it's back")
+        self.link_sound = link_sound.box
         self.link_sound.setChecked(self.settings.value("sound/link_cues", "true") in (True, "true"))
         self.link_sound.toggled.connect(lambda on: self.settings.setValue("sound/link_cues", on))
-        lay.addWidget(self.link_sound)
+        lay.addWidget(link_sound)
 
         box = QtWidgets.QGroupBox("Connection")
         form = QtWidgets.QFormLayout(box)
-        self.source = QtWidgets.QComboBox()
+        # A narrow dock puts each label above its field instead of cutting the field off.
+        form.setRowWrapPolicy(QtWidgets.QFormLayout.RowWrapPolicy.WrapLongRows)
+        form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        self.source = narrow_combo(QtWidgets.QComboBox())
         from ..core.settings import Settings
         self.set_simulators(bool(Settings().get("show_simulators")))
         form.addRow("Source", self.source)
@@ -84,9 +88,8 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         # Lists only the interfaces that exist right now, re-checked each time the list opens.
         # Still editable, so a name can be typed (e.g. vcan0 before creating it).
         row = QtWidgets.QHBoxLayout()
-        self.iface = RefreshComboBox(iface_popup)
+        self.iface = narrow_combo(RefreshComboBox(iface_popup), 8)
         self.iface.setEditable(True)
-        self.iface.setMinimumWidth(110)
         row.addWidget(self.iface, 1)
         self.rescan_btn = QtWidgets.QToolButton()
         self.rescan_btn.setText("⟳")
@@ -104,12 +107,11 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         self.bitrate_label = QtWidgets.QLabel("Bitrate")
         form.addRow(self.bitrate_label, self.bitrate)
         # Bluetooth OBD: the paired adapter, the pairing dialog, and what to expect from one.
-        self.bt_adapter = QtWidgets.QComboBox()
-        self.bt_adapter.setMinimumWidth(110)
+        self.bt_adapter = narrow_combo(QtWidgets.QComboBox())
         self.bt_adapter.setToolTip("Your Bluetooth OBD adapters (ELM327-style), by the names you gave them")
         self.bt_adapter_label = QtWidgets.QLabel("Adapter")
         form.addRow(self.bt_adapter_label, self.bt_adapter)
-        self.bt_vehicle = QtWidgets.QComboBox()         # filled by set_bt_vehicle (plugins can add buses)
+        self.bt_vehicle = narrow_combo(QtWidgets.QComboBox())     # filled by set_bt_vehicle (plugins can add buses)
         self.bt_vehicle_label = QtWidgets.QLabel("Vehicle")
         form.addRow(self.bt_vehicle_label, self.bt_vehicle)
         self.bt_manage_btn = QtWidgets.QPushButton("Pair / Manage Adapters…")
@@ -124,22 +126,21 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         self.listen_only.setToolTip("Transmit nothing at all. DM1 and live data still work (they're broadcast).")
         form.addRow(self.listen_only)
 
-        btns = QtWidgets.QHBoxLayout()
+        btns = QtWidgets.QVBoxLayout()                  # stacked: side by side they'd set a wide minimum
         self.setup_btn = QtWidgets.QPushButton("Set Up Interface")
         self.setup_btn.setToolTip("Configure bitrate / listen-only and bring the interface up (asks for your password)")
         btns.addWidget(self.setup_btn)
         self.connect_btn = QtWidgets.QPushButton("Connect")
-        self.connect_btn.setMinimumWidth(100)
         self.connect_btn.setMinimumHeight(34)
         self.connect_btn.setStyleSheet("font-weight: bold;")
         btns.addWidget(self.connect_btn)
         form.addRow(btns)
         lay.addWidget(box)
 
-        self.finder_box = QtWidgets.QGroupBox("Find signal (while placing probes)")
+        self.finder_box = QtWidgets.QGroupBox("Find signal")
         fl = QtWidgets.QVBoxLayout(self.finder_box)
-        intro = QtWidgets.QLabel("Keeps listening, listen-only, until it hears steady CAN traffic, "
-                                 "then chimes and locks the bitrate in. Start it, then go move the probes.")
+        intro = QtWidgets.QLabel("For placing probes: keeps listening, listen-only, until it hears steady CAN "
+                                 "traffic, then chimes and locks the bitrate in. Start it, then go move the probes.")
         intro.setWordWrap(True)
         intro.setStyleSheet("color: gray")
         fl.addWidget(intro)
@@ -159,23 +160,37 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         self.history.setToolTip("Most recent attempt first")
         self.history.setWordWrap(True)
         fl.addWidget(self.history)
-        self.connect_when_found = QtWidgets.QCheckBox("Connect when found")
+        connect_when_found = WrapCheck("Connect when found")
+        self.connect_when_found = connect_when_found.box
         self.connect_when_found.setChecked(self.settings.value("finder/connect", "true") in (True, "true"))
         self.connect_when_found.toggled.connect(lambda on: self.settings.setValue("finder/connect", on))
-        fl.addWidget(self.connect_when_found)
-        self.sound = QtWidgets.QCheckBox("Chime when the signal finder locks on")
+        fl.addWidget(connect_when_found)
+        sound = WrapCheck("Chime when the signal finder locks on")
+        self.sound = sound.box
         self.sound.setChecked(self.settings.value("finder/sound", "true") in (True, "true"))
         self.sound.toggled.connect(lambda on: self.settings.setValue("finder/sound", on))
-        fl.addWidget(self.sound)
+        fl.addWidget(sound)
         lay.addWidget(self.finder_box)
         lay.addStretch(1)
 
+        # Scrolls up and down only: the content wraps to the dock's width, and the dock can't be
+        # dragged (or start) narrower than the content needs, so nothing is ever cut off at the side.
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setWidget(w)
+        self._scroll = scroll
         self.setWidget(scroll)
+        self.fit_width()
         self._show_finder_idle()
+
+    def fit_width(self):
+        """Keep the dock at least as wide as its content's narrowest layout (plus the scroll bar).
+        Called again when what's shown changes (another source shows other rows)."""
+        inner = self._scroll.widget()
+        bar = self._scroll.verticalScrollBar().sizeHint().width()
+        self._scroll.setMinimumWidth(inner.minimumSizeHint().width() + bar)
 
     # ------------------------------------------------------------------
     # status lamps
@@ -380,6 +395,7 @@ class ConnectionPanel(QtWidgets.QDockWidget):
             w.setVisible(bt)
         j1939 = (self.bt_vehicle.currentData() or "").startswith("A|")   # a truck can be listen-only; a car can't
         self.listen_only.setVisible(kind != connection.REPLAY and (not bt or j1939))
+        self.fit_width()
 
     def refresh_theme(self):
         """Settings > Colour theme changed: the finder's solid colours follow it."""

@@ -31,6 +31,13 @@ P_CODES, P_LIVE, P_FREEZE, P_READY, P_TESTS, P_RESULTS, P_INFO = range(7)
 POLL_GAP = 0.01         # between live-data requests: ~100/s at most, polite to a busy gateway
 
 
+def _wrapping(text: str) -> QtWidgets.QLabel:
+    """A note beside a button that wraps rather than setting the window's minimum width."""
+    lab = QtWidgets.QLabel(text)
+    lab.setWordWrap(True)
+    return lab
+
+
 def _fmt(value, unit: str, system: str) -> str:
     if not isinstance(value, (int, float)):
         return str(value)
@@ -143,8 +150,7 @@ class ObdTab(QtWidgets.QWidget):
         self.freeze_btn = QtWidgets.QPushButton("Read freeze frame")
         self.freeze_btn.clicked.connect(self._read_freeze)
         row.addWidget(self.freeze_btn)
-        row.addWidget(QtWidgets.QLabel("Values stored when the code that caused it was set."))
-        row.addStretch(1)
+        row.addWidget(_wrapping("Values stored when the code that caused it was set."), 1)
         lay.addLayout(row)
         self.freeze = QtWidgets.QTableWidget()
         setup_table(self.freeze, ["Module", "Parameter", "Value"])
@@ -203,9 +209,8 @@ class ObdTab(QtWidgets.QWidget):
         self.results_btn = QtWidgets.QPushButton("Read test results")
         self.results_btn.clicked.connect(self._read_results)
         row.addWidget(self.results_btn)
-        row.addWidget(QtWidgets.QLabel("Mode 06: each monitor's last test value and its limits. Spots a part "
-                                       "that passes, but only just."))
-        row.addStretch(1)
+        row.addWidget(_wrapping("Mode 06: each monitor's last test value and its limits. Spots a part "
+                                "that passes, but only just."), 1)
         lay.addLayout(row)
         self.results = QtWidgets.QTableWidget()
         setup_table(self.results, ["Module", "Monitor", "Test", "Value", "Min", "Max", "Result"])

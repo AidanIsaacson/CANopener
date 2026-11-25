@@ -1659,3 +1659,35 @@ def test_missing_module_check(app, tmp_path, monkeypatch):
     assert missing.text(5) == "Not heard since connecting"
     assert w.network.items[0x27].text(5).startswith("Went quiet")
     w.close()
+
+
+def test_connection_panel_fits_a_narrow_dock(app):
+    """The Connection panel wraps to its dock instead of being cut off at the side: its content
+    needs no more than a narrow strip whatever the source, the dock can't go narrower than that,
+    and it never scrolls sideways."""
+    from canopener.gui.main_window import MainWindow
+    from canopener.gui.widgets import WrapCheck
+    w = MainWindow()
+    w.resize(1366, 740)
+    w.show()
+    pump(app, 0.2)
+    p = w.conn_panel
+    scroll = p.widget()
+    assert scroll.horizontalScrollBarPolicy() == qt.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    for i in range(p.source.count()):
+        p.source.setCurrentIndex(i)
+        pump(app, 0.05)
+        need = scroll.widget().minimumSizeHint().width()
+        assert need <= 240, (p.source.itemText(i), need)
+        assert scroll.viewport().width() >= need, p.source.itemText(i)      # nothing cut off
+    w.resizeDocks([p], [40], qt.Qt.Orientation.Horizontal)                 # squeeze it
+    pump(app, 0.1)
+    assert scroll.viewport().width() >= scroll.widget().minimumSizeHint().width()
+    # The wrapping check boxes still behave like check boxes, text included.
+    wrap = p.link_sound.parent()
+    assert isinstance(wrap, WrapCheck) and wrap.label.wordWrap()
+    before = p.link_sound.isChecked()
+    wrap.label.mousePressEvent(None)
+    assert p.link_sound.isChecked() != before
+    p.link_sound.setChecked(before)
+    w.close()

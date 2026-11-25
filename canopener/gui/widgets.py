@@ -46,6 +46,37 @@ class StatusLamp(QtWidgets.QLabel):
         super().mousePressEvent(ev)
 
 
+class WrapCheck(QtWidgets.QWidget):
+    """A check box whose label wraps to the width it's given (a QCheckBox's own text never wraps,
+    so a long one sets a wide minimum). ``box`` is the QCheckBox: use it as you would one.
+    Clicking the text toggles it too."""
+
+    def __init__(self, text: str, parent=None):
+        super().__init__(parent)
+        lay = QtWidgets.QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.box = QtWidgets.QCheckBox()
+        self.box.setAccessibleName(text)
+        lay.addWidget(self.box, 0, Qt.AlignmentFlag.AlignTop)
+        self.label = QtWidgets.QLabel(text)
+        self.label.setWordWrap(True)
+        self.label.setBuddy(self.box)
+        self.label.mousePressEvent = lambda ev: self.box.toggle() if self.box.isEnabled() else None
+        lay.addWidget(self.label, 1)
+
+    def setToolTip(self, text: str):
+        super().setToolTip(text)
+        self.box.setToolTip(text)
+        self.label.setToolTip(text)
+
+
+def narrow_combo(combo: QtWidgets.QComboBox, chars: int = 10) -> QtWidgets.QComboBox:
+    """Don't let the longest item set the combo's width (Qt still opens the list wide enough)."""
+    combo.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+    combo.setMinimumContentsLength(chars)
+    return combo
+
+
 class RefreshComboBox(QtWidgets.QComboBox):
     """A combo box that calls ``on_popup`` (to refresh its items) just before its list opens."""
 

@@ -8,6 +8,10 @@ on an older one, `git checkout v0.3.2` in its checkout.
 - **Team access on the handheld:** **System > Software > Team access** shows the unit's serial,
   asks the unit's upload server for access, and checks, installs and leaves once it's approved
   ([DEVICE.md](docs/DEVICE.md#team-access)).
+- **Desktop: the Connection panel fits a narrow window.** It used to open a sliver wide and cut
+  its contents off until dragged to a third of the screen. Now its text wraps and it never gets
+  narrower than its contents need. The Bus Monitor's toolbar and the OBD-II tab's notes wrap too,
+  so the window still fits a 1366-pixel laptop screen with both side panels open.
 
 ## 0.5.1 (2026-11-25)
 
