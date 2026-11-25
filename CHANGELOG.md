@@ -3,7 +3,7 @@
 What changed in each version, newest first. Versions are git tags (`v0.3.3`): to put a unit back
 on an older one, `git checkout v0.3.2` in its checkout.
 
-## Unreleased
+## 0.5.3 (2026-11-25)
 
 - **Team access from a browser.** The upload server has an admin page at `/admin`: paste the
   admin token, then approve the computers that asked, revoke, rename or forget any of them, make
