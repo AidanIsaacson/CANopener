@@ -1,0 +1,25 @@
+# Full mode: Claude Code with the Docker socket. Anything that can use the socket is root on this
+# host in effect (it can start a container that mounts /), so this is as good as a root login.
+# For the narrow mode (no socket; it can only ask auto-deploy for a fixed list of things), stop this
+# and start compose.request-only.yaml instead:
+#   docker compose down && docker compose -f compose.request-only.yaml up -d --build
+# First: mkdir -p home work && chown 1500:100 home work, then docker compose up -d --build and
+# sign in once: docker exec -it claude-remote tmux attach -t rc
+services:
+  claude-remote:
+    build: .
+    container_name: claude-remote
+    restart: unless-stopped
+    init: true
+    tty: true
+    environment:
+      - RC_NAME=${RC_NAME:-upload server}
+      - RC_PERMISSION_MODE=${RC_PERMISSION_MODE:-default}
+    group_add:
+      - "${DOCKER_GID:-999}"
+    volumes:
+      - ./home:/home/claude                       # its sign-in, settings and Claude Code itself
+      - ./work:/work                              # where sessions start (a CLAUDE.md goes here)
+      - ${LIVE_DIR}:${LIVE_DIR}
+      - ${DEPLOY_DIR}:${DEPLOY_DIR}
+      - /var/run/docker.sock:/var/run/docker.sock

@@ -14,6 +14,8 @@ proxy you already run such as Nginx Proxy Manager):
 | `server.py` | the server |
 | `Dockerfile`, `compose.yaml` | the container (`docker compose up -d --build`); captures go in `./data` |
 | `env.example` | its settings: copy to `.env` and fill in the tokens |
+| `auto-deploy.sh` | optional: keeps the server in step with `main` ([How changes reach the server](#how-changes-reach-the-server)) |
+| `claude-remote/` | optional: Claude Code with Remote Control on the server (same section) |
 | `nginx-site.conf.example` | the nginx site between cloudflared and the container |
 
 What the app sends is a capture folder: the CAN log, the summary, the live-data spreadsheet,
@@ -53,8 +55,9 @@ The path a request takes: **app → Cloudflare (HTTPS) → cloudflared on the se
 6. **Point the app at it.** Desktop: **Log > Upload settings…**, then enter the address and
    an upload token and press **Test**. Handheld or headless: `canopener-cli upload --setup`.
 
-Updating: copy the new `server.py` over and run `docker compose up -d --build`. Captures in
-`./data` are kept. Back up `./data` like any other folder.
+Updating: copy the new `server.py` over and run `docker compose up -d --build` (or let
+[auto-deploy](#how-changes-reach-the-server) do it). Captures in `./data` are kept. Back up
+`./data` like any other folder.
 
 ### Behind a proxy you already run (no tunnel)
 
@@ -92,6 +95,60 @@ Manager, Caddy, Traefik, plain nginx), use that instead of steps 3 and 4:
 
 On a server without systemd or Python (Unraid, a NAS), make the tokens with
 `openssl rand -base64 32 | tr '+/' '-_' | tr -d '='`.
+
+## How changes reach the server
+
+Two ways, both optional, both set up on the server itself so nobody has to log in to it from
+their own computer.
+
+**1. Auto-deploy from `main`** (`auto-deploy.sh`). Anything pushed to `main` that touches
+`deploy/upload-server/` ends up running on the server within about ten minutes, with no one
+checking it first: treat a push there as a deploy. The script, run by cron every minute (as root,
+since it runs `docker compose`):
+
+- every 10 minutes fetches `main` into its own checkout (read-only, over https) and, when
+  `deploy/upload-server/` changed since the last deploy, copies the code files (`server.py`,
+  `Dockerfile`, `compose.yaml`, `tunnel/`, the docs) into the server's folder and runs
+  `docker compose up -d --build`;
+- checks `/api/health` (answering, and still answering 15 s later). If it fails, it puts the
+  previous files back and rebuilds, and leaves that commit alone until a newer one arrives (or a
+  `deploy` request);
+- never touches `.env`, `data/`, `compose.override.yaml` or anything else not in its list, and
+  logs every step to `deploy.log` next to it;
+- carries out requests: a file `requests/<name>.req` whose first word is `deploy`, `rebuild`,
+  `restart`, `logs` or `status` gets its answer in `requests/<name>.out` within a minute. Nothing
+  else in the file is run.
+
+Setting it up: put `auto-deploy.sh` in a folder of its own on the server with an
+`auto-deploy.conf` beside it (`LIVE=` the server's folder, `REPO_URL=` this repository's https
+address, `BRANCH=main`; the rest is in the script's header), run `bash auto-deploy.sh --now` once
+(it clones the repository and deploys), then add the cron line
+`* * * * * /bin/bash /path/to/auto-deploy.sh > /dev/null 2>&1`. On Unraid, cron lines go in a
+`.cron` file under `/boot/config/plugins/dynamix/`, followed by `update_cron`. The copy on the
+server doesn't update itself: copy a newer `auto-deploy.sh` over by hand. To stop it, remove the
+cron line; to go back to an older server, `git revert` on `main` (or stop it and copy the files).
+
+**2. Claude Code with Remote Control** (`claude-remote/`). A container running
+`claude remote-control` as a non-root user, so a Claude Code session on the server appears in
+the Claude app (desktop, web, phone) and you work with it from there. It uses a claude.ai
+subscription sign-in (an API key won't do), made once by attaching to it:
+`docker exec -it claude-remote tmux attach -t rc` (or the container's console in the server's
+web UI), then Ctrl+B, D to leave it running. Sessions start in its `work/` folder (a
+`CLAUDE.md` there tells it the layout); by default every edit and command asks you in the app
+first. It restarts itself, including after the ~10 minutes Remote Control gives up without a
+connection.
+
+It has two modes; switch with `docker compose down` and `up -d` with the other file:
+
+| | `compose.yaml` (full) | `compose.request-only.yaml` (narrow) |
+|---|---|---|
+| Docker socket | yes: any container, any change. In effect root on the server | no |
+| The server's folder | read and write (code, `.env`, override) | read-only |
+| Deploys | runs `docker compose` itself | writes a request for auto-deploy (`deploy`, `rebuild`, `restart`, `logs`, `status`) |
+| Code changes | edits on the server (auto-deploy replaces them at the next change on `main`) or pushes | pushes to `main` (needs GitHub access set up in it) |
+
+Its files and sign-in live in `home/` next to its compose file; deleting the container and that
+folder removes it completely (also sign out of that device under claude.ai's settings).
 
 ## Deleting captures and keeping the disk from filling
 

@@ -1,0 +1,20 @@
+# Narrow mode: no Docker socket. The upload server's folder is read-only here; to change the server,
+# push to main (auto-deploy picks it up) or edit on the host. It can ask auto-deploy for exactly
+# deploy / rebuild / restart / logs / status by writing <name>.req into requests/ (answers come
+# back as <name>.out within a minute), and read the deploy log.
+services:
+  claude-remote:
+    build: .
+    container_name: claude-remote
+    restart: unless-stopped
+    init: true
+    tty: true
+    environment:
+      - RC_NAME=${RC_NAME:-upload server}
+      - RC_PERMISSION_MODE=${RC_PERMISSION_MODE:-default}
+    volumes:
+      - ./home:/home/claude
+      - ./work:/work
+      - ${LIVE_DIR}:${LIVE_DIR}:ro
+      - ${DEPLOY_DIR}/requests:${DEPLOY_DIR}/requests
+      - ${DEPLOY_DIR}/deploy.log:${DEPLOY_DIR}/deploy.log:ro

@@ -11,6 +11,12 @@ on an older one, `git checkout v0.3.2` in its checkout.
   plugin from a zip. It works on a phone and follows light/dark mode. The token stays in that
   browser tab only, and the page loads nothing from anywhere else ([upload server
   README](deploy/upload-server/README.md#team-access)). The server's version is now 4.
+- **Upload server: changes without logging in to it.** `deploy/upload-server/auto-deploy.sh` keeps
+  a server in step with `main` (checks every 10 minutes, rebuilds only when that folder changed,
+  rolls back if the health check fails, takes a few fixed requests from a folder), and
+  `deploy/upload-server/claude-remote/` runs Claude Code with Remote Control beside it, in a full
+  or a narrow (no Docker socket) mode ([How changes reach the
+  server](deploy/upload-server/README.md#how-changes-reach-the-server)).
 - **Profile builder: electric stand-ups.** A new kind of machine, **Electric stand-up**, asks
   **Reach truck** or **Counterbalance**. Its controls are mapped with your feet off the operator
   pedal (the truck can't drive or lift): the operator presence pedal and the brake pedal (or the
