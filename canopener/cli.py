@@ -639,6 +639,11 @@ def cmd_interfaces(a) -> int:
 
 
 def cmd_setup(a) -> int:
+    if a.down:
+        ok, msg = interfaces.run_privileged(interfaces.quiet_steps(a.iface))
+        print(f"{a.iface} down" if ok else f"Couldn't take {a.iface} down: {msg}",
+              file=sys.stdout if ok else sys.stderr)
+        return 0 if ok else 1
     bitrate = a.bitrate
     if bitrate == "auto":
         found, log = interfaces.detect_bitrate(
@@ -1542,6 +1547,7 @@ def main(argv=None) -> int:
     u.add_argument("--iface", default="can0")
     u.add_argument("--bitrate", default="250000", help="bits/s, or 'auto' to detect (listen-only probe)")
     u.add_argument("--listen-only", action="store_true", help="leave the controller in listen-only mode")
+    u.add_argument("--down", action="store_true", help="take the interface down instead (it can't disturb a bus)")
     u.set_defaults(fn=cmd_setup)
 
     f = sub.add_parser("find", help="keep listening (listen-only, cycling bitrates) until steady traffic is "

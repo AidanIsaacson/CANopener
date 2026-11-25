@@ -32,7 +32,7 @@ DEFAULTS: dict = {
     "data_dir": "",
     "can.source": "socketcan",          # core.connection kinds: socketcan / elm / sim / obd-sim / profile-sim ...
     "can.iface": "can0",
-    "can.bitrate": 250000,              # 0 = auto (the signal finder picks it)
+    "can.bitrate": 0,                   # 0 = auto: listen first (the signal finder picks it). Auto-Connect
     "can.listen_only": False,
     "can.connect_on_start": False,
     "can.second": "off",                # the other on-board port: "off", or "watch" (listen-only, recorded too)
@@ -59,6 +59,7 @@ DEFAULTS: dict = {
     "sound.touch": False,               # chirp on every tap / button press (the handheld)
     "sound.tones": {},                  # event -> tone name or "off" (core.sound.EVENTS / TONES)
     "log.plan": [],
+    "log.triggers": [],                 # timestamps the bus sets while recording (core.capture_triggers)
     # measurement sources (core.meters)
     "meters.sim": False,                # a simulated meter, for trying the logger without hardware
     "meters.serial": "",                # serial port of a JSON-lines meter (Pico / ESP32 bridge)

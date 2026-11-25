@@ -14,6 +14,7 @@ import os
 import time
 
 from ..core import capture as cap
+from ..core import capture_triggers as trig
 from ..core import config, report, upload
 from ..core.capture import Capture, fmt_elapsed
 from . import themes
@@ -51,6 +52,11 @@ class LogPanel(QtWidgets.QDockWidget):
         self.obd_info = None                # () -> ObdSniffer.info, for the machine details' VIN
         self._flash: tuple[int, float] | None = None
         self._rebuilding = False
+        self._watch: trig.Watch | None = None   # timestamps the bus sets while recording
+        self._watch_session = None
+        self._watch_timer = QtCore.QTimer(self)
+        self._watch_timer.setInterval(200)
+        self._watch_timer.timeout.connect(self._drain_watch)
         plan = settings.value("log/plan")
         self.capture = Capture(plan=list(plan) if isinstance(plan, list) else
                                ([str(plan)] if isinstance(plan, str) and plan else []))
@@ -115,6 +121,12 @@ class LogPanel(QtWidgets.QDockWidget):
         tl.addWidget(self.del_tpl)
         lay.addLayout(tl)
         self._fill_templates()
+        self.auto_btn = QtWidgets.QPushButton()
+        self.auto_btn.setToolTip("Timestamps the bus sets while recording: a fault code appearing, or a button you "
+                                 "pick being pressed (each named after what set it)")
+        self.auto_btn.clicked.connect(self.edit_auto_timestamps)
+        lay.addWidget(self.auto_btn)
+        self._auto_label()
 
         self.table = QtWidgets.QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["#", "Timestamp", "Time", "Note"])
@@ -314,6 +326,7 @@ class LogPanel(QtWidgets.QDockWidget):
             QtWidgets.QMessageBox.critical(self, "Start capture", str(e))
             return
         self.settings.setValue("log/plan", self.capture.plan_labels())
+        self._start_watch(s)
         self.start_btn.setFocus()               # out of any text box, so the keys work
         self._sync()
         self._message("Recording")
@@ -322,10 +335,86 @@ class LogPanel(QtWidgets.QDockWidget):
     def stop(self):
         if not self.recording:
             return
+        self._drain_watch()
+        self._stop_watch()
         self.capture.stop()
         self.recording_changed.emit(False)
         self._sync()
         self._message("Stopped - edit the timestamps if needed, then Save")
+
+    # --- timestamps the bus sets (core.capture_triggers) ---
+    def _core_settings(self):
+        from ..core.settings import Settings
+        return self.upload_settings or Settings()
+
+    def _auto_label(self):
+        n = len(trig.load(self._core_settings()))
+        self.auto_btn.setText(f"Auto timestamps… ({n} set)" if n else "Auto timestamps…")
+
+    def _start_watch(self, session):
+        self._stop_watch()
+        triggers = trig.load(self._core_settings())
+        if not triggers or session is None:
+            return
+        self._watch, self._watch_session = trig.Watch(triggers), session
+        session.add_listener(self._watch.feed)
+        self._watch_timer.start()
+        if self._watch.missing:
+            self._message("No timestamps from " + ", ".join(t.signal for t in self._watch.missing)
+                          + ": not on this profile")
+
+    def _stop_watch(self):
+        self._watch_timer.stop()
+        if self._watch is not None and self._watch_session is not None:
+            self._watch_session.remove_listener(self._watch.feed)
+        self._watch, self._watch_session = None, None
+
+    def _drain_watch(self):
+        if self._watch is None:
+            return
+        events = self._watch.take()
+        if events and self.recording:
+            added = trig.apply(self.capture, events)
+            self._flash = (added[-1], time.monotonic())
+            self._sync()
+            self._message("Timestamp set by the bus: " + self.capture.markers[added[-1]].label)
+
+    def edit_auto_timestamps(self):
+        settings = self._core_settings()
+        current = trig.load(settings)
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("Auto timestamps")
+        lay = QtWidgets.QVBoxLayout(dlg)
+        lay.addWidget(QtWidgets.QLabel("While recording, these add a timestamp by themselves, named after what set "
+                                       "it.\nPick a spare button on the machine and press it when the fault happens."))
+        fault = QtWidgets.QCheckBox("When a fault code appears (a CANopen EMCY, or a new J1939 DM1 code)")
+        fault.setChecked(any(t.kind == trig.FAULT for t in current))
+        lay.addWidget(fault)
+        lay.addWidget(QtWidgets.QLabel("When one of these turns on (switches and states in the profile in use):"))
+        lst = QtWidgets.QListWidget()
+        chosen = {t.signal for t in current if t.kind == trig.SIGNAL}
+        names = [s.name for s in trig.candidates()]
+        for name in sorted(chosen - set(names)) + names:        # ones not on this profile stay listed
+            it = QtWidgets.QListWidgetItem(name)
+            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            it.setCheckState(Qt.CheckState.Checked if name in chosen else Qt.CheckState.Unchecked)
+            lst.addItem(it)
+        lay.addWidget(lst, 1)
+        box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Ok
+                                         | QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+        box.accepted.connect(dlg.accept)
+        box.rejected.connect(dlg.reject)
+        lay.addWidget(box)
+        dlg.resize(460, 420)
+        if dlg.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        out = [trig.Trigger(trig.FAULT)] if fault.isChecked() else []
+        out += [trig.Trigger(trig.SIGNAL, lst.item(i).text()) for i in range(lst.count())
+                if lst.item(i).checkState() == Qt.CheckState.Checked]
+        trig.save(settings, out)
+        self._auto_label()
+        if self.recording:
+            self._start_watch(self.ctx.session)
 
     def save(self, parent_dir: str | None = None, quiet: bool = False) -> str | None:
         c = self.capture

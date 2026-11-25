@@ -177,19 +177,11 @@ class BuilderHome(Screen):
         entries = [e for b in self._borrowed for e in b.entries()]
         if not entries:
             return
-        proto = ctx.protocol if ctx.protocol in profiles.GENERIC else profiles.J1939
         froms = sorted({b.profile_name for b in self._borrowed})
 
         def go():
-            try:
-                path = observed.save_entries(entries, profiles.active(), protocol=proto,
-                                             source="borrowed from " + ", ".join(froms))
-            except (OSError, profiles.ProfileError) as e:
-                ctx.toast(f"Couldn't save the profile: {e}")
-                return
-            ctx.apply_profile(os.path.splitext(os.path.basename(path))[0])
-            self._borrowed, self._checked = [], 0.0
-            ctx.toast(f"Added {len(entries)} value(s) to '{ctx.profile_name()}': Live shows them now")
+            if ctx.add_borrowed(entries, froms):
+                self._borrowed, self._checked = [], 0.0
         self.app.push(ConfirmDialog(self.app, "Add values from other profiles",
                                     f"{len(entries)} value(s) from {', '.join(froms)} fit what this bus sends. Add "
                                     f"them to the profile in use ({ctx.profile_name()})? They're marked 'borrowed' "

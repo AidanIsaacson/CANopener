@@ -39,6 +39,22 @@ class ConnectPage(Screen):
     def __init__(self, app):
         super().__init__(app)
         self.rows = RowList(self._rows)
+        self.show_manual = False            # the settings rows (always shown once something's set by hand)
+
+    def _connect_label(self) -> tuple[str, str]:
+        """(the big button's label, what it does). Auto-Connect unless something's set by hand."""
+        ctx = self.ctx
+        manual = ctx.manual_settings()
+        if manual:
+            return f"Connect ({', '.join(manual)})", "Set by hand below. 'Back to Auto-Connect' undoes it."
+        return "Auto-Connect", "Listens first, finds the bitrate, connects, offers the profile that fits"
+
+    def _big_connect(self):
+        ctx = self.ctx
+        if ctx.manual_settings():
+            ctx.connect_by_hand()
+        else:
+            ctx.auto_connect()
 
     def _port(self, port):
         ctx = self.ctx
@@ -55,7 +71,23 @@ class ConnectPage(Screen):
         ctx, s = self.ctx, self.ctx.settings
         kind = s.get("can.source")
         busy = ctx.connection is not None or ctx.finding
-        rows = [Row("Connection", kind="header")]
+        manual = ctx.manual_settings()
+        rows = []
+        if ctx.connection is None and not ctx.finding:
+            label, hint = self._connect_label()
+            rows.append(Row(label, kind="action", select=self._big_connect, hint=hint,
+                            level=lambda: "ok" if not ctx.busy else "wait"))
+            if manual:
+                rows.append(Row("Back to Auto-Connect", kind="menu", select=ctx.auto_reset,
+                                hint="the bitrate found by listening, normal mode, the busier port"))
+        if not (manual or self.show_manual):
+            found = profiles.arrange(profiles.available_profiles()[0])
+            rows.append(Row("Profile", ctx.profile_name, select=lambda: choose(
+                self.app, "Machine profile", [(p.name, p.id) for p in found], s.get("profile"), self._profile)))
+            rows.append(Row("Manual settings", kind="menu", select=self._open_manual,
+                            hint="Source, interface, bitrate, listen-only, ports: only if Auto can't do it"))
+            return rows + self._status_rows()
+        rows.append(Row("Connection", kind="header"))
 
         def pick(title, key, options):
             if busy:
@@ -125,7 +157,14 @@ class ConnectPage(Screen):
             self.app, "Machine profile", [(p.name, p.id) for p in found], s.get("profile"), self._profile)))
         rows.append(Row("Connect at power-on", select=lambda: self._toggle("can.connect_on_start"),
                         check=lambda: s.get("can.connect_on_start")))
-        rows.append(Row("Status", kind="header"))
+        return rows + self._status_rows()
+
+    def _open_manual(self):
+        self.show_manual = True
+
+    def _status_rows(self) -> list:
+        ctx = self.ctx
+        rows = [Row("Status", kind="header")]
         rows.append(Row(ctx.adapter.text, kind="info", level=lambda: ctx.adapter.level, hint=ctx.adapter.detail))
         rows.append(Row(ctx.bus.text, kind="info", level=lambda: ctx.bus.level, hint=ctx.bus.detail))
         if ctx.connection is not None:
@@ -199,8 +238,9 @@ class ConnectPage(Screen):
     def softkeys(self):
         ctx = self.ctx
         connected = ctx.connection is not None
-        keys = [SoftKey("Disconnect" if connected else "Connect",
-                        ctx.disconnect if connected else ctx.connect, enabled=not ctx.busy and not ctx.finding)]
+        label = "Disconnect" if connected else ("Connect" if ctx.manual_settings() else "Auto-Connect")
+        keys = [SoftKey(label, ctx.disconnect if connected else self._big_connect,
+                        enabled=not ctx.busy and not ctx.finding)]
         if ctx.settings.get("can.source") == SOCKETCAN:
             keys.append(SoftKey("Stop finding" if ctx.finding else "Find signal",
                                 ctx.stop_finder if ctx.finding else ctx.start_finder,

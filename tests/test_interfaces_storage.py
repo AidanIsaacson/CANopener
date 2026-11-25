@@ -339,3 +339,27 @@ def test_current_bitrate_only_looks(monkeypatch):
     monkeypatch.setattr(interfaces, "_fill_details", fill)
     assert interfaces.current_bitrate("can0") == 250000
     assert interfaces.current_bitrate("can9") is None and interfaces.current_bitrate("") is None
+
+
+def test_going_quiet_takes_a_real_interface_down_only_without_a_password(monkeypatch):
+    ran = []
+    monkeypatch.setattr(interfaces, "run_privileged", lambda steps, **kw: (ran.append(steps), (True, ""))[1])
+    monkeypatch.setattr(interfaces, "can_configure_quietly", lambda name: name == "can0")
+    assert interfaces.go_quiet("can0")[0] and ran[-1][0][-2:] == ["can0", "down"]
+    assert not interfaces.go_quiet("can1")[0]               # would ask for a password: left alone
+    assert not interfaces.go_quiet("vcan0")[0] and not interfaces.go_quiet("")[0] and len(ran) == 1
+
+
+def test_the_pi_launcher_never_brings_can_up_in_normal_mode():
+    launcher = open(os.path.join(os.path.dirname(__file__), "..", "deploy", "raspberry-pi",
+                                 "canopener-launch.sh"), encoding="utf-8").read()
+    assert 'BITRATE="${CANOPENER_BITRATE:-}"' in launcher
+    setups = [ln for ln in launcher.splitlines() if "canopener-cli setup" in ln]
+    assert setups and all("--listen-only" in ln or "--down" in ln for ln in setups)
+
+
+def test_sudoers_covers_going_quiet():
+    rules = open(os.path.join(os.path.dirname(__file__), "..", "deploy", "raspberry-pi", "canopener.sudoers"),
+                 encoding="utf-8").read()
+    step = " ".join(interfaces.quiet_steps("can0")[0]).replace(interfaces._ip(), "/usr/sbin/ip")
+    assert step.replace("can0", "can[0-9]") in rules

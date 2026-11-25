@@ -12,6 +12,7 @@ import os
 import pygame
 
 from ...core import capture as cap
+from ...core import capture_triggers as trig
 from ...core import config, storage, upload
 from ...core.capture import Capture, fmt_elapsed
 from .. import input as inp
@@ -35,6 +36,7 @@ STATE_TEXT = {cap.IDLE: ("READY", "dim"), cap.RECORDING: ("RECORDING", "rec"),
 
 
 GUIDED = "\0guided"          # the plan menu's entry that opens the guided profile builder
+AUTO = "\0auto"              # ...and the one for timestamps the bus sets
 
 
 class LogScreen(Screen):
@@ -131,14 +133,60 @@ class LogScreen(Screen):
         opts += [(f"{name}: {', '.join(labels[:4])}{'...' if len(labels) > 4 else ''}", name)
                  for name, labels in templates.items()]
         opts.append(("Guided profile builder: it tells you what to do and names what follows", GUIDED))
+        auto = trig.load(self.ctx.settings)
+        opts.append((f"Automatic timestamps: set by the bus ({len(auto) or 'none'})", AUTO))
 
         def picked(name):
-            if name == GUIDED:
+            if name == AUTO:
+                self.auto_timestamps()
+            elif name == GUIDED:
                 from . import guide as guide_screen
                 guide_screen.start(self.app)
             else:
                 self.ctx.set_plan(list(templates.get(name, [])) if name else [])
         choose(self.app, "Timestamps to expect", opts, None, picked)
+
+    def auto_timestamps(self):
+        """Timestamps the bus sets while recording: a fault code appearing, or a button you pick
+        being pressed (core.capture_triggers). Each is named after what set it."""
+        s = self.ctx.settings
+        triggers = trig.load(s)
+        fault = any(t.kind == trig.FAULT for t in triggers)
+        opts = [(f"When a fault code appears: {'ON' if fault else 'off'}", ("fault", None))]
+        opts += [(f"Remove: {t.label}", ("remove", t)) for t in triggers if t.kind == trig.SIGNAL]
+        opts.append(("Add: when a button or switch turns on...", ("add", None)))
+
+        def picked(choice):
+            what, t = choice
+            if what == "fault":
+                others = [x for x in triggers if x.kind != trig.FAULT]
+                trig.save(s, others + ([] if fault else [trig.Trigger(trig.FAULT)]))
+                self.ctx.toast("A fault code appearing sets a timestamp" if not fault else "Fault codes: no timestamps")
+            elif what == "remove":
+                trig.save(s, [x for x in triggers if x != t])
+                self.ctx.toast(f"Removed: {t.label}")
+            else:
+                self.add_button_trigger()
+                return
+            self.auto_timestamps()
+        choose(self.app, "Automatic timestamps", opts, None, picked)
+
+    def add_button_trigger(self):
+        names = [sg.name for sg in trig.candidates()][:60]
+        if not names:
+            self.ctx.toast("The profile in use names no buttons or switches yet: name one first "
+                           "(Profile builder, or Explore the bus)")
+            return
+        s = self.ctx.settings
+
+        def picked(name):
+            triggers = trig.load(s)
+            new = trig.Trigger(trig.SIGNAL, name)
+            if new not in triggers:
+                trig.save(s, triggers + [new])
+            self.ctx.toast(f"Pressing {name} sets a timestamp while recording")
+            self.auto_timestamps()
+        choose(self.app, "Which button or switch?", [(n, n) for n in names], None, picked)
 
     def trim(self):
         tw = self.c.trim_window()

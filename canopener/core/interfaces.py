@@ -350,6 +350,23 @@ def install_sudoers(user: str | None = None, timeout: float = 120) -> tuple[bool
             pass
 
 
+def quiet_steps(name: str) -> list[list[str]]:
+    """argv (run as root) that take an interface down, so it can't answer or disturb a bus."""
+    if not valid_name(name):
+        raise ValueError(f"bad interface name: {name!r}")
+    return [[_ip(), "link", "set", name, "down"]]
+
+
+def go_quiet(name: str, timeout: float = 15) -> tuple[bool, str]:
+    """Take a real CAN interface down when nothing is connected to it. An interface left up in
+    normal mode at another machine's bitrate answers every frame it can't read with error frames,
+    and the machine logs bus faults, though nothing was ever 'sent'. Only where it needs no
+    password (``can_configure_quietly``): never a prompt on every disconnect. vcan is left alone."""
+    if not name or name.startswith("vcan") or not valid_name(name) or not can_configure_quietly(name):
+        return False, "not changed"
+    return run_privileged(quiet_steps(name), timeout=timeout)
+
+
 def can_configure_quietly(name: str) -> bool:
     """True if (re)configuring ``name`` won't ask for a password: we're root, or the sudoers rule
     covers its setup steps. The signal finder changes the bitrate every second or so, which is
