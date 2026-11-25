@@ -3,6 +3,24 @@
 What changed in each version, newest first. Versions are git tags (`v0.3.3`): to put a unit back
 on an older one, `git checkout v0.3.2` in its checkout.
 
+## 0.5.1 (2026-11-25)
+
+- **Team access.** Your team's plugin, handed out by your own upload server to the computers you
+  approve, with no GitHub account needed. Every install now has a serial (`CO-7F3K-9QXA`, in
+  **Help → Team access** and **Help → About**). Send a colleague an invite link
+  (`canopener-cli team-admin invite "Dave's laptop"`), or approve the serial they read out after
+  **Ask for access**. They paste the link into **Help → Team access → Join** and the plugin installs
+  itself. `team-admin publish` sends a new build of the plugin, and `team-admin list` shows every
+  install, its version and when it last checked in. **Revoking** an install removes the plugin
+  from it the next time it starts online, without asking. Offline, what's installed keeps working.
+  The install's key is made on the computer and only its hash is kept on the server, and a copied
+  settings folder doesn't carry access to another computer. How: [Team access](docs/USAGE.md#team-access);
+  the server side: [its README](deploy/upload-server/README.md#team-access).
+- **Updates are checked at startup by default**, now for the app, plugins installed from GitHub
+  and the team plugin together. When there's something new it lists it and asks (**Install now** /
+  **Later**); nothing installs without a yes, and offline it says nothing. Untick **Help → Check
+  for updates at startup** to stop it.
+
 ## 0.5.0 (2026-11-23)
 
 - **Live Data groups by controller.** **By source** on the desktop's Live Data (and the OBD-II

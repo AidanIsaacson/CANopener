@@ -18,6 +18,8 @@
     canopener-cli serial sniff --line console=/dev/ttyUSB0 --line controller=/dev/ttyUSB1 --framing "9600 8N1"
     canopener-cli serial analyze CAPTURE_FOLDER       # what the serial bytes look like (kinds, checksums, text)
     canopener-cli --profile zapi-combiacx modules --iface can0 --watch   # which modules are missing (listens only)
+    canopener-cli team join https://logs.example.com/invite/XXXX-XXXX-XXXX   # team access (the team plugin)
+    canopener-cli team-admin invite "Dave's laptop"   # the owner's side: invite, approve, revoke, publish
 """
 
 import argparse
@@ -770,6 +772,130 @@ def cmd_plugins(a) -> int:
             print(f"{src.repo}  ({src.path})\n  {msg}")
         return rc
     except (github.GitHubError, ValueError) as e:
+        print(e, file=sys.stderr)
+        return 1
+
+
+def _ago(t) -> str:
+    if not t:
+        return "never"
+    mins = int((time.time() - float(t)) / 60)
+    return f"{mins} min ago" if mins < 120 else f"{mins // 60} h ago" if mins < 2880 else f"{mins // 1440} days ago"
+
+
+def cmd_team(a) -> int:
+    """Team access, this computer's side (core.team): join with an invite, ask, check, leave."""
+    from .core import install, team
+    try:
+        if a.action == "join":
+            if not a.arg:
+                print("Paste the invite link: canopener-cli team join https://...", file=sys.stderr)
+                return 2
+            st = team.join(a.arg, a.name or team.default_name(), progress=print)
+        elif a.action == "request":
+            if not a.arg:
+                print("Which server? canopener-cli team request https://...", file=sys.stderr)
+                return 2
+            st = team.request(a.arg, a.name or team.default_name())
+        elif a.action == "check":
+            st = team.check(progress=print, install_updates=a.yes or None)
+            if st.update and _confirm(f"Install team plugin {st.update}?", a.yes):
+                st = team.install_update(progress=print)
+        elif a.action == "leave":
+            if not _confirm("Leave team access? The team plugin is removed from this computer.", a.yes):
+                return 1
+            st = team.leave()
+        else:
+            st = team.describe()
+    except team.TeamError as e:
+        print(e, file=sys.stderr)
+        return 1
+    print(f"This computer: {install.serial()}" + (f" ({st.name})" if st.name else ""))
+    if st.server:
+        print(f"Server: {st.server}  (last checked {_ago(team.load_state().get('checked'))})")
+    print(st.message)
+    return 0 if st.ok else 1
+
+
+def cmd_team_admin(a) -> int:
+    """Team access, the owner's side: needs the server's admin token."""
+    import tempfile
+
+    from .core import team, upload
+    from .core.settings import Settings
+    url = a.url or Settings().get("upload.url") or team.load_state().get("server") or upload.default_server()[0]
+    token = team.admin_token()
+    if not url or not token:
+        print("Needs the server's address (--url, or this computer's upload server) and an admin token "
+              f"(CANOPENER_ADMIN_TOKEN, or the file {os.path.join(config.config_dir(), 'admin-token')}).",
+              file=sys.stderr)
+        return 2
+    adm = team.Admin(url, token)
+    try:
+        if a.action == "list":
+            rows = adm.installs()
+            pack = adm.pack()
+            print(f"Team plugin on the server: {pack.get('version')} ({pack.get('size', 0) // 1024} kB, published "
+                  f"{_ago(pack.get('published'))})" if pack else "No team plugin published yet (team-admin publish).")
+            for r in rows:
+                seen = _ago(r.get("last_seen")) if r.get("last_seen") else "not yet"
+                print(f"{r['serial']}  {r['status']:<8}  {r.get('name') or '(no name)'}  "
+                      f"has {r.get('pack_version') or 'nothing'}  last check {seen}")
+            if not rows:
+                print("No installs yet: team-admin invite NAME")
+            return 0
+        if a.action == "invite":
+            inv = adm.invite(a.who or "", a.days)
+            print(f"Send this link to {a.who or 'them'} (works once, until "
+                  f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(inv['expires']))}):\n\n  {inv['link']}\n\n"
+                  "They paste it into CANopener: Help > Team access > Invite link > Join.")
+            return 0
+        if a.action == "invites":
+            for i in adm.invites():
+                state = "used" if i.get("used_by") else "expired" if i["expires"] < time.time() else "open"
+                print(f"{i['id']}  {state:<7}  {i.get('name') or '(no name)'}  "
+                      f"expires {time.strftime('%Y-%m-%d', time.localtime(i['expires']))}")
+            return 0
+        if a.action == "uninvite":
+            adm.uninvite(a.who or "")
+            print("Invite cancelled.")
+            return 0
+        if a.action == "pack":
+            print(adm.pack() or "No team plugin published yet.")
+            return 0
+        if a.action == "publish":
+            if not a.who:
+                print("What to publish? team-admin publish PATH (the plugin's folder or a zip)", file=sys.stderr)
+                return 2
+            with tempfile.TemporaryDirectory() as tmp:
+                path, version, note = team.make_bundle(a.who, tmp, a.version or "")
+                if note:
+                    print(note)
+                got = adm.publish(path, version)
+            print(f"Published team plugin {got['version']} ({got['size'] // 1024} kB). Approved computers get it "
+                  "at their next check (they're asked first).")
+            return 0
+        if not a.who:
+            print(f"Which install? team-admin {a.action} CO-XXXX-XXXX", file=sys.stderr)
+            return 2
+        if a.action == "approve":
+            r = adm.set(a.who, status="approved")
+        elif a.action == "revoke":
+            r = adm.set(a.who, status="revoked")
+        elif a.action == "rename":
+            r = adm.set(a.who, name=a.name or "")
+        elif a.action == "forget":
+            if not _confirm(f"Forget {a.who}? It loses the team plugin at its next check and needs a new invite.",
+                            a.yes):
+                return 1
+            adm.forget(a.who)
+            print("Forgotten.")
+            return 0
+        else:
+            return 2
+        print(f"{r['serial']}  {r['status']}  {r.get('name') or ''}")
+        return 0
+    except team.TeamError as e:
         print(e, file=sys.stderr)
         return 1
 
@@ -1581,6 +1707,27 @@ def main(argv=None) -> int:
     pl.add_argument("repo", nargs="?", help="owner/name (add, remove), or a built-in plugin's id (enable, disable)")
     pl.add_argument("--dir", help="add: where to put the checkout (default ~/<name>)")
     pl.set_defaults(fn=cmd_plugins)
+
+    tm = sub.add_parser("team", help="team access: get the team plugin from your upload server (join with an "
+                        "invite link, or request and wait for approval); check, leave")
+    tm.add_argument("action", nargs="?", default="status", choices=["status", "join", "request", "check", "leave"])
+    tm.add_argument("arg", nargs="?", help="join: the invite link; request: the server's address")
+    tm.add_argument("--name", help="what to call this computer on the server (default: user on host)")
+    tm.add_argument("--yes", action="store_true", help="check: install an update without asking; leave: don't ask")
+    tm.set_defaults(fn=cmd_team)
+
+    ta = sub.add_parser("team-admin", help="team access, the owner's side (admin token): list installs, invite, "
+                        "approve, revoke, rename, forget; publish the team plugin")
+    ta.add_argument("action", choices=["list", "invite", "invites", "uninvite", "approve", "revoke", "rename",
+                                       "forget", "publish", "pack"])
+    ta.add_argument("who", nargs="?", help="an install (serial CO-XXXX-XXXX, ID or name); invite: a name for it; "
+                    "uninvite: the invite's id; publish: the plugin's folder (a git checkout) or a zip")
+    ta.add_argument("--name", help="rename: the new name")
+    ta.add_argument("--days", type=float, default=7, help="invite: days until it expires (default 7, at most 90)")
+    ta.add_argument("--version", help="publish: the version to show (default: git describe, or the date)")
+    ta.add_argument("--url", help="the server (default: this computer's upload server)")
+    ta.add_argument("--yes", action="store_true", help="forget: don't ask")
+    ta.set_defaults(fn=cmd_team_admin)
 
     c = sub.add_parser("capture", help="re-generate and print a capture folder's summary (optionally trim it)")
     c.add_argument("folder")

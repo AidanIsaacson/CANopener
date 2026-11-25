@@ -11,6 +11,7 @@ Installing: [INSTALL.md](INSTALL.md).
 * [Naming things CANopener doesn't know](#naming-things-canopener-doesnt-know)
 * [Recording a job (the Log tool)](#recording-a-job-the-log-tool)
 * [Machine details and uploading captures](#machine-details-and-uploading-captures)
+* [Team access](#team-access)
 * [What it sends](#what-it-sends)
 * [The handheld screen](#the-handheld-screen)
 * [Command line](#command-line)
@@ -482,6 +483,39 @@ It warns you first and stays open until you close it.
 The helper uses `canopener-cli remote list`, `remote send state`, `remote shot screen.png` and so
 on (`canopener-cli remote -h`).
 
+## Team access
+
+Your team may have its own plugin, kept on the team's server rather than published. **Help → Team
+access…** gets it onto this computer once the person who looks after the server approves it. At
+the top is **This computer**: its serial (like `CO-7F3K-9QXA`), which names this install. **Copy**
+copies it.
+
+**With an invite link** (the usual way): you're sent a link that ends in `/invite/XXXX-XXXX-XXXX`.
+Paste it into **Invite link**, check **Name for this computer** (so it's easy to recognise on the
+server), and click **Join**. The plugin downloads and installs; **Restart now** loads it. An invite
+works once, on one computer, and expires after a few days, so ask for a new one if it's refused.
+Opening the link in a browser shows the same steps.
+
+**Without one:** enter the server's address under **Ask for access**, click **Ask for access**, and
+read out the serial to whoever looks after the server. Once they approve it, **Check now** installs
+the plugin.
+
+After that:
+
+* **Updates** to the team plugin are found at startup, with the app's own (see
+  [Updating](INSTALL.md#updating)), and install only when you say so. **Check now** looks straight
+  away, and **Install update** appears when there's one.
+* **Offline**, the plugin keeps working as it is, however long you're away from a connection.
+* **If access is withdrawn** for this computer, the next time CANopener starts online it removes
+  the team plugin without asking, and says so. Restart to finish.
+* **Leave team access…** removes the plugin from this computer yourself.
+
+The serial also shows in **Help → About**. Copying CANopener's settings folder to another computer
+doesn't copy its access: that computer gets a serial of its own and has to join itself.
+
+The server side (inviting, approving, publishing the plugin) is in the upload server's
+[README](../deploy/upload-server/README.md#team-access).
+
 ## What it sends
 
 * **Reading** sends only standard requests (J1939, OBD-II, UDS and CANopen SDO reads). Tick
@@ -543,6 +577,8 @@ canopener-cli serial sniff --line A=/dev/ttyUSB0 --line B=/dev/ttyUSB1   # recor
 canopener-cli upload --setup                        # the upload server's address and token
 canopener-cli upload FOLDER                         # upload a saved capture now (no folder: what's waiting)
 canopener-cli update                                # check for and install updates
+canopener-cli team join https://SERVER/invite/CODE  # team access: join with an invite link (Team access)
+canopener-cli team check                            # team access: check now; asks before installing an update
 canopener-cli --help                                # everything else
 ```
 
@@ -561,3 +597,6 @@ canopener-cli --help                                # everything else
 | `~/.config/canopener/upload-queue.json` | Captures waiting to upload (each folder's `upload.json` has its state) |
 | `~/.config/canopener/recent_machines.json` | Machines you've entered, for **Recent machines** |
 | `~/<repo name>/` | Plugins installed from GitHub; a non-git copy found there is kept as `.old-<date>` |
+| `~/.config/canopener/device-id` | This install's ID (its serial, `CO-XXXX-XXXX`, is worked out from it) |
+| `~/.config/canopener/team.json` | Team access: the server, this computer's key and what's installed, mode 600 |
+| `~/.local/share/canopener/team-plugin/` | The team plugin, when team access installed it |

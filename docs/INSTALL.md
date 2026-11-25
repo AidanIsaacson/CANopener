@@ -41,10 +41,13 @@ What it installs, your adapter's firmware, and troubleshooting:
 
 ## Updating
 
-**In the app** (laptop or Pi): **Help → Check for updates…** shows what's new, **Install update**
-downloads it, and **Restart now** opens the new version. On the handheld screen it's **System →
-Software → Check for updates**. It only checks when you ask, unless you tick **Help → Check for updates at
-startup** (it stays quiet unless there is one).
+**In the app** (laptop or Pi): when CANopener opens and is online, it checks for a newer version
+of itself, of plugins installed from GitHub and of the team plugin ([Team access](USAGE.md#team-access)).
+If there's one it lists what's new and asks: **Install now** or **Later**; nothing installs
+without a yes, and offline it says nothing. **Restart now** opens the new versions. To stop the
+check, untick **Help → Check for updates at startup** (the team-access check still runs). **Help →
+Check for updates…** checks the app straight away. On the handheld screen it's **System → Software →
+Check for updates**, which only checks when you ask.
 
 If an update also changes the system setup (drivers, plug-in rules), the app says so and shows
 the installer command to run once in a terminal.
@@ -77,6 +80,10 @@ The desktop app has no Plugins screen yet; use a terminal there: `canopener-cli 
 
 Setting up a plugin repository and its GitHub App:
 [DEVELOPING.md](DEVELOPING.md#private-plugins-installing-from-the-device-no-keyboard).
+
+**Your team's plugin without a GitHub account:** **Help → Team access…** installs it from your
+team's server once that computer is approved, usually with an invite link you're sent. See
+[Team access](USAGE.md#team-access). Use one way or the other on a computer, not both.
 
 **Built-in plugins** come with CANopener and are off until you switch them on: **System →
 Software → Plugins → Built in** on the handheld, **Settings → Built-in plugins** on the desktop,

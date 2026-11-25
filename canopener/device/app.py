@@ -13,6 +13,7 @@ import argparse
 import os
 import subprocess
 import sys
+import threading
 import time
 import traceback
 
@@ -666,6 +667,23 @@ def _size(text: str) -> tuple[int, int]:
     return int(w), int(h)
 
 
+def _team_check(ctx):
+    """Team access (core.team), in the background at every start: a computer whose access was
+    withdrawn loses the team plugin without being asked (updates: canopener-cli team check)."""
+    from ..core import team
+    if not team.enrolled():
+        return
+
+    def work():
+        try:
+            st = team.check()          # installs only a first copy; updates wait for a yes
+        except Exception:           # noqa: BLE001 - never stop the app over it
+            return
+        if st.changed:
+            ctx.toast(st.message)
+    threading.Thread(target=work, name="team-check", daemon=True).start()
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="canopener-device", description="CANopener handheld UI (Pygame)")
     ap.add_argument("--sim", action="store_true", help="connect to the simulated machine and switch on the "
@@ -712,6 +730,7 @@ def main(argv=None) -> int:
         ctx.toast("An unsaved log was found: open Data log to save it")
     if not a.screenshot:
         ctx.start_uploads()
+        _team_check(ctx)
     try:
         if a.screenshot:
             for _ in range(10):

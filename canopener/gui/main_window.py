@@ -9,6 +9,7 @@ from ..can import pythoncan
 from ..core import (
     config,
     connection,
+    install,
     interfaces,
     labeling,
     link,
@@ -22,7 +23,7 @@ from ..core import (
     upload,
 )
 from ..core.connection import load_log_session, open_connection
-from . import themes
+from . import themes, update_dialog
 from .connection_panel import AUTO_BITRATE, ConnectionPanel
 from .context import AppContext
 from .export_dialog import ExportDialog
@@ -101,7 +102,7 @@ PYTHON_CAN_SETUP = ("{what} works with Linux CAN interfaces like can0. A python-
 
 
 class MainWindow(QtWidgets.QMainWindow):
-    _update_found = Signal(object)          # an UpdateStatus from the startup check's thread
+    _startup_found = Signal(object)         # a startup_check.Found from the startup check's thread
     _elm_opened = Signal(object, object)    # (Connection or None, error): a Bluetooth OBD connect finished
 
     def __init__(self, ctx: AppContext | None = None):
@@ -181,7 +182,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._build_menu()
         self._plugin_refresh: list = []
         self._update_status = None
-        self._update_found.connect(self._show_update_found)
+        self._startup_found.connect(self._show_startup_found)
+        self._found_dialog = None
+        self._team_timer = QtCore.QTimer(self)          # the daily team check, for a window left open
+        self._team_timer.timeout.connect(self._team_check_if_due)
+        self._team_timer.start(3600 * 1000)
         self._load_plugins()
         self.uploads.start()
         self._build_status()
@@ -392,11 +397,13 @@ class MainWindow(QtWidgets.QMainWindow):
         h = m.addMenu("&Help")
         self.update_action = self._action(h, "Check for &updates…", self.check_updates)
         self.update_on_start = QtGui.QAction("Check for updates at &startup", self, checkable=True)
-        self.update_on_start.setToolTip("When the app opens, quietly check GitHub; says something only if "
-                                        "there's an update. Off by default.")
-        self.update_on_start.setChecked(self.settings.value("update/check_on_start", "false") in (True, "true"))
+        self.update_on_start.setToolTip("When the app opens and is online, quietly check for a newer CANopener "
+                                        "and plugins; asks before installing anything. On by default.")
+        self.update_on_start.setChecked(self.settings.value("update/check_on_start", "true") in (True, "true"))
         self.update_on_start.toggled.connect(lambda on: self.settings.setValue("update/check_on_start", on))
         h.addAction(self.update_on_start)
+        h.addSeparator()
+        self.team_action = self._action(h, "&Team access…", self.team_access)
         h.addSeparator()
         self._action(h, "&About", self._about)
 
@@ -1428,7 +1435,8 @@ class MainWindow(QtWidgets.QMainWindow):
             "UDS) and transport-protocol flow control. Clearing codes, on-board tests and module resets "
             "each ask before sending. Tick Listen-only to send nothing.</p>"
             "<p>GPL-2.0-or-later. Generic OBD-II code descriptions from python-OBD.</p>"
-            f"<p>Qt binding: {QT_API}</p>" + self._plugins_html())
+            f"<p>This computer: <b>{install.serial()}</b> (Help &gt; Team access)<br>Qt binding: {QT_API}</p>"
+            + self._plugins_html())
 
     def _set_bundled(self, plugin_id: str, on: bool):
         from .. import plugins
@@ -1451,8 +1459,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not getattr(self, "_checked_pending", False):
             self._checked_pending = True
             QtCore.QTimer.singleShot(300, self.log_panel.check_pending)
-            if self.update_on_start.isChecked():
-                QtCore.QTimer.singleShot(3000, self._startup_update_check)
+            QtCore.QTimer.singleShot(3000, self._startup_check)
 
     # ------------------------------------------------------------------
     # updates
@@ -1464,18 +1471,48 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_status = None
         self.update_action.setText("Check for &updates…")
 
-    def _startup_update_check(self):
-        """Opt-in (Help > Check for updates at startup), in the background. Only speaks up when
-        there is an update: offline in the field is normal, so a failed check says nothing."""
+    def _startup_check(self, updates_too: bool | None = None):
+        """Every start, in the background (core.startup_check): team access always (a withdrawn
+        computer loses the team plugin without being asked); the app and plugins too when Help >
+        Check for updates at startup is ticked (on by default). Speaks up only when there's
+        something to say: offline in the field is normal, so a failed check says nothing."""
         import threading
 
-        from ..core import updates
+        from ..core import startup_check
+        if updates_too is None:
+            updates_too = self.update_on_start.isChecked()
 
         def work():
-            s = updates.check()
-            if s.available:
-                self._update_found.emit(s)
-        threading.Thread(target=work, name="update-check", daemon=True).start()
+            self._startup_found.emit(startup_check.check(self.core_settings, updates_too=updates_too))
+        threading.Thread(target=work, name="startup-check", daemon=True).start()
+
+    def _team_check_if_due(self):
+        from ..core import team
+        if team.due():
+            self._startup_check(updates_too=False)
+
+    def _show_startup_found(self, found):
+        t = found.team
+        if found.withdrawn:
+            QtWidgets.QMessageBox.information(
+                self, "Team access withdrawn",
+                f"{t.message}\n\nThe team plugin's files are already deleted; restart CANopener to finish.")
+        elif t is not None and t.changed:
+            self.statusBar().showMessage(t.message, 30000)
+        if t is not None and t.update:
+            self.team_action.setText(f"&Team access (update {t.update})…")
+        if found.app:
+            self._show_update_found(found.app)
+        if found.any:
+            self._found_dialog = dlg = update_dialog.FoundDialog(found, self.restart_app, self)
+            dlg.show()
+
+    def team_access(self):
+        """Help > Team access: the serial, joining, what's installed (gui/team_dialog.py)."""
+        from .team_dialog import TeamDialog
+        hint = self.core_settings.get("upload.url") or ""
+        TeamDialog(self.restart_app, self, server_hint=hint).exec()
+        self.team_action.setText("&Team access…")
 
     def _show_update_found(self, status):
         self._update_status = status

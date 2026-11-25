@@ -117,8 +117,19 @@ get automatic recovery from bus-off.
 
 ## Updating
 
-**Help → Check for updates…** in the app, or `~/CANopener/deploy/linux/install.sh --update` in a
-terminal for the full update (drivers and rules too). Details: [Updating](../INSTALL.md#updating).
+CANopener checks when it opens (if you're online) and asks before installing anything. **Help →
+Check for updates…** checks straight away, or `~/CANopener/deploy/linux/install.sh --update` in a
+terminal does the full update (drivers and rules too). Details: [Updating](../INSTALL.md#updating).
+
+## Your team's plugin
+
+If you were sent an invite link, open **Help → Team access…**, paste it into **Invite link** and
+click **Join**. More: [Team access](../USAGE.md#team-access).
+
+A laptop holding your team's plugin is worth protecting if it's lost: when you install Linux Mint
+or Ubuntu, tick **Encrypt the new installation** (Mint: under **Advanced features**; Ubuntu:
+**Use LVM and encryption**), so nobody can read the disk without your passphrase. On a laptop
+that's already set up, this means reinstalling, so ask for help.
 
 ## Uninstalling
 

@@ -38,18 +38,16 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import uuid
 import zipfile
 from dataclasses import dataclass, field
 
 from .. import __version__
-from . import config
+from . import config, install
 from .capture import META_JSON, Capture, machine_summary, safe_name
 
 UPLOAD_JSON = "upload.json"
 QUEUE_FILE = "upload-queue.json"
 TOKEN_FILE = "upload-token.json"
-DEVICE_ID_FILE = "device-id"
 PART_SIZE = 8 * 1024 * 1024
 TIMEOUT = 60
 USER_AGENT = f"CANopener/{__version__}"
@@ -76,20 +74,8 @@ def cache_dir() -> str:
 
 
 def device_id() -> str:
-    """A random ID for this install, made once: tells the server which unit sent a capture."""
-    path = os.path.join(config.config_dir(), DEVICE_ID_FILE)
-    try:
-        with open(path) as f:
-            v = f.read().strip()
-        if v:
-            return v
-    except OSError:
-        pass
-    v = uuid.uuid4().hex
-    config.ensure_dir(config.config_dir())
-    with open(path, "w") as f:
-        f.write(v + "\n")
-    return v
+    """This install's ID (``core.install``): tells the server which unit sent a capture."""
+    return install.install_id()
 
 
 def _bundle_files(folder: str) -> list[str]:

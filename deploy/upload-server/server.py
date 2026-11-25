@@ -20,6 +20,7 @@ Configuration (environment variables):
   INCOMING_DAYS      unfinished uploads are deleted after this many days (default 7)
   KEEP_DAYS          captures are deleted this many days after their last upload (default 0: never)
   REQUEST_TIMEOUT    seconds a connection may sit idle before it's dropped (default 120)
+  TEAM_MAX_PENDING   team access: requests waiting for approval at once (default 20; 0 = invites only)
 """
 
 import hashlib
@@ -74,6 +75,7 @@ class Config:
         self.incoming_days = float(env.get("INCOMING_DAYS") or 7)
         self.keep_days = float(env.get("KEEP_DAYS") or 0)
         self.timeout = float(env.get("REQUEST_TIMEOUT") or 120)
+        self.team_pending = int(env.get("TEAM_MAX_PENDING") or 20)
 
 
 class ApiError(Exception):
@@ -375,6 +377,248 @@ class Profiles:
         return path
 
 
+SERIAL_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+INSTALL_RE = re.compile(r"^[0-9a-f]{8,64}$")
+MACHINE_RE = re.compile(r"^[0-9a-f]{0,64}$")
+INVITE_ID_RE = re.compile(r"^[0-9a-f]{8}$")
+
+
+def serial(install: str) -> str:
+    """The install's serial as the app shows it (canopener/core/install.py: keep the two alike)."""
+    hexpart = install[:10] if re.fullmatch(r"[0-9a-f]{10,}", install) else \
+        hashlib.sha256(install.encode()).hexdigest()[:10]
+    n = int(hexpart, 16)
+    chars = "".join(SERIAL_ALPHABET[(n >> (5 * i)) & 31] for i in range(7, -1, -1))
+    return f"CO-{chars[:4]}-{chars[4:]}"
+
+
+def _invite_code() -> str:
+    raw = "".join(SERIAL_ALPHABET[b & 31] for b in os.urandom(12))
+    return f"{raw[:4]}-{raw[4:8]}-{raw[8:]}"
+
+
+def _code_hash(code: str) -> str:
+    norm = re.sub(r"[\s-]", "", (code or "").upper()).translate(str.maketrans("OIL", "011"))
+    return hashlib.sha256(norm.encode()).hexdigest()
+
+
+class Team:
+    """Team access: which installs may download the team plugin, and the plugin itself::
+
+        DATA_DIR/team/installs.json   {install id: {serial, name, status, key_sha256, machine, ...}}
+        DATA_DIR/team/invites.json    {invite id: {code_sha256, name, expires, used_by, ...}}
+        DATA_DIR/team/bundle.zip      the plugin as last published, and pack.json describing it
+
+    An install's key and an invite's code are kept only as hashes. Status is pending (asked, not
+    yet approved), approved or revoked."""
+
+    def __init__(self, cfg: Config):
+        self.cfg = cfg
+        self.root = os.path.join(cfg.data, "team")
+        self.lock = threading.Lock()
+        os.makedirs(self.root, exist_ok=True)
+
+    def _path(self, name: str) -> str:
+        return os.path.join(self.root, name)
+
+    def _installs(self) -> dict:
+        return _read_json(self._path("installs.json"), {}) or {}
+
+    def _invites(self) -> dict:
+        return _read_json(self._path("invites.json"), {}) or {}
+
+    def pack(self) -> dict | None:
+        p = _read_json(self._path("pack.json"))
+        return p if p and os.path.isfile(self._path("bundle.zip")) else None
+
+    @staticmethod
+    def _public(iid: str, i: dict) -> dict:
+        return {"install": iid, **{k: v for k, v in i.items() if k != "key_sha256"}}
+
+    @staticmethod
+    def _fields(body: dict) -> tuple[str, str, str, str]:
+        iid = str(body.get("install") or "")
+        key = str(body.get("key") or "")
+        machine = str(body.get("machine") or "")
+        name = " ".join(str(body.get("name") or "").split())[:80]
+        if not INSTALL_RE.match(iid) or not (32 <= len(key) <= 200) or not MACHINE_RE.match(machine):
+            raise ApiError(400, "needs the install's id, its key and (optionally) its machine fingerprint")
+        return iid, key, machine, name
+
+    # --- the app's side ---
+    def redeem(self, body: dict) -> dict:
+        iid, key, machine, name = self._fields(body)
+        h = _code_hash(str(body.get("code") or ""))
+        now = time.time()
+        with self.lock:
+            invites = self._invites()
+            inv_id, inv = next(((k, v) for k, v in invites.items() if hmac.compare_digest(v["code_sha256"], h)),
+                               (None, None))
+            if inv is None or inv.get("used_by") or inv["expires"] < now:
+                raise ApiError(404, "that invite isn't valid: it's been used already, it has expired or it was "
+                                    "mistyped. Ask for a new one.")
+            inv.update(used_by=iid, used=now)
+            _write_json(self._path("invites.json"), invites)
+            installs = self._installs()
+            i = installs.get(iid, {"created": now})
+            i.update(serial=serial(iid), name=inv.get("name") or name or i.get("name", ""), status="approved",
+                     key_sha256=hashlib.sha256(key.encode()).hexdigest(), machine=machine, via=f"invite {inv_id}",
+                     approved=now, last_seen=now)
+            installs[iid] = i
+            _write_json(self._path("installs.json"), installs)
+            return self._public(iid, i)
+
+    def request(self, body: dict) -> dict:
+        iid, key, machine, name = self._fields(body)
+        now = time.time()
+        with self.lock:
+            installs = self._installs()
+            old = installs.get(iid)
+            if old and old.get("status") == "approved" and \
+                    hmac.compare_digest(old["key_sha256"], hashlib.sha256(key.encode()).hexdigest()):
+                return self._public(iid, old)
+            if old and old.get("status") == "approved":
+                raise ApiError(409, "this install is already approved with another key; ask for an invite")
+            pending = sum(1 for k, v in installs.items() if v.get("status") == "pending" and k != iid)
+            if pending >= self.cfg.team_pending:
+                raise ApiError(429, "this server isn't taking requests just now; ask for an invite link instead")
+            i = old or {"created": now}
+            i.update(serial=serial(iid), name=name or i.get("name", ""), status="pending", requested=now,
+                     key_sha256=hashlib.sha256(key.encode()).hexdigest(), machine=machine, via="request")
+            installs[iid] = i
+            _write_json(self._path("installs.json"), installs)
+            return self._public(iid, i)
+
+    def authenticate(self, iid: str, key: bytes, machine: str) -> dict:
+        """The install the headers name, if its key matches (else 401 / 403 with a status the app
+        acts on: unknown, other_computer)."""
+        i = self._installs().get(iid) if INSTALL_RE.match(iid or "") else None
+        if i is None or not key or not hmac.compare_digest(i["key_sha256"], hashlib.sha256(key).hexdigest()):
+            raise TeamDenied(401, "this server doesn't know this computer", "unknown")
+        if i.get("machine") and machine and machine != i["machine"]:
+            raise TeamDenied(403, "this looks like a different computer from the one that joined", "other_computer")
+        return i
+
+    def me(self, iid: str, key: bytes, machine: str, app_version: str, pack_version: str) -> dict:
+        with self.lock:
+            self.authenticate(iid, key, machine)
+            installs = self._installs()
+            i = installs[iid]
+            i.update(last_seen=time.time(), app_version=app_version[:40], pack_version=pack_version[:80])
+            _write_json(self._path("installs.json"), installs)
+        pack = self.pack() if i["status"] == "approved" else None
+        return {**self._public(iid, i), "pack": {k: pack[k] for k in ("version", "sha256", "size")} if pack else None}
+
+    def bundle(self, iid: str, key: bytes, machine: str) -> str:
+        i = self.authenticate(iid, key, machine)
+        if i.get("status") != "approved":
+            raise ApiError(403, "this computer isn't approved for the team plugin")
+        if not self.pack():
+            raise ApiError(404, "no team plugin has been published yet")
+        return self._path("bundle.zip")
+
+    # --- the owner's side ---
+    def installs(self) -> list[dict]:
+        rows = [self._public(k, v) for k, v in self._installs().items()]
+        return sorted(rows, key=lambda r: -(r.get("last_seen") or r.get("requested") or r.get("created") or 0))
+
+    def update(self, iid: str, body: dict) -> dict:
+        with self.lock:
+            installs = self._installs()
+            i = installs.get(iid)
+            if i is None:
+                raise ApiError(404, "no such install")
+            if "status" in body:
+                if body["status"] not in ("approved", "revoked"):
+                    raise ApiError(400, "status is approved or revoked")
+                i["status"] = body["status"]
+                i[body["status"]] = time.time()
+            if "name" in body:
+                i["name"] = " ".join(str(body["name"] or "").split())[:80]
+            _write_json(self._path("installs.json"), installs)
+            return self._public(iid, i)
+
+    def forget(self, iid: str) -> dict:
+        with self.lock:
+            installs = self._installs()
+            if installs.pop(iid, None) is None:
+                raise ApiError(404, "no such install")
+            _write_json(self._path("installs.json"), installs)
+            return {"forgotten": iid}
+
+    def invite(self, body: dict, base: str) -> dict:
+        name = " ".join(str(body.get("name") or "").split())[:80]
+        try:
+            days = min(90.0, max(0.01, float(body.get("days") or 7)))
+        except (TypeError, ValueError):
+            raise ApiError(400, "days must be a number") from None
+        code = _invite_code()
+        now = time.time()
+        with self.lock:
+            invites = self._invites()
+            for k in [k for k, v in invites.items() if v["expires"] < now - 30 * 86400]:
+                del invites[k]          # long-expired ones are just clutter
+            inv_id = os.urandom(4).hex()
+            invites[inv_id] = {"code_sha256": _code_hash(code), "name": name, "created": now,
+                               "expires": now + days * 86400, "used_by": "", "used": 0}
+            _write_json(self._path("invites.json"), invites)
+        return {"id": inv_id, "code": code, "link": f"{base}/invite/{code}", "name": name,
+                "expires": now + days * 86400}
+
+    def invites(self) -> list[dict]:
+        return sorted(({"id": k, **{f: v for f, v in inv.items() if f != "code_sha256"}}
+                       for k, inv in self._invites().items()), key=lambda r: -r["created"])
+
+    def uninvite(self, inv_id: str) -> dict:
+        with self.lock:
+            invites = self._invites()
+            if not INVITE_ID_RE.match(inv_id) or invites.pop(inv_id, None) is None:
+                raise ApiError(404, "no such invite")
+            _write_json(self._path("invites.json"), invites)
+            return {"deleted": inv_id}
+
+    def publish(self, data: bytes, version: str, who: str) -> dict:
+        import io
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                names = z.namelist()
+        except zipfile.BadZipFile:
+            raise ApiError(400, "the team plugin must be a zip file") from None
+        if not any(n == "pyproject.toml" or (n.count("/") == 1 and n.endswith("/pyproject.toml")) for n in names):
+            raise ApiError(400, "the zip has no pyproject.toml (at the top, or in one top folder)")
+        version = " ".join(version.split())[:80] or time.strftime("%Y-%m-%d.%H%M")
+        with self.lock:
+            tmp = self._path("bundle.zip.tmp")
+            with open(tmp, "wb") as f:
+                f.write(data)
+            os.replace(tmp, self._path("bundle.zip"))
+            pack = {"version": version, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data),
+                    "published": time.time(), "by": who}
+            _write_json(self._path("pack.json"), pack)
+            return pack
+
+
+class TeamDenied(ApiError):
+    """An install that isn't (or is no longer) let in: the app removes the team plugin."""
+
+    def __init__(self, status: int, text: str, state: str):
+        super().__init__(status, text)
+        self.state = state
+
+
+INVITE_PAGE = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>CANopener invite</title><style>body{font:16px/1.5 system-ui,sans-serif;max-width:34em;margin:2em auto;
+padding:0 1em}code{background:#eee;padding:.1em .3em;border-radius:3px;word-break:break-all}</style></head><body>
+<h1>CANopener team access</h1>
+<p>This is an invite for the CANopener app. To use it:</p>
+<ol><li>Copy this page's address from the address bar.</li>
+<li>Open CANopener and choose <b>Help &rarr; Team access&hellip;</b></li>
+<li>Paste the address into <b>Invite link</b> and click <b>Join</b>.</li></ol>
+<p>An invite works once, on one computer, and expires after a few days.</p>
+</body></html>
+"""
+
+
 PUBKEY_RE = re.compile(r"^ssh-ed25519 [A-Za-z0-9+/]{60,100}={0,2}$")
 
 
@@ -550,6 +794,7 @@ class Handler(BaseHTTPRequestHandler):
     profiles: "Profiles" = None
     relay: "Relay" = None
     tunnels: "Tunnels" = None
+    team: "Team" = None
     cfg: Config = None
     timeout = 120               # a connection that goes quiet is dropped (make_server sets REQUEST_TIMEOUT)
 
@@ -653,6 +898,8 @@ class Handler(BaseHTTPRequestHandler):
         parts = [unquote(p) for p in url.path.split("/") if p]
         q = {k: v[-1] for k, v in parse_qs(url.query).items()}
         m, s = self.command, self.store
+        if len(parts) == 2 and parts[0] == "invite" and m in ("GET", "HEAD"):
+            return self._send(200, body=INVITE_PAGE.encode(), ctype="text/html; charset=utf-8")
         if parts[:1] != ["api"]:
             if parts == [] and m in ("GET", "HEAD"):
                 return self._send(200, body=b"CANopener upload server. The API is under /api (see README).\n",
@@ -766,11 +1013,64 @@ class Handler(BaseHTTPRequestHandler):
             if len(rest) == 2 and rest[0] == "results" and m == "GET":
                 self._need_remote()
                 return self._send(200, {"result": r.fetch(sid, rest[1], wait)})
+        # --- team access ---
+        if p[:1] == ["team"]:
+            return self._team(p[1:], m)
+        raise ApiError(404, "not found")
+
+    def _base(self) -> str:
+        return self.cfg.public_url or f"https://{self.headers.get('Host') or 'localhost'}"
+
+    def _install(self) -> tuple[str, bytes, str]:
+        return (self.headers.get("X-Install") or "", self._token(), self.headers.get("X-Machine") or "")
+
+    def _team(self, p: list, m: str):
+        t = self.team
+        if p == ["redeem"] and m == "POST":
+            return self._send(200, t.redeem(self._json()))
+        if p == ["requests"] and m == "POST":
+            if self.cfg.team_pending <= 0:
+                raise ApiError(404, "this server only takes invites; ask for an invite link")
+            return self._send(201, t.request(self._json()))
+        if p == ["me"] and m == "GET":
+            iid, key, machine = self._install()
+            return self._send(200, t.me(iid, key, machine, self.headers.get("X-App-Version") or "",
+                                        self.headers.get("X-Pack-Version") or ""))
+        if p == ["pack", "bundle.zip"] and m in ("GET", "HEAD"):
+            return self._send_file(t.bundle(*self._install()), None)
+        # the owner's side: an admin token
+        if p == ["installs"] and m == "GET":
+            self._need(admin=True)
+            return self._send(200, {"installs": t.installs()})
+        if len(p) == 2 and p[0] == "installs" and m == "POST":
+            self._need(admin=True)
+            return self._send(200, t.update(p[1], self._json()))
+        if len(p) == 2 and p[0] == "installs" and m == "DELETE":
+            self._need(admin=True)
+            return self._send(200, t.forget(p[1]))
+        if p == ["invites"] and m == "POST":
+            self._need(admin=True)
+            return self._send(201, t.invite(self._json(), self._base()))
+        if p == ["invites"] and m == "GET":
+            self._need(admin=True)
+            return self._send(200, {"invites": t.invites()})
+        if len(p) == 2 and p[0] == "invites" and m == "DELETE":
+            self._need(admin=True)
+            return self._send(200, t.uninvite(p[1]))
+        if p == ["pack"] and m == "GET":
+            self._need(admin=True)
+            return self._send(200, t.pack() or {})
+        if p == ["pack"] and m == "PUT":
+            who = self._need(admin=True)
+            return self._send(200, t.publish(self._body(self.cfg.max_part), self.headers.get("X-Pack-Version") or "",
+                                             who))
         raise ApiError(404, "not found")
 
     def _handle(self):
         try:
             self._route()
+        except TeamDenied as e:
+            self._send(e.status, {"error": str(e), "status": e.state})
         except ApiError as e:
             self._send(e.status, {"error": str(e)})
         except Exception as e:          # keep serving; say what broke
@@ -783,7 +1083,7 @@ class Handler(BaseHTTPRequestHandler):
 def make_server(cfg: Config) -> ThreadingHTTPServer:
     handler = type("BoundHandler", (Handler,), {"store": Store(cfg), "cfg": cfg, "timeout": cfg.timeout,
                                                 "profiles": Profiles(cfg), "relay": Relay(cfg),
-                                                "tunnels": Tunnels(cfg)})
+                                                "tunnels": Tunnels(cfg), "team": Team(cfg)})
     return ThreadingHTTPServer((cfg.host, cfg.port), handler)
 
 

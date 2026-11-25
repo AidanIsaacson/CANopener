@@ -8,6 +8,7 @@ What CANopener does and why it's built the way it is. How to use each part is in
 * [Data logs built for the fault that only happens sometimes](#data-logs-built-for-the-fault-that-only-happens-sometimes)
 * [Naming what CANopener doesn't know](#naming-what-canopener-doesnt-know)
 * [It opens in about a second](#it-opens-in-about-a-second)
+* [Your team's plugin, on the computers you choose](#your-teams-plugin-on-the-computers-you-choose)
 * [What it reads](#what-it-reads)
 * [Where it's heading: the handheld](#where-its-heading-the-handheld)
 
@@ -131,6 +132,16 @@ so nothing it knew is lost. How: [Working out a machine from what its bus does](
 
 Unlike *some other* diagnostic programs. On my laptop it's open in about a second, so it's
 quicker to check something than to talk yourself out of checking it.
+
+## Your team's plugin, on the computers you choose
+
+A team's own profiles and tools often can't be published. **Team access** hands them out from your
+own server instead, no GitHub account needed: every install has a serial, you send a colleague an
+invite link (or approve the serial they read out), and the plugin installs itself on that
+computer. You see who has which version and when each last checked in. Updates arrive at startup,
+asking first, and withdrawing a computer's access removes the plugin from it the next time it
+starts online. How: [Team access](USAGE.md#team-access); the server side is in its
+[README](../deploy/upload-server/README.md#team-access).
 
 ## What it reads
 

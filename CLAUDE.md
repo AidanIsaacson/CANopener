@@ -153,6 +153,11 @@ renaming a heading means fixing its links.
 * Capture logic (tagging rules, saving, summaries) lives in `core/capture*.py` so the future
   on-device UI shares it; `gui/log_panel.py` is only the screen. Captures must stay recoverable:
   write `capture.json` / `markers.csv` on every change while recording.
+* **Team access** (`core/team.py`, the server's `Team` / `/api/team`): standard library only.
+  An install's key lives in `team.json` (mode 600) and reaches the server only in headers; the
+  server keeps hashes of keys and invite codes. Withdrawal removes the plugin without asking;
+  updates (team plugin, app, GitHub plugins: `core/startup_check.py`) install only after a yes.
+  The serial (`core/install.serial`) and the server's `serial()` must agree (a test checks).
 * Uploads (`core/upload.py`): standard library only; the server's token lives in
   `upload-token.json` (mode 600) or `CANOPENER_UPLOAD_TOKEN`, never in `settings.json`, argv or a
   URL. The GitHub uploader (`core/upload_github.py`) uses the `core.github` sign-in in API headers

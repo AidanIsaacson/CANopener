@@ -86,6 +86,30 @@ are resumable: creating the same upload again returns the parts the server alrea
 poll `UploadQueue.status()`; the desktop starts the thread in `MainWindow`, the handheld in
 `device/app.py` (`DeviceContext.start_uploads`).
 
+### Install identity, team access, the startup check
+
+`core/install.py` owns the install's ID (`device-id`, random, made once) and its readable serial
+(`CO-XXXX-XXXX`, Crockford base 32 of the first 40 bits; the upload server's `serial()` works it
+out the same way: keep the two alike). Beside the ID is a salted fingerprint of `/etc/machine-id`;
+when it no longer matches (the config folder was copied to another computer) a new ID is made.
+`upload.device_id()` is the same ID.
+
+`core/team.py` is team access, the app's side of the server's `/api/team` (its `Team` class):
+joining with an invite link or a request, checking in, and installing the team plugin from the
+server's zip (unpacked to `~/.local/share/canopener/team-plugin`, `pip install -e`, like
+`plugin_repos`). The install's key is made here and only its hash reaches the server; requests
+carry `X-Install` / `X-Machine` beside it. State is `team.json` (mode 600), valid only for the
+install ID it names, so a copied folder carries nothing. A check that finds the install revoked,
+unknown or on another computer removes the plugin without asking (and retries a failed `pip
+uninstall` at the next one); a newer build is only reported, except the first install. `Admin`
+and `make_bundle` are the owner's side (`canopener-cli team-admin`).
+
+`core/startup_check.py` is what a front-end runs in the background at start: team access always,
+then (when the user's startup update check is on, the default) `updates.check()` and
+`plugin_repos.check()` per GitHub source. `Found` says what's newer; `apply()` installs it only
+after the user says yes (`gui/update_dialog.FoundDialog`). The desktop also re-runs the team part
+hourly when `team.due()`; the handheld runs only the team part at start (`device/app._team_check`).
+
 ### Transmitting (confirm-first)
 
 `core/transmit.py` is the place to send arbitrary frames on purpose. A `Transmitter` wraps a
@@ -389,6 +413,10 @@ these by name.
     transmitting there). Swapping ports does it today.
 * **CAN FD.** The backend reads classic 16-byte frames only. Add `CAN_RAW_FD_FRAMES` and 72-byte
   frames (J1939-22 uses FD); the MCP2518FD and CANable 2.0 both support it.
+* **Team access, the rest.** The handheld checks in at start but has no screen for it yet (its
+  serial, joining, updates under **System > Software**); until then `canopener-cli team`. Possible
+  next steps: per-install upload credentials issued at join (replacing the shared `UPLOAD_TOKENS`),
+  and a small admin page on the server for approving from a phone.
 * **Handheld screens still to come:** CANopen (nodes, EMCY, error history), clear codes and
   transmit (confirm-first, default No, never in listen-only), the logic analyzer (`core/logic.py`
   has the command and channel names, no UI yet) and Component Test (ELECTRONICS.md 6.7).

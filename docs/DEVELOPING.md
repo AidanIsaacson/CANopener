@@ -225,6 +225,12 @@ line or the checkout's `.git/config`. **System → Software → Plugins → Sign
 github.com → Settings → Applications → Authorized GitHub Apps revokes it everywhere. Don't name
 private repositories in this public repo: the list lives in the `plugins.sources` setting.
 
+Colleagues without GitHub accounts can get the same plugin from the upload server instead:
+**team access** (`core/team.py`; the owner's steps are in the
+[upload server's README](../deploy/upload-server/README.md#team-access)). The plugin is published
+there as a zip of its repository and installed per approved install. Use one way or the other on a
+computer: team access refuses to install over a copy that came from GitHub.
+
 ## Project layout
 
 ```

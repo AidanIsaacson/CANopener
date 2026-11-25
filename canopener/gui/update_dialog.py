@@ -124,3 +124,70 @@ class UpdateDialog(QtWidgets.QDialog):
     def _restart(self):
         self.accept()
         self.restart()
+
+
+class FoundDialog(QtWidgets.QDialog):
+    """What the startup check found (``core.startup_check``): the app, GitHub plugins, the team
+    plugin. Install it all, or later. Nothing is installed without a yes here."""
+
+    _done = Signal(object)
+
+    def __init__(self, found, restart, parent=None):
+        from ..core import startup_check
+        super().__init__(parent)
+        self.found, self.restart, self._apply = found, restart, startup_check.apply
+        self.setWindowTitle("Updates available")
+        self.resize(560, 380)
+        lay = QtWidgets.QVBoxLayout(self)
+        self.headline = QtWidgets.QLabel("Updates are available. Install them now?")
+        self.headline.setWordWrap(True)
+        self.headline.setStyleSheet("font-size: 12pt; font-weight: bold;")
+        lay.addWidget(self.headline)
+        self.details = QtWidgets.QPlainTextEdit("\n".join(found.lines()))
+        self.details.setReadOnly(True)
+        lay.addWidget(self.details, 1)
+        row = QtWidgets.QHBoxLayout()
+        row.addStretch(1)
+        self.install_btn = QtWidgets.QPushButton("Install now")
+        self.install_btn.setProperty("big", True)
+        self.install_btn.clicked.connect(self.install)
+        row.addWidget(self.install_btn)
+        self.restart_btn = QtWidgets.QPushButton("Restart now")
+        self.restart_btn.setProperty("big", True)
+        self.restart_btn.clicked.connect(self._restart)
+        self.restart_btn.hide()
+        row.addWidget(self.restart_btn)
+        self.later_btn = QtWidgets.QPushButton("Later")
+        self.later_btn.clicked.connect(self.reject)
+        row.addWidget(self.later_btn)
+        lay.addLayout(row)
+        self._done.connect(self._installed)
+
+    def install(self):
+        self.install_btn.setEnabled(False)
+        self.later_btn.setEnabled(False)
+        self.headline.setText("Installing…")
+        QtWidgets.QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
+
+        def work():
+            try:
+                result = self._apply(self.found)
+            except Exception as e:          # noqa: BLE001 - shown in the dialog
+                result = (False, f"Something went wrong: {e}")
+            self._done.emit(result)
+        threading.Thread(target=work, name="update-all", daemon=True).start()
+
+    def _installed(self, result):
+        QtWidgets.QApplication.restoreOverrideCursor()
+        ok, msg = result
+        self.headline.setText("Installed. Restart CANopener to use the new versions." if ok
+                              else "Not everything installed (details below).")
+        self.details.setPlainText(msg)
+        self.install_btn.hide()
+        self.restart_btn.show()
+        self.later_btn.setText("Close")
+        self.later_btn.setEnabled(True)
+
+    def _restart(self):
+        self.accept()
+        self.restart()

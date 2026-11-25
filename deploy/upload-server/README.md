@@ -97,8 +97,8 @@ On a server without systemd or Python (Unraid, a NAS), make the tokens with
 
 Nothing is deleted unless you ask for it:
 
-- **One capture:** put a token in `ADMIN_TOKENS` (a separate one: it can delete, and nothing
-  else), then `curl -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" $B/api/captures/<key>`.
+- **One capture:** put a token in `ADMIN_TOKENS` (a separate one: it can delete and run team
+  access, and nothing else), then `curl -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" $B/api/captures/<key>`.
   With `ADMIN_TOKENS` empty (the default) nothing can delete over the network.
 - **Old captures:** set `KEEP_DAYS=90` and captures are deleted 90 days after their last upload.
   The default, `0`, keeps them for ever.
@@ -178,12 +178,56 @@ read token stored as a network secret for that host, sent as `Authorization: Bea
 assistant can then use the calls above. Give it a read token, never an upload token, so it can't
 add or change anything.
 
+## Team access
+
+The server can also hand out your **team plugin** (the private plugin, as a zip of its repository)
+to the installs you approve, so colleagues get it without GitHub accounts. Each install of the app
+has a serial (`CO-7F3K-9QXA`, in **Help > Team access** and **Help > About**). You approve
+installs by serial or invite them with a link; approved ones download the plugin, and updates
+reach them at their next start (they're asked first). Revoking one removes the plugin from it the
+next time it starts online, without asking. The app side is `canopener/core/team.py`; how it looks
+to them: [docs/USAGE.md](../../docs/USAGE.md#team-access).
+
+It runs on your computer with `canopener-cli team-admin` and the server's admin token: put an
+`ADMIN_TOKENS` token in `~/.config/canopener/admin-token` (mode 600) or `CANOPENER_ADMIN_TOKEN`.
+The server is this computer's upload server, or `--url`. Set `PUBLIC_URL`, since invite links are
+made from it.
+
+```bash
+canopener-cli team-admin publish ~/my-team-plugin   # send the plugin (a git checkout: what's committed at HEAD)
+canopener-cli team-admin invite "Dave, van 3"       # prints a link to send Dave (one use, 7 days: --days)
+canopener-cli team-admin list                       # every install: serial, status, name, version, last check
+canopener-cli team-admin approve CO-7F3K-9QXA       # someone who asked from the app instead
+canopener-cli team-admin revoke CO-7F3K-9QXA        # the plugin goes at its next check; approve undoes it
+canopener-cli team-admin rename CO-7F3K-9QXA --name "Dave, van 4"
+canopener-cli team-admin forget CO-7F3K-9QXA        # remove it from the list (also loses the plugin)
+canopener-cli team-admin invites                    # open, used and expired invites; uninvite ID cancels one
+```
+
+`publish` takes the plugin's folder (a git checkout is sent as `git archive HEAD`, versioned by
+`git describe`; uncommitted edits are left out and it says so) or a zip you made. The zip needs a
+`pyproject.toml` at the top or in one top folder, and must fit in one request (`MAX_PART_MB`). Only
+the latest build is kept.
+
+**Requests:** an install can ask for access with just this server's address (**Ask for access** in
+the app), and waits as `pending` until you approve it. At most `TEAM_MAX_PENDING` (20) wait at
+once; `TEAM_MAX_PENDING=0` takes invites only.
+
+What it protects and what it doesn't: an install's key is made on the install and only its hash
+is kept here, invite codes too, and a copied config folder doesn't carry access to another computer
+(the app ties its ID to the computer's machine ID, and the server checks it). But it's access
+control, not copy protection: anyone who can read a laptop's files can copy a plugin installed on
+it, and a laptop that never comes online again keeps what it has. Encrypted disks
+([linux-laptop.md](../../docs/install/linux-laptop.md#your-teams-plugin)) cover lost laptops.
+
 ## API
 
 All JSON. Errors are `{"error": "..."}` with a 4xx / 5xx status. Tokens go in
 `Authorization: Bearer <token>`. An upload token can only upload (captures, profiles, and opening a
-remote-help session for itself), a read token can only read, an admin token can only delete, a
-remote token can only operate remote-help sessions (put one token in more than one list for more).
+remote-help session for itself), a read token can only read, an admin token can only delete and
+run team access, a remote token can only operate remote-help sessions (put one token in more than
+one list for more). Team access calls from the app carry the install's own key instead, with
+headers `X-Install` (its ID) and `X-Machine` (its machine fingerprint).
 
 | Call | Token | Body / query | Answer |
 |---|---|---|---|
@@ -209,6 +253,19 @@ remote token can only operate remote-help sessions (put one token in more than o
 | `POST /api/remote/sessions/<id>/commands` | remote | `{action, args}` | `201 {id}` |
 | `GET /api/remote/sessions/<id>/results/<cmd>` | remote | `wait` | `{result}`: the unit's answer, or null |
 | `DELETE /api/remote/sessions/<id>` | upload or remote | | `{closed}` |
+| `GET /invite/<code>` | none | | a page telling the reader to paste the link into the app |
+| `POST /api/team/redeem` | none (the code) | `{code, install, key, machine, name}` | the install, approved; 404 when the code is used, expired or wrong |
+| `POST /api/team/requests` | none | `{install, key, machine, name}` | `201` the install, pending; 429 when `TEAM_MAX_PENDING` wait already |
+| `GET /api/team/me` | install key | headers `X-App-Version`, `X-Pack-Version` | the install, plus `pack: {version, sha256, size}` when approved; 401 / 403 with `status: unknown / other_computer` |
+| `GET /api/team/pack/bundle.zip` | install key (approved) | | the plugin's zip |
+| `GET /api/team/installs` | admin | | `{installs: [...]}` most recently seen first |
+| `POST /api/team/installs/<id>` | admin | `{status: approved / revoked, name}` (either) | the install |
+| `DELETE /api/team/installs/<id>` | admin | | `{forgotten}` |
+| `POST /api/team/invites` | admin | `{name, days}` (7, at most 90) | `201 {id, code, link, name, expires}`: the code is only shown here |
+| `GET /api/team/invites` | admin | | `{invites: [...]}` (no codes) |
+| `DELETE /api/team/invites/<id>` | admin | | `{deleted}` |
+| `PUT /api/team/pack` | admin | the zip; header `X-Pack-Version` | `{version, sha256, size, published, by}` |
+| `GET /api/team/pack` | admin | | the same, or `{}` before the first publish |
 
 **Uploading** is in parts, so no request is bigger than `part_size` (the server clamps it to 64 kB
 to `MAX_PART_MB`, 64 MB by default; Cloudflare refuses requests over 100 MB):
@@ -238,6 +295,9 @@ data/captures/<key>/rev-0001/           bundle.zip, manifest.json, files/ (the u
 data/incoming/<upload id>/              parts of an upload still in progress
 data/profiles/index.json                every profile's summary
 data/profiles/<key>/rev-0001.json       each version of a profile, as uploaded
+data/team/installs.json                 team access: every install (status, name, a hash of its key, last check)
+data/team/invites.json                  invites (a hash of each code), kept 30 days after they expire
+data/team/bundle.zip, pack.json         the team plugin as last published, and its version and checksum
 ```
 
 To delete a capture by hand instead of with `DELETE`, remove its `data/captures/<key>` folder and

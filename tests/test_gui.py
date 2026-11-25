@@ -1043,14 +1043,22 @@ def test_update_dialog_and_restart(app, monkeypatch):
     pump(app, 0.5)
     assert not dlg.install_btn.isEnabled() and "up to date" in dlg.headline.text()
 
-    # The startup check is opt-in (off by default), and only speaks up when there's an update.
-    assert not w.update_on_start.isChecked()
-    w.update_on_start.setChecked(True)
-    assert w.settings.value("update/check_on_start") in (True, "true")
+    # The startup check is on by default, only speaks up when there's an update, and asks first.
+    assert w.update_on_start.isChecked()
     monkeypatch.setattr(updates, "check", lambda *a, **k: status)
-    w._startup_update_check()
+    monkeypatch.setattr(updates, "repo_root", lambda: "/somewhere")
+    w._startup_check()
     pump(app, 0.5)
     assert "0.1.5" in w.update_action.text() and w._update_status is status
+    dlg = w._found_dialog
+    assert dlg is not None and dlg.isVisible() and "CANopener 0.1.5" in dlg.details.toPlainText()
+    dlg.reject()
+    w.update_on_start.setChecked(False)
+    assert w.settings.value("update/check_on_start") in (False, "false")
+    w._found_dialog = None
+    w._startup_check()
+    pump(app, 0.5)
+    assert w._found_dialog is None              # updates off: only team access is checked
 
     # Restart: a desktop app starts a fresh copy; under the Pi's systemd service it exits with
     # the code the service restarts on.
