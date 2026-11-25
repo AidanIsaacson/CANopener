@@ -1833,6 +1833,95 @@ def test_profile_sharing_does_not_wait_for_the_job_slot(app_for, monkeypatch, tm
     ctx.busy = None
 
 
+def test_auto_connect_listens_first_then_offers_what_fits(app_for, monkeypatch):
+    """CAN > Connect: one big Auto-Connect button. Nothing set by hand: it starts the (listen-only)
+    finder. Once connected it offers the profile that fits and the values other profiles know."""
+    from canopener.core import autoconnect
+    from canopener.device import context
+    from canopener.device.screens.base import ChoiceDialog
+    from canopener.device.screens.can import CanScreen, ConnectPage
+    app = app_for()
+    ctx = app.ctx
+    autoconnect.reset(ctx.settings)
+    app.open_mode("can")
+    page = app.top.page if isinstance(app.top, CanScreen) else app.top
+    if not isinstance(page, ConnectPage):
+        page = ConnectPage(app)
+    labels = [r.label for r in page.rows.refresh()]
+    assert labels[0] == "Auto-Connect" and "Manual settings" in labels and "Bitrate" not in labels
+    assert page.softkeys()[0].label == "Auto-Connect"
+    started = []
+    monkeypatch.setattr(ctx, "start_finder", lambda connect_after=True: started.append(connect_after) or True)
+    page._big_connect()
+    assert started == [True] and ctx._auto_pending           # Auto: listens first
+    ctx.settings.set("can.bitrate", 250000)                  # something set by hand: it says so
+    labels = [r.label for r in page.rows.refresh()]
+    assert labels[0] == "Connect (250k)" and "Back to Auto-Connect" in labels and "Bitrate" in labels
+    ctx.auto_reset()
+    assert ctx.manual_settings() == []
+    # once connected (here the simulator), a few seconds in: what fits is offered
+    monkeypatch.setattr(context, "TRAFFIC_CHECK_SECS", -2.0)
+    ctx._auto_pending = True
+    ctx.connect("sim")
+    assert ctx.wait_idle()
+    time.sleep(0.5)
+    for _ in range(20):
+        ctx.tick()
+        if ctx.suggestion is not None or "Nothing fits better" in (ctx.current_toast() or ""):
+            break
+        time.sleep(0.05)
+    assert ctx.suggestion is not None or "Nothing fits better" in ctx.current_toast()
+    ctx.suggestion = None                                    # the dialog, with a made-up match:
+    m = type("M", (), {"profile": type("P", (), {"name": "Truck A", "id": "generic"})(), "matched": 5, "total": 6})()
+    ctx.suggestion = autoconnect.Suggestion(m, [])
+    app.offer_suggestion()
+    assert isinstance(app.top, ChoiceDialog) and app.top.title.startswith("Connected: it looks like Truck A")
+    assert [lb for lb, _v in app.top.options][0] == "Use Truck A" and ctx.suggestion is None
+    app.action(inp.SELECT)
+    assert ctx.profile_name() == profiles_name("generic")
+    ctx.disconnect()
+
+
+def profiles_name(pid):
+    from canopener.core import profiles
+    return profiles.find(pid).name
+
+
+def test_the_bus_sets_timestamps_while_recording(app_for):
+    """Data log > Plan > Automatic timestamps: a fault code appearing adds a timestamp named after
+    it, with what set it in the note."""
+    from canopener.can.frame import CanFrame
+    from canopener.core import capture_triggers as trig
+    from canopener.device.screens.base import ChoiceDialog
+    from canopener.device.screens.log import LogScreen
+    app = app_for()
+    ctx = app.ctx
+    ctx.connect("sim")
+    assert ctx.wait_idle()
+    app.push(LogScreen(app))
+    app.top.plan()
+    assert isinstance(app.top, ChoiceDialog)
+    auto = next(i for i, (label, _v) in enumerate(app.top.options) if label.startswith("Automatic timestamps"))
+    app.action(inp.ROTATE, auto)
+    app.action(inp.SELECT)
+    assert isinstance(app.top, ChoiceDialog) and app.top.title == "Automatic timestamps"
+    app.action(inp.SELECT)                                  # "When a fault code appears": on
+    assert trig.load(ctx.settings) == [trig.Trigger(trig.FAULT)]
+    app.action(inp.BACK)
+    assert ctx.start_log() and ctx.triggers is not None
+    dm1 = lambda spn, t: CanFrame(0x18FECA00, bytes([0, 0xFF, spn & 0xFF, spn >> 8, 3, 1, 0, 0]), True, t)  # noqa: E731
+    ctx.triggers.feed(dm1(100, time.time()))                # what's on already isn't news
+    ctx.triggers.feed(dm1(110, time.time()))
+    ctx.tick()
+    m = ctx.capture.markers[-1]
+    assert m.label == "Fault: SPN 110 FMI 3" and m.note.startswith("Set by the bus")
+    assert "Timestamp set by the bus" in ctx.current_toast()
+    ctx.stop_log()
+    assert ctx.triggers is None
+    ctx.discard_log()
+    ctx.disconnect()
+
+
 def test_recording_without_a_bus_says_it_is_meters_only(app_for):
     app = app_for(**{"meters__sim": True})
     ctx = app.ctx
@@ -1866,6 +1955,7 @@ def test_with_two_ports_on_auto_the_busier_one_is_the_main_bus(ctx, tmp_path, mo
 
     def fake_open(kind, channel="can0", *, listen_only=False, **kw):
         sess = Session(VirtualBackend(VirtualBus()))
+        sess.backend.channel = channel
         sess.start()
         opened.append((channel, listen_only, kw.get("bitrate")))
         return connection.Connection(connection.SOCKETCAN, sess, None)
@@ -1881,13 +1971,22 @@ def test_with_two_ports_on_auto_the_busier_one_is_the_main_bus(ctx, tmp_path, mo
     assert opened == [("can1", False, 250000), ("can0", True, 500000)]      # what the listening found
     assert ctx.port_label() == "CAN 2" and ctx.second_port.label == "CAN 1"
     assert any("CAN 2 is the busier bus" in t for t, _ in ctx.toasts)
-    ctx.disconnect()
+    quieted = []
+    monkeypatch.setattr(context.interfaces, "go_quiet", lambda name: quieted.append(name))
+    ctx.disconnect()                                        # the interface goes down: it can't disturb
+    for _ in range(100):                                    # the next machine it's plugged into
+        if quieted:
+            break
+        time.sleep(0.01)
+    assert quieted == ["can1"]
     assert not context.busier(100, 110) and context.busier(0, 5) and not context.busier(0, 2)
     ctx.swap_ports()                                        # picked by hand: Auto is off from then on
     assert not s.get("can.main_auto") and s.get("can.iface") == "can0"
     listened.clear()
-    ctx.connect()
-    assert ctx.wait_idle() and not listened and opened[-2][0] == "can0"
+    started = []
+    monkeypatch.setattr(ctx, "start_finder", lambda connect_after=False: started.append(connect_after))
+    ctx.connect()                                           # Auto never trusts an interface already up: it
+    assert ctx.wait_idle() and not listened and started == [True]   # listens first (the finder), then connects
     ctx.disconnect()
 
 

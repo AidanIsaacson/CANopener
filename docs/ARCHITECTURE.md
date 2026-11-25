@@ -217,6 +217,13 @@ exercise the real backend.
   `emcy_names()` for the profile, and `begin` waits in `SETTLE` until they clear (at most
   `SETTLE_MAX`). Housekeeping streams (NMT, SYNC / EMCY, SDO, heartbeat; J1939 requests, TP, DM1)
   are never offered. `STAGE_NOTES` say what each stage expects (interlocks included).
+* **Auto-Connect** (`core/autoconnect.py`): `manual(settings)` says what's set by hand (then the
+  big button connects with that); otherwise the front-end runs the listen-only signal finder,
+  connects at what it found, and a few seconds in `suggest_for` offers the profile that fits better
+  than the one in use (`core.profile_match`) and the borrowed values beyond it. Interfaces stay
+  quiet when not connected: Auto never trusts an interface already up (it listens first), and
+  disconnecting runs `interfaces.go_quiet` (down, only where that needs no password); the Pi
+  launcher leaves `can0` down unless `CANOPENER_BITRATE` is set, and then brings it up listen-only.
 * **Values other profiles know** (`core/suggest.py`): for each stream nothing decodes (not the
   profile in use or what it extends, not the SAE tables), every other profile's signals on that
   ID / PGN are judged against up to 400 payloads (`judge`: fits the frame, enum covers the raw
@@ -332,7 +339,7 @@ lists) are only screens over it.
 | Shared timebase with Pico captures | Every `CanFrame` carries a wall-clock `timestamp`. A capture start (T+0) can be recorded alongside and subtracted |
 | Install, update, USB adapter drivers | `deploy/linux/` (`install.sh`, CANable udev rule + slcand unit); used by the Pi installer too |
 | Boot to app on the Pi | `deploy/raspberry-pi/` (launcher, systemd user service, sudoers); Qt's `eglfs` / `linuxfb` back-ends need no desktop |
-| Start/stop log and timestamp keys | `core/capture.py` (plan, tag, save, recover) + `core/capture_report.py` (summary, live-data CSV). The GUI's Log tool and remappable keys are in `gui/log_panel.py` / `gui/hotkeys.py`; hardware buttons send the same keys via `gpio-key` |
+| Start/stop log and timestamp keys | `core/capture.py` (plan, tag, save, recover) + `core/capture_report.py` (summary, live-data CSV) + `core/capture_triggers.py` (timestamps the bus sets: a fault code appearing, a picked switch turning on; `Watch.feed` on the receive thread, `take` / `apply` on the UI thread, settings `log.triggers`). The GUI's Log tool and remappable keys are in `gui/log_panel.py` / `gui/hotkeys.py`; hardware buttons send the same keys via `gpio-key` |
 | Log export in the field | `core/storage.py`: copy logs + reports to a USB stick, CSV export |
 | Frame replay / command injection | Transmit path in `core/transmit.py` + `gui/transmit_dialog.py`: explicit off-by-default transmit mode, per-frame confirmation, never in listen-only. Generic actions built in; OEM/active ones come from plugins |
 

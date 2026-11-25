@@ -2,6 +2,7 @@
 
 import datetime
 import os
+import threading
 import time
 
 from .. import __version__
@@ -250,7 +251,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.listen_only.toggled.connect(self._listen_only_toggled)
         self.setup_btn.clicked.connect(self.setup_interface)
         self.connect_btn.clicked.connect(self.toggle_connect)
-        p.finder_starting.connect(self.disconnect)
+        p.finder_starting.connect(lambda: self.disconnect(quiet=False))     # the finder takes the interface over
+        p.auto_requested.connect(self.auto_connect)
+        self._auto_pending = False
+        self._auto_watch = None
         p.bt_manage_btn.clicked.connect(self.manage_bluetooth)
         p.bt_adapter.currentIndexChanged.connect(self._bt_adapter_changed)
         p.bt_vehicle.currentIndexChanged.connect(self._bt_vehicle_changed)
@@ -605,7 +609,7 @@ class MainWindow(QtWidgets.QMainWindow):
         idx = self.source.findData(kind)
         self.source.setCurrentIndex(max(idx, 0))
         self._refresh_interfaces(preferred=s.value("iface", "can0"))
-        idx = self.bitrate.findData(int(s.value("bitrate", 250000)))
+        idx = self.bitrate.findData(int(s.value("bitrate", 0)))       # Auto (listen first) until one is picked
         self.bitrate.setCurrentIndex(max(idx, 0))
         self.listen_only.setChecked(s.value("listen_only", "false") in (True, "true"))
         s.beginGroup("units_custom")
@@ -889,7 +893,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         was = self.ctx.connection is not None
         if was:
-            self.disconnect()
+            self.disconnect(quiet=False)    # it's set up again just below
         bitrate = self.bitrate.currentData()
         QtWidgets.QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
@@ -972,8 +976,78 @@ class MainWindow(QtWidgets.QMainWindow):
         where = f"{bitrate // 1000}k" if bitrate else self.iface.currentText()
         self.statusBar().showMessage(f"Signal found at {where}", 8000)
         self._refresh_interfaces(preferred=self.iface.currentText(), sync_bitrate=False)
-        if self.conn_panel.connect_when_found.isChecked():
+        if self._auto_pending or self.conn_panel.connect_when_found.isChecked():
+            auto, self._auto_pending = self._auto_pending, False
             self.connect()
+            if auto and self.ctx.connection is not None:
+                self._watch_for_suggestions()
+
+    # --- Auto-Connect (core.autoconnect) ---
+    def auto_connect(self):
+        """The Connection panel's big button: Disconnect when connected; Connect with what's set by
+        hand; otherwise listen first (the finder, listen-only), connect at what it found, and a few
+        seconds later offer the known profile that fits and the values other profiles know."""
+        if self.ctx.connection is not None or (self.ctx.session and self.ctx.session.offline):
+            self.disconnect()
+            return
+        if self.conn_panel.manual_settings():
+            self.connect()
+            return
+        if self.conn_panel.start_finder():
+            self._auto_pending = True
+
+    def _watch_for_suggestions(self, seconds: float = 6.0):
+        from ..core.fieldwatch import FieldWatch
+        session = self.ctx.session
+        self._auto_watch = (FieldWatch(), session)
+        session.add_listener(self._auto_watch[0].feed)
+        QtCore.QTimer.singleShot(int(seconds * 1000), self._offer_suggestions)
+
+    def _offer_suggestions(self):
+        from ..core import autoconnect, observed
+        if self._auto_watch is None:
+            return
+        watch, session = self._auto_watch
+        self._auto_watch = None
+        session.remove_listener(watch.feed)
+        if session is not self.ctx.session:
+            return                              # disconnected meanwhile
+        watch.refresh()
+        found = profiles.arrange(profiles.available_profiles()[0])
+        sug = autoconnect.suggest_for(session, watch, found, profiles.active())
+        current = profiles.active().name if profiles.active() is not None else "no profile"
+        if sug.empty:
+            self.statusBar().showMessage(f"Connected. Nothing fits better than {current}", 8000)
+            return
+        box = QtWidgets.QMessageBox(self)
+        box.setWindowTitle("Auto-Connect")
+        box.setText("Connected: " + sug.summary() + ".")
+        both = use = borrow = None
+        if sug.profile is not None:
+            name = sug.profile.profile.name
+            if sug.borrowed:
+                both = box.addButton(f"Use {name} + {sug.values} value(s)", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+            use = box.addButton(f"Use {name}", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+        elif sug.borrowed:
+            borrow = box.addButton(f"Add {sug.values} value(s) to {current}",
+                                   QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(f"Keep {current}", QtWidgets.QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        hit = box.clickedButton()
+        if hit is not None and hit in (both, use):
+            idx = self.profile.findData(sug.profile.profile.id)
+            if idx >= 0:
+                self.profile.setCurrentIndex(idx)
+        if hit is not None and hit in (both, borrow) and sug.borrowed:
+            proto = profiles.protocol() if profiles.protocol() in profiles.GENERIC else profiles.J1939
+            try:
+                path = observed.save_entries(sug.entries(), profiles.active(), protocol=proto,
+                                             source="borrowed from " + ", ".join(sug.sources()))
+            except (OSError, profiles.ProfileError) as e:
+                QtWidgets.QMessageBox.warning(self, "Auto-Connect", f"Couldn't save the profile: {e}")
+                return
+            self._load_profiles(preferred=os.path.splitext(os.path.basename(path))[0])
+            self.statusBar().showMessage(f"Added {sug.values} value(s) from {', '.join(sug.sources())}", 8000)
 
     def toggle_connect(self):
         if self.ctx.connection is not None or (self.ctx.session and self.ctx.session.offline):
@@ -1005,13 +1079,11 @@ class MainWindow(QtWidgets.QMainWindow):
             return True                     # missing: let open_connection give the 'plugged in?' error
         bitrate = self.bitrate.currentData()
         listen_only = self.listen_only.isChecked()
-        if not interfaces.needs_setup(info, None if bitrate == AUTO_BITRATE else bitrate, listen_only):
+        if bitrate != AUTO_BITRATE and not interfaces.needs_setup(info, bitrate, listen_only):
             return True
         QtWidgets.QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            if bitrate == AUTO_BITRATE and info.state == "up" and info.bitrate:
-                bitrate = info.bitrate      # Auto and already up: keep its bitrate, fix listen-only
-            elif bitrate == AUTO_BITRATE:
+            if bitrate == AUTO_BITRATE:     # listen first: one already up may be at another machine's bitrate
                 bitrate = self._detect_bitrate(name)
                 if bitrate is None:
                     return False
@@ -1133,8 +1205,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar().showMessage(f"Connected: {conn.describe()}" + (f", battery {b.voltage}" if b.voltage else "")
                                      + (f", {b.protocol_name}" if b.protocol_name else ""), 8000)
 
-    def disconnect(self):
+    def disconnect(self, quiet: bool = True):
+        conn = self.ctx.connection
+        iface = str(getattr(conn.session.backend, "channel", "") or "") \
+            if conn is not None and conn.kind == connection.SOCKETCAN else ""
         self.ctx.set_connection(None)       # the Log tool stops a running capture by itself
+        if quiet and iface and not iface.startswith("vcan") and not pythoncan.is_spec(iface):
+            # down where that needs no password: it can't disturb the next machine it's plugged into
+            threading.Thread(target=interfaces.go_quiet, args=(iface,), name="can-quiet", daemon=True).start()
 
     def replay_log(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
@@ -1293,6 +1371,7 @@ class MainWindow(QtWidgets.QMainWindow):
         live = self.ctx.live
         offline = session is not None and session.offline
         self.connect_btn.setText("Disconnect" if (live or offline) else "Connect")
+        self.conn_panel.set_connected(bool(live or offline))
         self._bus_session, self._bus_level, self._bus_was_ok = session, link.OFF, False
         self._module_alerts, self._module_t = roster.Alerts(), 0.0
         for w in (self.source, self.iface, self.rescan_btn, self.bitrate, self.conn_panel.bt_adapter,

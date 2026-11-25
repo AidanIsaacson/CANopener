@@ -41,6 +41,25 @@ on an older one, `git checkout v0.3.2` in its checkout.
   first, ticked, with the profile's name. From a computer: `canopener-cli suggest CAPTURE`
   ([USAGE.md](docs/USAGE.md#working-out-a-machine-from-what-its-bus-does)).
 
+- **No more bus faults from an idle handheld.** The Pi launcher used to bring `can0` up at 250k in
+  normal mode before the app even opened. On a machine at another bitrate the CAN chip then answers
+  every frame with error frames, and the machine logs CAN faults (a Yale reach truck did, until
+  **Find signal** set the right bitrate). Now `can0` stays down until you connect (or comes up
+  listen-only, if `CANOPENER_BITRATE` is set), **Auto** always listens first instead of trusting an
+  interface that's already up (desktop too), and **Disconnect** takes the interface down where
+  that needs no password, so the unit can't disturb the next machine it's plugged into.
+  `canopener-cli setup --down` does it by hand.
+- **Auto-Connect.** The Connection panel and the handheld's **CAN > Connect** start with one big
+  **Auto-Connect** button: it listens (listen-only) until it hears steady traffic, connects at that
+  bitrate (the busier port, with two), and a few seconds later offers the known profile that fits
+  the bus and the values other profiles know (**Use it**, **Add them**, or keep what's in use). The
+  settings moved under **Manual settings**; with anything set there the button says *Connect
+  (250k, listen-only)* and **Back to Auto-Connect** undoes it.
+- **Timestamps the bus sets.** While recording, a timestamp can set itself, named after what set
+  it: when a fault code appears (CANopen EMCY, or a new J1939 DM1 code), or when a button or switch
+  you pick from the profile turns on (map a spare button, drive, press it when the fault happens).
+  Desktop: **Log > Auto timestamps…**; handheld: **Data log > Plan > Automatic timestamps**.
+
 ## 0.5.2 (2026-11-25)
 
 - **Team access on the handheld:** **System > Software > Team access** shows the unit's serial,

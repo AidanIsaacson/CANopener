@@ -38,12 +38,14 @@ class ConnectionPanel(QtWidgets.QDockWidget):
     finder_starting = Signal()          # about to take over the interface: disconnect first
     locked = Signal(object)             # the finder locked on: bitrate (None for vcan)
     sudoers_requested = Signal()        # offer the passwordless-access setup (main window does it)
+    auto_requested = Signal()           # the big button: Auto-Connect (or Connect with what's set by hand)
 
     def __init__(self, settings: QtCore.QSettings, iface_popup, parent=None):
         super().__init__("Connection", parent)
         self.setObjectName("connection_panel")
         self.settings = settings
         self.finder: link.SignalFinder | None = None
+        self.connected = False
         self._events: queue.Queue = queue.Queue()
         self.setFeatures(QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetClosable
                          | QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetMovable)
@@ -58,6 +60,30 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         w = QtWidgets.QWidget()
         lay = QtWidgets.QVBoxLayout(w)
         lay.setContentsMargins(8, 6, 8, 6)
+
+        self.auto_btn = QtWidgets.QPushButton("Auto-Connect")
+        self.auto_btn.setMinimumHeight(56)
+        self.auto_btn.clicked.connect(self.auto_requested.emit)
+        lay.addWidget(self.auto_btn)
+        self.auto_hint = QtWidgets.QLabel()
+        self.auto_hint.setWordWrap(True)
+        self.auto_hint.setStyleSheet("color: gray")
+        lay.addWidget(self.auto_hint)
+        ar = QtWidgets.QVBoxLayout()                   # stacked: side by side they'd set a wide minimum
+        self.manual_btn = QtWidgets.QToolButton()
+        self.manual_btn.setText("Manual settings")
+        self.manual_btn.setCheckable(True)
+        self.manual_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.manual_btn.setArrowType(Qt.ArrowType.RightArrow)
+        self.manual_btn.setToolTip("Source, interface, bitrate, listen-only and the signal finder: only needed when "
+                                   "Auto-Connect can't do it")
+        self.manual_btn.toggled.connect(lambda _on: self.refresh_auto())
+        ar.addWidget(self.manual_btn)
+        self.back_auto_btn = QtWidgets.QPushButton("Back to Auto-Connect")
+        self.back_auto_btn.setToolTip("Bitrate Auto (found by listening), normal mode, the CAN adapter")
+        self.back_auto_btn.clicked.connect(self.back_to_auto)
+        ar.addWidget(self.back_auto_btn)
+        lay.addLayout(ar)
 
         self.adapter_lamp = StatusLamp("Adapter", big=True)
         self.bus_lamp = StatusLamp("Bus", big=True)
@@ -172,6 +198,9 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         fl.addWidget(sound)
         lay.addWidget(self.finder_box)
         lay.addStretch(1)
+        self._manual_box = box
+        for sig in (self.source.currentIndexChanged, self.bitrate.currentIndexChanged, self.listen_only.toggled):
+            sig.connect(lambda *_: self.refresh_auto())
 
         # Scrolls up and down only: the content wraps to the dock's width, and the dock can't be
         # dragged (or start) narrower than the content needs, so nothing is ever cut off at the side.
@@ -184,6 +213,53 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         self.setWidget(scroll)
         self.fit_width()
         self._show_finder_idle()
+        self.refresh_auto()
+
+    # --- Auto-Connect (core.autoconnect) ---
+    def manual_settings(self) -> list[str]:
+        """What's been set by hand here (empty: Auto-Connect does it all)."""
+        out = []
+        kind = self.source.currentData()
+        if kind != connection.SOCKETCAN:
+            out.append(self.source.currentText())
+        else:
+            if self.bitrate.currentData() != AUTO_BITRATE:
+                out.append(self.bitrate.currentText())
+            if self.listen_only.isChecked():
+                out.append("listen-only")
+        return out
+
+    def back_to_auto(self):
+        self.source.setCurrentIndex(max(0, self.source.findData(connection.SOCKETCAN)))
+        self.bitrate.setCurrentIndex(max(0, self.bitrate.findData(AUTO_BITRATE)))
+        self.listen_only.setChecked(False)
+        self.manual_btn.setChecked(False)
+        self.refresh_auto()
+
+    def set_connected(self, on: bool):
+        self.connected = on
+        self.refresh_auto()
+
+    def refresh_auto(self):
+        manual = self.manual_settings()
+        if self.connected:
+            text, hint, kind = "Disconnect", "", "bad"
+        elif manual:
+            text, kind = "Connect", "accent"
+            hint = f"Set by hand: {', '.join(manual)} (Manual settings). 'Back to Auto-Connect' undoes it."
+        else:
+            text, kind = "Auto-Connect", "ok"
+            hint = ("Listens first (listen-only, never sends) until it hears steady traffic, connects at that "
+                    "bitrate, then offers the known profile that fits and the values other profiles know.")
+        self.auto_btn.setText(text)
+        self.auto_btn.setStyleSheet(BIG + themes.fill_style(kind))
+        self.auto_hint.setText(hint)
+        self.auto_hint.setVisible(bool(hint))
+        self.back_auto_btn.setVisible(bool(manual) and not self.connected)
+        show = bool(manual) or self.manual_btn.isChecked()
+        self.manual_btn.setArrowType(Qt.ArrowType.DownArrow if show else Qt.ArrowType.RightArrow)
+        self._manual_box.setVisible(show)
+        self.finder_box.setVisible(show or self.finding)
 
     def fit_width(self):
         """Keep the dock at least as wide as its content's narrowest layout (plus the scroll bar).
@@ -347,8 +423,10 @@ class ConnectionPanel(QtWidgets.QDockWidget):
         self.find_btn.setText("■  Stop finding" if on else "▶  Find signal")
         self.find_btn.setStyleSheet(BIG + themes.fill_style("bad" if on else "ok"))
         for wdg in (self.source, self.iface, self.rescan_btn, self.bitrate, self.listen_only,
-                    self.setup_btn, self.connect_btn):
+                    self.setup_btn, self.connect_btn, self.auto_btn):
             wdg.setEnabled(not on)
+        if hasattr(self, "_manual_box"):
+            self.refresh_auto()
 
     def _show_finder_idle(self):
         self._set_running(False)

@@ -771,12 +771,20 @@ def test_connect_brings_up_a_down_interface(app, tmp_path, monkeypatch):
                         lambda *a, **k: [interfaces.CanInterface("can0", "up", 250000, False)])
     assert w._ensure_up("can0") is True and calls == []
 
-    # Auto and up in listen-only: keeps its bitrate, only listen-only is changed.
+    # Auto never trusts an interface already up (it may be at another machine's bitrate): it
+    # listens first (listen-only), then brings it up at what it heard.
     from canopener.gui.connection_panel import AUTO_BITRATE
     w.bitrate.setCurrentIndex(w.bitrate.findData(AUTO_BITRATE))
-    monkeypatch.setattr(interfaces, "list_interfaces",
-                        lambda *a, **k: [interfaces.CanInterface("can0", "up", 500000, True)])
-    assert w._ensure_up("can0") is True and calls == [("can0", 500000, False)]
+    listened = []
+    monkeypatch.setattr(interfaces, "detect_bitrate",
+                        lambda name, **k: (listened.append(name), (125000, []))[1])
+    for state in (interfaces.CanInterface("can0", "up", 500000, True),
+                  interfaces.CanInterface("can0", "up", 250000, False)):
+        calls.clear()
+        w.bitrate.setCurrentIndex(w.bitrate.findData(AUTO_BITRATE))
+        monkeypatch.setattr(interfaces, "list_interfaces", lambda *a, st=state, **k: [st])
+        assert w._ensure_up("can0") is True and calls == [("can0", 125000, False)]
+    assert listened == ["can0", "can0"]
 
     # The bitrate box isn't copied from a listen-only interface (a stopped finder's last guess):
     # Connect in normal mode would reconfigure it at that wrong bitrate.
@@ -1690,4 +1698,74 @@ def test_connection_panel_fits_a_narrow_dock(app):
     wrap.label.mousePressEvent(None)
     assert p.link_sound.isChecked() != before
     p.link_sound.setChecked(before)
+    w.close()
+
+
+def test_log_tool_auto_timestamps_from_the_bus(app, tmp_path, monkeypatch):
+    """Log > Auto timestamps: while recording, a fault code appearing adds a timestamp named after it."""
+    from canopener.can.frame import CanFrame
+    from canopener.core import capture_triggers as trig
+    from canopener.core import config, connection
+    from canopener.core.settings import Settings
+    from canopener.gui.main_window import MainWindow
+    qt.QtCore.QSettings.setDefaultFormat(qt.QtCore.QSettings.Format.IniFormat)
+    qt.QtCore.QSettings.setPath(qt.QtCore.QSettings.Format.IniFormat, qt.QtCore.QSettings.Scope.UserScope,
+                                str(tmp_path / "qs"))
+    trig.save(Settings(), [trig.Trigger(trig.FAULT)])
+    w = MainWindow()
+    config.set_data_dir(str(tmp_path / "data"))
+    w.show()
+    lp = w.log_panel
+    lp._auto_label()
+    assert lp.auto_btn.text() == "Auto timestamps… (1 set)"
+    w.source.setCurrentIndex(w.source.findData(connection.SIMULATOR))
+    w.connect()
+    pump(app, 0.5)
+    lp.start()
+    assert lp._watch is not None
+    dm1 = lambda spn, t: CanFrame(0x18FECA00, bytes([0, 0xFF, spn & 0xFF, spn >> 8, 3, 1, 0, 0]), True, t)  # noqa: E731
+    lp._watch.feed(dm1(100, time.time()))
+    lp._watch.feed(dm1(110, time.time()))
+    pump(app, 0.4)
+    m = lp.capture.markers[-1]
+    assert m.label == "Fault: SPN 110 FMI 3" and m.note.startswith("Set by the bus")
+    lp.stop()
+    assert lp._watch is None
+    lp.capture.discard()
+    w.disconnect()
+    w.close()
+
+
+def test_auto_connect_button_listens_first_unless_set_by_hand(app, tmp_path, monkeypatch):
+    """Connection panel: one big Auto-Connect; the settings sit under Manual settings, and with
+    anything set there the button connects with it (and says so)."""
+    from canopener.core import connection
+    from canopener.gui.connection_panel import AUTO_BITRATE
+    from canopener.gui.main_window import MainWindow
+    qt.QtCore.QSettings.setDefaultFormat(qt.QtCore.QSettings.Format.IniFormat)
+    qt.QtCore.QSettings.setPath(qt.QtCore.QSettings.Format.IniFormat, qt.QtCore.QSettings.Scope.UserScope,
+                                str(tmp_path / "qs"))
+    w = MainWindow()
+    w.show()
+    p = w.conn_panel
+    p.back_to_auto()
+    assert p.bitrate.currentData() == AUTO_BITRATE and p.manual_settings() == []
+    assert p.auto_btn.text() == "Auto-Connect" and p._manual_box.isHidden() and p.back_auto_btn.isHidden()
+    started, connected = [], []
+    monkeypatch.setattr(p, "start_finder", lambda *a: started.append(1) or True)
+    monkeypatch.setattr(w, "connect", lambda *a: connected.append(1))
+    p.auto_btn.click()
+    assert started == [1] and w._auto_pending and not connected      # listens first
+    w._finder_locked(250000)                                          # it heard steady traffic: connect
+    assert connected == [1] and not w._auto_pending
+    p.bitrate.setCurrentIndex(p.bitrate.findData(250000))
+    p.listen_only.setChecked(True)
+    assert p.manual_settings() == ["250k", "listen-only"] and p.auto_btn.text() == "Connect"
+    assert "250k, listen-only" in p.auto_hint.text() and not p._manual_box.isHidden()
+    p.auto_btn.click()
+    assert connected == [1, 1] and started == [1]                     # set by hand: straight to Connect
+    p.back_to_auto()
+    assert p.manual_settings() == [] and not p.listen_only.isChecked()
+    p.source.setCurrentIndex(p.source.findData(connection.REPLAY))
+    assert p.manual_settings() == ["Replay log file"]
     w.close()

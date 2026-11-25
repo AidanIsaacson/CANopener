@@ -26,7 +26,7 @@ from ..core.settings import Settings
 from . import input as inp
 from . import modes, ui
 from .context import DeviceContext
-from .screens.base import Screen, SoftKey
+from .screens.base import Dialog, Screen, SoftKey, choose
 from .ui import UI, Theme
 
 TAP_SLOP_MM = 2.5           # a finger moving less than this is a tap, more is a drag
@@ -642,8 +642,36 @@ class DeviceApp:
         self.poll_hardware()
         self.check_hold()
         self.ctx.tick()
+        self.offer_suggestion()
         self.draw()
         pygame.display.flip()
+
+    def offer_suggestion(self):
+        """After Auto-Connect: the profile that fits this bus, and the values other profiles know
+        (``ctx.suggestion``, core.autoconnect), offered once, when no other dialog is up."""
+        ctx = self.ctx
+        sug = ctx.suggestion
+        if sug is None or ctx.busy or isinstance(self.top, Dialog):
+            return
+        ctx.suggestion = None
+        current = ctx.profile_name()
+        opts = []
+        if sug.profile is not None:
+            name = sug.profile.profile.name
+            if sug.borrowed:
+                opts.append((f"Use {name}, and add {sug.values} more value(s)", "both"))
+            opts.append((f"Use {name}", "use"))
+        elif sug.borrowed:
+            opts.append((f"Add {sug.values} value(s) to {current}", "borrow"))
+        opts.append((f"Keep {current} as it is", "keep"))
+
+        def pick(what):
+            if what in ("both", "use"):
+                ctx.apply_profile(sug.profile.profile.id)
+                ctx.toast(f"Using {ctx.profile_name()}")
+            if what in ("both", "borrow") and sug.borrowed:
+                ctx.add_borrowed(sug.entries(), sug.sources())
+        choose(self, "Connected: " + sug.summary(), opts, None, pick)
 
     def run(self):
         fps = int(self.ctx.settings.get("device.fps") or 30)

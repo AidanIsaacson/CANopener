@@ -90,8 +90,9 @@ Check it worked:
 
 ```bash
 ip link show can0                                     # should exist
-~/canopener-venv/bin/canopener-cli setup --iface can0 --bitrate 250000
+~/canopener-venv/bin/canopener-cli setup --iface can0 --bitrate auto --listen-only
 candump can0                                          # on a live bus: scrolling frames (Ctrl+C to stop)
+~/canopener-venv/bin/canopener-cli setup --iface can0 --down          # done: quiet again
 ```
 
 ## 5. Start it
@@ -113,7 +114,7 @@ Edit `~/.config/systemd/user/canopener.service`, uncomment / add `Environment=` 
 | Variable | Default | Meaning |
 |---|---|---|
 | `CANOPENER_IFACE` | `can0` | CAN interface |
-| `CANOPENER_BITRATE` | `250000` | bitrate, or `auto` to detect (listen-only, safe on a live bus) |
+| `CANOPENER_BITRATE` | *(unset)* | unset: the interface stays down until you connect (Connect and **Find signal** listen first, then set the bitrate). A bitrate or `auto` brings it up **listen-only** before the app opens. It's never brought up in normal mode at a guess: at another machine's bitrate the CAN chip answers with error frames and the machine logs bus faults |
 | `CANOPENER_ARGS` | `--fullscreen` | add `--scale 1.3` to make everything bigger on a small touchscreen |
 | `QT_QPA_PLATFORM` | *(unset)* | `eglfs` to run with no desktop on a DSI/HDMI screen; `linuxfb:fb=/dev/fb1` for an SPI TFT |
 

@@ -26,6 +26,7 @@ from ..core import (
     interfaces,
     link,
     meters,
+    observed,
     profile_match,
     profiles,
     roster,
@@ -119,6 +120,9 @@ class DeviceContext:
         self.share_failed: set = set()      # profiles (ids) whose last share failed: offered again
         self.profile_matches: list = []     # known profiles this bus looks like (core.profile_match)
         self._matches_checked = False
+        self.suggestion = None              # what Auto-Connect found to offer (core.autoconnect), shown by the app
+        self._auto_pending = False          # Auto-Connect asked: offer what fits once connected
+        self._auto_suggest = False
         self.roster: roster.Roster | None = None    # the missing-module check, about once a second
         self.module_alerts = roster.Alerts()
         self._roster_t = 0.0
@@ -168,6 +172,7 @@ class DeviceContext:
         self._jobs: queue.Queue = queue.Queue()
         self._last_sample = 0.0
         self.held = False                   # Hold: live values frozen on the screen (the bus and log go on)
+        self.triggers = None                # timestamps the bus sets while recording (core.capture_triggers)
         self.battery_monitor = batt.BatteryMonitor()    # the pack, when the button ADC reads it
         self._link_checked = 0.0
         self._bus_level = link.OFF
@@ -502,17 +507,17 @@ class DeviceContext:
         if _found is not None and not bitrate:
             bitrate = _found[0]                 # what the listening found (the setting stays Auto)
         if kind == SOCKETCAN and not bitrate and not name.startswith("vcan"):
-            info = next((i for i in interfaces.list_interfaces(details=False) if i.name == name), None)
-            if info is None or info.state != "up":
-                self.start_finder(connect_after=True)       # Auto: let the finder pick the bitrate
-                return
+            # Auto: always listen first (the finder is listen-only). An interface already up may be
+            # at another machine's bitrate, and connecting to it in normal mode makes bus errors.
+            self.start_finder(connect_after=True)
+            return
         elm_j1939 = (self.settings.get("elm.protocol") or "0").upper() == "A"
         elm_addr = self.settings.get("elm.adapter") if kind == ELM else (
             "sim:j1939" if elm_j1939 else f"sim:{self.settings.get('elm.sim_vehicle') or '11'}")
         if kind == ELM and not elm_addr:
             self.toast("Pick a Bluetooth OBD adapter first: Bluetooth adapters, on this page")
             return
-        self.disconnect()
+        self.disconnect(quiet=False)               # (connecting again: it's set up below)
         if (kind == OBD_SIM or (kind in (ELM, ELM_SIM) and not elm_j1939)) and self.protocol != profiles.OBD2:
             self.apply_profile("obd2")
         elif kind in (ELM, ELM_SIM) and elm_j1939 and not profiles.speaks_j1939():
@@ -576,6 +581,7 @@ class DeviceContext:
         self.fieldwatch.clear()
         conn.session.add_listener(self.fieldwatch.feed)
         self.profile_matches, self._matches_checked = [], False
+        self._auto_suggest, self._auto_pending = self._auto_pending, False
         self.roster, self.module_alerts = None, roster.Alerts()
         got = getattr(conn, "second", None)
         if got is not None:
@@ -591,7 +597,11 @@ class DeviceContext:
             self.hub.add_source(meters.ObdVoltageSource(conn.session.backend))
         self.toast(f"Connected: {conn.describe()}" + ("  (listen-only)" if conn.session.listen_only else ""))
 
-    def disconnect(self):
+    def disconnect(self, quiet: bool = True):
+        """Close the connection. ``quiet``: also take a real CAN interface down (where that needs
+        no password), so the unit can't disturb the next machine it's plugged into."""
+        iface = str(getattr(self.connection.session.backend, "channel", "") or "") \
+            if self.connection is not None and self.connection.kind == SOCKETCAN else ""
         if self.capture.state == cap.RECORDING and self.connection is not None:
             self.stop_log()                 # the log can't keep a bus that's gone
         if self.obd_streamer is not None:
@@ -612,6 +622,8 @@ class DeviceContext:
             self.toast("Disconnected")
         self.connection = None
         self.session = None
+        if quiet and iface and not iface.startswith("vcan") and not pythoncan.is_spec(iface):
+            threading.Thread(target=interfaces.go_quiet, args=(iface,), name="can-quiet", daemon=True).start()
 
     def sources(self) -> list[tuple[str, str]]:
         """(kind, label) choices for Source: the simulators only when they're switched on."""
@@ -733,7 +745,7 @@ class DeviceContext:
         if not interfaces.valid_name(name):
             self.toast(f"Bad interface name {name!r}")
             return False
-        self.disconnect()
+        self.disconnect(quiet=False)               # the finder takes the interface over itself
         choice = int(self.settings.get("can.bitrate") or 0)
         last = int(self.settings.get("can.last_bitrate", 0) or 0) or None
         order = link.bitrate_order(last or interfaces.BITRATES[0]) if not choice else [choice]
@@ -766,6 +778,7 @@ class DeviceContext:
         elif ev.state == "failed":
             self.finder.stop()
             self.finder = None
+            self._auto_pending = False
             self.toast(ev.text)
 
     def cue(self, event: str, link_status: bool = False) -> bool:
@@ -1098,6 +1111,7 @@ class DeviceContext:
             self.toast(f"Can't start the log: {e}")
             return False
         self.settings.set("log.plan", c.plan_labels())
+        self._start_triggers()
         if stream and self.protocol == profiles.OBD2 and self.obd_streamer is not None \
                 and not self.obd_streamer.running:
             self.toggle_obd_stream()        # a car only talks when asked: keep it talking while logging
@@ -1132,9 +1146,39 @@ class DeviceContext:
         self.toast("Hold: values frozen on the screen (still recording)" if self.held and self.recording
                    else "Hold: values frozen on the screen" if self.held else "Hold off: live again")
 
+    def _start_triggers(self):
+        """Timestamps the bus sets while recording (core.capture_triggers), if any are set up."""
+        from ..core import capture_triggers
+        self._stop_triggers()
+        triggers = capture_triggers.load(self.settings)
+        if not triggers or self.session is None:
+            return
+        w = self.triggers = capture_triggers.Watch(triggers)
+        self.session.add_listener(w.feed)
+        if w.missing:
+            self.toast("Not on this profile, so no timestamps from: " + ", ".join(t.signal for t in w.missing))
+
+    def _stop_triggers(self):
+        w, self.triggers = getattr(self, "triggers", None), None
+        if w is not None and self.session is not None:
+            self.session.remove_listener(w.feed)
+
+    def _drain_triggers(self):
+        from ..core import capture_triggers
+        w = getattr(self, "triggers", None)
+        if w is None:
+            return
+        events = w.take()
+        if events and self.recording:
+            for i in capture_triggers.apply(self.capture, events):
+                self.toast(f"Timestamp set by the bus: {self.capture.markers[i].label}")
+            self.cue("tag")
+
     def stop_log(self):
         if not self.recording:
             return
+        self._drain_triggers()
+        self._stop_triggers()
         self.capture.stop()
         self.toast("Stopped: Save keeps it, or tag / rename first")
         self.cue("rec_stop")
@@ -1297,6 +1341,7 @@ class DeviceContext:
     def tick(self, now: float | None = None):
         now = time.time() if now is None else now
         self._drain_jobs()
+        self._drain_triggers()
         if now - self._last_sample >= SAMPLE_EVERY and not self.held:
             self._last_sample = now
             s = self.session
@@ -1406,15 +1451,65 @@ class DeviceContext:
 
     def _match_check(self, now: float):
         """Once, a few seconds into a connection: which known profiles this bus looks like. Said out
-        loud when one fits clearly better than the profile in use."""
+        loud when one fits clearly better than the profile in use. After Auto-Connect, it's offered
+        (``suggestion``), with the values other profiles know."""
         s = self.session
         if self._matches_checked or now - s.started_at < TRAFFIC_CHECK_SECS + 2:
             return
         self._matches_checked = True
+        if self._auto_suggest:
+            from ..core import autoconnect
+            self._auto_suggest = False
+            found = profiles.arrange(profiles.available_profiles()[0])
+            self.fieldwatch.refresh()
+            sug = autoconnect.suggest_for(s, self.fieldwatch, found, profiles.active())
+            self.check_profiles()
+            if sug.empty:
+                self.toast(f"Connected. Nothing fits better than {self.profile_name()}")
+            else:
+                self.suggestion = sug
+            return
         best = self.check_profiles()
         if best is not None and best.share >= profile_match.GOOD_SHARE:
             self.toast(f"This looks like {best.profile.name} ({best.matched} of {best.total} of its messages here): "
                        "Profile builder > Load it")
+
+    # --- Auto-Connect (core.autoconnect) ---
+    def manual_settings(self) -> list[str]:
+        from ..core import autoconnect
+        return autoconnect.manual(self.settings, self.other_port() is not None)
+
+    def auto_connect(self):
+        """The Connect page's big button: listen first (the finder, listen-only), connect at what it
+        found (the busier port with two), then offer the profile that fits and the values other
+        profiles know. With something set by hand, it connects with that instead."""
+        if self.connection is not None or self.finding or self.busy:
+            return
+        self._auto_pending = True
+        self.connect()
+
+    def connect_by_hand(self):
+        self._auto_pending = False
+        self.connect()
+
+    def auto_reset(self):
+        from ..core import autoconnect
+        autoconnect.reset(self.settings)
+        self.toast("Back to Auto-Connect: it listens first, then finds the bitrate and the bus")
+
+    def add_borrowed(self, entries: list, froms: list) -> str | None:
+        """Add values other profiles know to the profile in use (or a profile on top of it). The
+        path written, or None (said why)."""
+        proto = self.protocol if self.protocol in profiles.GENERIC else profiles.J1939
+        try:
+            path = observed.save_entries(entries, profiles.active(), protocol=proto,
+                                         source="borrowed from " + ", ".join(froms))
+        except (OSError, profiles.ProfileError) as e:
+            self.toast(f"Couldn't save the profile: {e}")
+            return None
+        self.apply_profile(os.path.splitext(os.path.basename(path))[0])
+        self.toast(f"Added {len(entries)} value(s) to '{self.profile_name()}': Live shows them now")
+        return path
 
     def check_profiles(self):
         """Rank the known profiles against the bus now (``profile_matches``); the best one that
@@ -1455,7 +1550,12 @@ class DeviceContext:
                 self.last_saved = self.capture.save(system=self.units)
             except Exception:
                 traceback.print_exc()
-        self.disconnect()
+        conn = self.connection
+        iface = str(getattr(conn.session.backend, "channel", "") or "") \
+            if conn is not None and conn.kind == SOCKETCAN else ""
+        self.disconnect(quiet=False)
+        if iface and not pythoncan.is_spec(iface):
+            interfaces.go_quiet(iface)      # before exiting (a background thread could be cut off)
         self.hub.stop()
         self.uploads.stop()
         self._stop_pps()

@@ -24,13 +24,24 @@ Installing: [INSTALL.md](INSTALL.md).
    (a Yale reach truck, for one) also connecting the adapter's CAN GND makes the bus throw errors,
    and the machine may log them as communication faults. Add CAN GND only if the bus is
    unreliable without it.
-2. Open **🔌 Connection** (top left, or **F3**). Pick **SocketCAN adapter**; the interface
-   (`can0`) appears below it. The list looks again each time you open it (or press **⟳**), so
-   plugging in after the app opened is fine.
-3. Pick the bitrate: **250k** for most equipment and trucks, **500k** for cars and some newer
-   machines, **125k** or **250k** for many CANopen controllers, or **Auto** to find it (Auto
-   listens only, so it never disturbs the bus).
-4. Press **Connect**.
+2. Open **🔌 Connection** (top left, or **F3**) and press **Auto-Connect** (on the handheld:
+   **CAN > Connect > Auto-Connect**). It listens first, listen-only, so it never disturbs the bus,
+   until it hears steady traffic; that gives the bitrate (and, on a handheld with two ports, the
+   busier bus). It connects at that, and a few seconds later offers the known profile that fits
+   the bus and the values other profiles know for what's still undecoded ([how that
+   works](#working-out-a-machine-from-what-its-bus-does)).
+3. Only when that can't do it, open **Manual settings**: the source (Bluetooth OBD, a simulator,
+   a log to replay), the interface, the bitrate (**250k** for most equipment and trucks, **500k**
+   for cars and some newer machines, **125k** or **250k** for many CANopen controllers), and
+   **listen-only**. With anything set there the big button says so (*Connect (250k,
+   listen-only)*) and connects with it; **Back to Auto-Connect** undoes it.
+
+**The adapter stays quiet when you're not connected.** A CAN chip that's switched on at the wrong
+bitrate answers every frame it can't read with error frames, and the machine logs bus faults,
+though nothing was "sent". So the interface is only brought up when you connect (after listening
+first), and **Disconnect** takes it down again (where that needs no password: the handheld, or a
+laptop with passwordless CAN access set up). The handheld no longer brings `can0` up at a guessed
+bitrate when it starts.
 
 **The lamps** at the bottom of the window (and in the Connection panel):
 
@@ -413,6 +424,19 @@ Open it with **📝 Log** (top right, or **F2**).
 2. **Start**, then tag each moment with the spacebar as you work the machine. The Live Data chart
    shows each tag as a line.
 3. **Stop**, fix up names and notes if needed, then **Save**.
+
+**Timestamps the bus sets.** **Auto timestamps…** (on the handheld: **Data log > Plan > Automatic
+timestamps**) adds a timestamp by itself while recording, named after what set it, with the
+details in its note:
+
+* **When a fault code appears:** a CANopen EMCY with a new code, or a new SPN / FMI in a J1939
+  DM1 (codes already on when recording starts don't count).
+* **When a button or switch turns on:** any switch or state the profile in use names. Chasing an
+  intermittent fault, map a spare button (a reach truck's side shift / function button, say),
+  drive, and press it the moment the fault happens: the timestamp says *Function switch pressed*.
+
+The same trigger sets at most one timestamp every 2 seconds, so a bouncing contact doesn't bury
+the log.
 
 On a car, the Log tool keeps it talking while it records: it reads the codes once, then streams
 the ticked live values.
