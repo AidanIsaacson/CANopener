@@ -6,6 +6,7 @@ services:
   claude-remote:
     build: .
     container_name: claude-remote
+    hostname: ${RC_HOSTNAME:-claude-remote}       # the machine's name in the Claude app
     restart: unless-stopped
     init: true
     tty: true
